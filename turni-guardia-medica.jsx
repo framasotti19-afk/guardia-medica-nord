@@ -301,8 +301,10 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
     if (slots.some(Boolean)) {
       if (!slots[1]) slots[1] = slots[0] || slots[2] || slots[3];
       if (!slots[0]) slots[0] = slots[1] || slots[2] || slots[3];
-      if (!slots[2]) slots[2] = byId[slots[0]].grad <= byId[slots[1]].grad ? slots[0] : slots[1];
+      // ME: "priorità superiore" = gerarchia completa (categoria -> debito -> graduatoria), non solo grad
+      if (!slots[2]) slots[2] = isBetterPriority(slots[0], slots[1]) ? slots[0] : slots[1];
       if (!slots[3]) slots[3] = slots[0];
+      // AN: qui la regola è esplicitamente "grad migliore" (solo graduatoria), non l'intera gerarchia
       if (!slots[4]) slots[4] = byId[slots[1]].grad <= byId[slots[2]].grad ? slots[1] : slots[2];
     }
   }
