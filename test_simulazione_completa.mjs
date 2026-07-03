@@ -1,9 +1,9 @@
 // Simulazione massiva: scenari casuali con tutti i 26 medici, su più mesi e più semi,
-// verificando gli invarianti INV1-INV4 (CONTEXT.md §5) su OGNI singolo turno prodotto.
+// verificando gli invarianti (CONTEXT.md §5) su OGNI singolo turno prodotto.
 // È il test più importante del pacchetto: non verifica un caso puntuale, ma che il
 // motore non violi mai le sue garanzie fondamentali qualunque combinazione di
-// disponibilità gli venga data in pasto.
-import { MEDICI, byId, dk, turniDelGiorno, elaboraSchema, normDispo, ripiegoPerLivello, SEDI5, MESI_DISPONIBILI } from './engine_test.mjs';
+// disponibilità verde/blu e titolarità gli venga data in pasto.
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, MESI_DISPONIBILI } from './engine_test.mjs';
 
 function mulberry32(seed) {
   return function () {
@@ -22,6 +22,17 @@ const IDX_MESI = MESI_DISPONIBILI.map((_, i) => i);
 let checkCount = 0;
 let violazioni = [];
 
+// Assegna titolarità casuali ad alcuni determinati, per esercitare anche quel percorso
+// nella simulazione massiva (deterministico rispetto al seme).
+function generaMediciConTitolarita(seed) {
+  const rnd = mulberry32(seed);
+  return MEDICI_DEFAULT.map((m) => {
+    if (!isDeterminato(m.id) && m.cat !== "DET36" && m.cat !== "DET24") return { ...m };
+    const haTitolarita = rnd() < 0.25;
+    return { ...m, sedeContratto: haTitolarita ? (rnd() < 0.5 ? "Maniago" : "Spilimbergo") : null };
+  });
+}
+
 function generaScenario(seed, anno, mese) {
   const rnd = mulberry32(seed);
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
@@ -32,14 +43,14 @@ function generaScenario(seed, anno, mese) {
 
   const SEDI_MAGGIORI = ["Maniago", "Spilimbergo", "Meduno"];
   const dispo = {};
-  MEDICI.forEach((m, idx) => {
+  MEDICI.forEach((m) => {
     dispo[m.id] = {};
     const casa = pick(SEDI5);
     const altre = SEDI5.filter((s) => s !== casa);
-    const nRip = 1 + Math.floor(rnd() * 3);
-    const ripiego = []; const ripiegoLiv = {};
-    for (let i = 0; i < nRip; i++) { const s = pick(altre); if (!ripiego.includes(s)) { ripiego.push(s); ripiegoLiv[s] = 1 + Math.floor(rnd() * 5); } }
-    const piene2 = chance(0.2) ? pick(SEDI_MAGGIORI.filter((s) => s !== casa)) : null;
+    const nBlu = 1 + Math.floor(rnd() * 3);
+    const blu = []; const bluLiv = {};
+    for (let i = 0; i < nBlu; i++) { const s = pick(altre); if (!blu.includes(s)) { blu.push(s); bluLiv[s] = 1 + Math.floor(rnd() * MAX_LIV_BLU); } }
+    const verde2 = chance(0.2) ? pick(SEDI_MAGGIORI.filter((s) => s !== casa)) : null;
 
     for (let d = 1; d <= nGiorni; d++) {
       const info = turniDelGiorno(anno, mese, d, extras);
@@ -47,17 +58,17 @@ function generaScenario(seed, anno, mese) {
         const slotKey = `${info.key}|${turno.id}`;
         if (chance(0.3)) return; // giorno non compilato affatto (nessuna dichiarazione)
         if (turno.extra) {
-          if (chance(0.3)) dispo[m.id][slotKey] = { piene: [casa], pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: false, preferito: false, preferitoRip: false };
+          if (chance(0.3)) dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: false, preferitoRip: false };
           return;
         }
         if (chance(0.2)) {
-          dispo[m.id][slotKey] = { piene: [], pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: true, preferito: false, preferitoRip: false };
+          dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
           return;
         }
-        const piene = [casa]; const pieneLiv = { [casa]: 1 + Math.floor(rnd() * 5) };
-        if (piene2) { piene.push(piene2); pieneLiv[piene2] = pieneLiv[casa]; } // pari livello: indifferenti
+        const verde = [casa]; const verdeLiv = { [casa]: 1 + Math.floor(rnd() * MAX_LIV_VERDE) };
+        if (verde2) { verde.push(verde2); verdeLiv[verde2] = verdeLiv[casa]; } // pari livello: indifferenti
         dispo[m.id][slotKey] = {
-          piene, pieneLiv, ripiego: [...ripiego], ripiegoLiv: { ...ripiegoLiv },
+          verde, verdeLiv, blu: [...blu], bluLiv: { ...bluLiv },
           no: false, preferito: chance(0.03), preferitoRip: chance(0.01),
         };
       });
@@ -77,11 +88,12 @@ function verificaTurno(giorno, t, dispo, slotKeyBase) {
     if (mid) {
       const v = normDispo(dispo[mid]?.[slotKey]);
       if (v.no) violazioni.push(`g${giorno} ${t.label}: NO assegnato a extra (INV2)`);
-      if (!v.piene.length) violazioni.push(`g${giorno} ${t.label}: extra senza disponibilità dichiarata (INV1)`);
+      if (!v.verde.length) violazioni.push(`g${giorno} ${t.label}: extra senza disponibilità verde dichiarata (INV1)`);
     }
     return;
   }
   const fisSet = new Set(t.fis);
+  const bluDaMedico = {}; // conteggio sedi coperte a distanza per medico, in questo turno
   t.slots.forEach((mid, si) => {
     checkCount++;
     if (!mid) return;
@@ -89,21 +101,27 @@ function verificaTurno(giorno, t, dispo, slotKeyBase) {
     if (v.no) violazioni.push(`g${giorno} ${t.label} ${SEDI5[si]}: NO esplicito presente in slots (INV2)`);
     if (fisSet.has(si)) {
       const site = SEDI5[si];
-      if (!v.piene.includes(site) && !v.ripiego.includes(site)) violazioni.push(`g${giorno} ${t.label}: ${byId[mid]?.nome} fisico a ${site} senza averla dichiarata (INV1)`);
+      if (!v.verde.includes(site)) violazioni.push(`g${giorno} ${t.label}: ${byId[mid]?.nome} fisico a ${site} senza averla dichiarata come verde (INV1)`);
     } else {
+      // INV3: la copertura a distanza deve provenire da un fisico DI QUESTO turno
       const presenteAltrove = t.fis.some((fi) => t.slots[fi] === mid);
       if (!presenteAltrove) violazioni.push(`g${giorno} ${t.label} ${SEDI5[si]}: copertura a distanza da medico non fisico nel turno (INV3)`);
+      // deve aver dichiarato quella sede come blu
+      if (!v.blu.includes(SEDI5[si])) violazioni.push(`g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
+      bluDaMedico[mid] = (bluDaMedico[mid] || 0) + 1;
     }
   });
+  // REGOLA GENERALE: un medico copre al massimo 1 sede a distanza
   checkCount++;
-  if (t.slots[3] && !fisSet.has(3) && t.slots[3] !== t.slots[0]) {
-    violazioni.push(`g${giorno} ${t.label}: Claut a distanza NON coperta da Maniago (INV4) — coperta da ${byId[t.slots[3]]?.nome}`);
-  }
+  Object.entries(bluDaMedico).forEach(([mid, n]) => {
+    if (n > 1) violazioni.push(`g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${n} sedi a distanza, il massimo consentito è 1`);
+  });
 }
 
-console.log("=== test_simulazione_completa — scenari randomici × mesi × semi ===\n");
+console.log("=== test_simulazione_completa — scenari randomici × mesi × semi (con titolarità) ===\n");
 let scenari = 0;
 for (const seedBase of SEMI) {
+  setMediciGlobal(generaMediciConTitolarita(seedBase * 7919));
   for (const idxMese of IDX_MESI) {
     const { anno, mese } = MESI_DISPONIBILI[idxMese];
     const { dispo, extras, extraOre } = generaScenario(seedBase * 1000 + idxMese, anno, mese);
@@ -118,8 +136,9 @@ for (const seedBase of SEMI) {
     scenari++;
   }
 }
+setMediciGlobal(MEDICI_DEFAULT);
 
-console.log(`Scenari elaborati: ${scenari} (${SEMI.length} semi × ${IDX_MESI.length} mesi)`);
+console.log(`Scenari elaborati: ${scenari} (${SEMI.length} semi × ${IDX_MESI.length} mesi, titolarità casuali per seme)`);
 console.log(`Check di invariante eseguiti: ${checkCount}`);
 
 if (violazioni.length) {

@@ -37,9 +37,9 @@ suite.test("stessa categoria, chi ha più debito residuo vince anche con grad pe
 
 suite.test("3 medici stessa categoria, stesso debito, target 2 sedi → vincono i due con grad migliore", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { pieneLiv: { Maniago: 1, Spilimbergo: 1 } });
-  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { pieneLiv: { Maniago: 1, Spilimbergo: 1 } });
-  d[GHIZZO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { pieneLiv: { Maniago: 1, Spilimbergo: 1 } });
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 1 } });
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 1 } });
+  d[GHIZZO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 1 } });
   const t = unicoTurno(d);
   const fisici = new Set(t.fis.map((si) => t.slots[si]));
   suite.assert(fisici.has(TRIGODKO) && fisici.has(PRESSACCO), "i due con grad migliore (TRIGODKO, PRESSACCO) devono risultare fisici");

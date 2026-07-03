@@ -48,10 +48,10 @@ export function dispoBase(MEDICI) {
   return d;
 }
 
-export function turnoDisp(piene = [], ripiego = [], extra = {}) {
+export function turnoDisp(verde = [], blu = [], extra = {}) {
   return {
-    piene, pieneLiv: extra.pieneLiv || {},
-    ripiego, ripiegoLiv: extra.ripiegoLiv || {},
+    verde, verdeLiv: extra.verdeLiv || {},
+    blu, bluLiv: extra.bluLiv || {},
     no: !!extra.no, preferito: !!extra.preferito, preferitoRip: !!extra.preferitoRip,
   };
 }

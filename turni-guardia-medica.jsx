@@ -3,33 +3,35 @@ import { useState, useMemo, useRef, useEffect } from "react";
 // ============ DATI SIMULAZIONE ============
 // MEDICI è modificabile dall'interfaccia (tab Medici): la lista di default viene
 // sovrascritta da quella salvata nello store, tramite setMediciGlobal.
+// sedeContratto: solo per i determinati (DET36/DET24) — "Maniago" | "Spilimbergo" | null.
+// Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
-  { id: 1, nome: "BERTUZZI", grad: 0, cat: "IND36" },
-  { id: 2, nome: "CAMPANER", grad: 1, cat: "IND24" },
-  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET36" },
-  { id: 4, nome: "PRESSACCO", grad: 57, cat: "DET36" },
-  { id: 5, nome: "GHIZZO", grad: 91, cat: "DET36" },
-  { id: 6, nome: "IENGO", grad: 107, cat: "DET36" },
-  { id: 7, nome: "DE MARCHI L", grad: 130, cat: "DET36" },
-  { id: 8, nome: "FOSCHIANI", grad: 3, cat: "DET24" },
-  { id: 9, nome: "BEKAEVA", grad: 17, cat: "DET24" },
-  { id: 10, nome: "CERVESATO", grad: 63, cat: "DET24" },
-  { id: 11, nome: "COLOSETTI", grad: 97, cat: "DET24" },
-  { id: 12, nome: "WANG", grad: 124, cat: "DET24" },
-  { id: 13, nome: "ZURLO", grad: 2, cat: "SENZA" },
-  { id: 14, nome: "GRANDO", grad: 13, cat: "SENZA" },
-  { id: 15, nome: "PITAU", grad: 14, cat: "SENZA" },
-  { id: 16, nome: "DE CECCO-BEOLCHI", grad: 20, cat: "SENZA" },
-  { id: 17, nome: "MICHELI", grad: 39, cat: "SENZA" },
-  { id: 18, nome: "MARZANO", grad: 45, cat: "SENZA" },
-  { id: 19, nome: "MUNARETTO", grad: 54, cat: "SENZA" },
-  { id: 20, nome: "CESCO", grad: 59, cat: "SENZA" },
-  { id: 21, nome: "PARRONI", grad: 71, cat: "SENZA" },
-  { id: 22, nome: "MORANO", grad: 72, cat: "SENZA" },
-  { id: 23, nome: "DE CANDIDO", grad: 83, cat: "SENZA" },
-  { id: 24, nome: "SIEGA-VIGNUT", grad: 87, cat: "SENZA" },
-  { id: 25, nome: "MERLINO", grad: 105, cat: "SENZA" },
-  { id: 26, nome: "MARCUZZO", grad: 109, cat: "SENZA" },
+  { id: 1, nome: "BERTUZZI", grad: 0, cat: "INDET", sedeContratto: null },
+  { id: 2, nome: "CAMPANER", grad: 1, cat: "INDET", sedeContratto: null },
+  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET36", sedeContratto: null },
+  { id: 4, nome: "PRESSACCO", grad: 57, cat: "DET36", sedeContratto: null },
+  { id: 5, nome: "GHIZZO", grad: 91, cat: "DET36", sedeContratto: null },
+  { id: 6, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: null },
+  { id: 7, nome: "DE MARCHI L", grad: 130, cat: "DET36", sedeContratto: null },
+  { id: 8, nome: "FOSCHIANI", grad: 3, cat: "DET24", sedeContratto: null },
+  { id: 9, nome: "BEKAEVA", grad: 17, cat: "DET24", sedeContratto: null },
+  { id: 10, nome: "CERVESATO", grad: 63, cat: "DET24", sedeContratto: null },
+  { id: 11, nome: "COLOSETTI", grad: 97, cat: "DET24", sedeContratto: null },
+  { id: 12, nome: "WANG", grad: 124, cat: "DET24", sedeContratto: null },
+  { id: 13, nome: "ZURLO", grad: 2, cat: "SENZA", sedeContratto: null },
+  { id: 14, nome: "GRANDO", grad: 13, cat: "SENZA", sedeContratto: null },
+  { id: 15, nome: "PITAU", grad: 14, cat: "SENZA", sedeContratto: null },
+  { id: 16, nome: "DE CECCO-BEOLCHI", grad: 20, cat: "SENZA", sedeContratto: null },
+  { id: 17, nome: "MICHELI", grad: 39, cat: "SENZA", sedeContratto: null },
+  { id: 18, nome: "MARZANO", grad: 45, cat: "SENZA", sedeContratto: null },
+  { id: 19, nome: "MUNARETTO", grad: 54, cat: "SENZA", sedeContratto: null },
+  { id: 20, nome: "CESCO", grad: 59, cat: "SENZA", sedeContratto: null },
+  { id: 21, nome: "PARRONI", grad: 71, cat: "SENZA", sedeContratto: null },
+  { id: 22, nome: "MORANO", grad: 72, cat: "SENZA", sedeContratto: null },
+  { id: 23, nome: "DE CANDIDO", grad: 83, cat: "SENZA", sedeContratto: null },
+  { id: 24, nome: "SIEGA-VIGNUT", grad: 87, cat: "SENZA", sedeContratto: null },
+  { id: 25, nome: "MERLINO", grad: 105, cat: "SENZA", sedeContratto: null },
+  { id: 26, nome: "MARCUZZO", grad: 109, cat: "SENZA", sedeContratto: null },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
 let byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
@@ -41,15 +43,16 @@ const setMediciGlobal = (list) => {
 };
 
 const CAT_INFO = {
-  IND36: { label: "Indet. 36h", prio: 1, ore: 156, color: "#1a5c4a", bg: "#e3f2ec" },
-  IND24: { label: "Indet. 24h", prio: 2, ore: 104, color: "#1d6d5a", bg: "#e8f4ef" },
-  DET36: { label: "Det. 36h", prio: 3, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
-  DET24: { label: "Det. 24h", prio: 4, ore: 104, color: "#a06b00", bg: "#fef7e8" },
-  SENZA: { label: "Senza inc.", prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
+  INDET: { label: "Indet.", prio: 1, ore: 96, color: "#1a5c4a", bg: "#e3f2ec" },
+  DET36: { label: "Det. 36h", prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
+  DET24: { label: "Det. 24h", prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
+  SENZA: { label: "Senza inc.", prio: 4, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
+const isDeterminato = (mid) => byId[mid].cat === "DET36" || byId[mid].cat === "DET24";
 
 const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL", Anduins: "AN" };
+const CDC = ["Maniago", "Spilimbergo"]; // le 2 sedi fisiche sempre prioritarie
 
 // ============ CALENDARIO ============
 const FESTIVI_MAP = {
@@ -104,39 +107,39 @@ function turniDelGiorno(y, m, d, extras) {
 }
 
 // ============ MOTORE ============
-// dispo[mid][slotKey] = { piene:[sedi], pieneLiv:{sede:1..5}, ripiego:[sedi], ripiegoLiv:{sede:1..5}, no:bool, preferito:bool, preferitoRip:bool }
-// - piene: sedi in preferenza piena; pieneLiv assegna un livello 1..5 a ciascuna
-//   (livelli PARI = sedi indifferenti per il medico → il motore può spostarlo liberamente
-//    tra di esse per massimizzare le coperture; livello più basso = sede più desiderata,
-//    che il medico ha diritto di tenere a meno che qualcuno con priorità superiore lo scalzi)
-// - ripiego: sedi accettate solo se necessarie a completare lo scenario, con livelli 1..5
-//   (fuori→1→2→3→4→5→fuori). Il medico può assegnare liberamente lo stesso livello a più sedi.
+// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:bool, preferitoRip:bool }
+// - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
+//   indifferenti per il medico: il motore può spostarlo liberamente tra loro per massimizzare le
+//   coperture; livello più basso = sede che ha diritto di tenere contro chi non lo supera in gerarchia)
+// - blu: sedi che il medico è disposto a COPRIRE A DISTANZA, da qualunque sede fisica gli venga
+//   assegnata, in ordine di preferenza (livelli 1..4). Nessuna copertura a distanza è automatica:
+//   serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza
+//   (la prima disponibile nel suo ordine blu dichiarato).
 // - no: indisponibilità dichiarata esplicitamente
-// - preferito / preferitoRip: vedi commento sopra
+// - preferito: vuole questo turno come assegnazione fisica (verde)
+// - preferitoRip: soddisfatto anche se ottiene solo una copertura a distanza (blu) invece che fisica
 // slots = 5 posizioni [Maniago, Spilimbergo, Meduno, Claut, Anduins]
 
-// Normalizza il formato dati (gestisce retrocompatibilità con vecchi salvataggi)
+// Normalizza il formato dati
 const normDispo = (v) => {
-  if (!v) return { piene: [], pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: false, preferito: false, preferitoRip: false };
-  if (Array.isArray(v)) return { piene: v, pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: false, preferito: false, preferitoRip: false };
-  // pieneLiv / ripiegoLiv: {sede: 1..5} — livello di preferenza per ogni sede.
-  // Se assente o parziale, le sedi mancanti valgono 1 (prima scelta / tutte equivalenti).
-  return { piene: v.piene || [], pieneLiv: v.pieneLiv || {}, ripiego: v.ripiego || [], ripiegoLiv: v.ripiegoLiv || {}, no: !!v.no, preferito: !!v.preferito, preferitoRip: !!v.preferitoRip };
+  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: false, preferitoRip: false };
+  return {
+    verde: v.verde || [], verdeLiv: v.verdeLiv || {},
+    blu: v.blu || [], bluLiv: v.bluLiv || {},
+    no: !!v.no, preferito: !!v.preferito, preferitoRip: !!v.preferitoRip,
+  };
 };
 
-// Restituisce le sedi di ripiego ordinate per livello crescente (prima le più desiderate).
-// Sedi con lo stesso livello sono equivalenti — il motore le prova nell'ordine dell'array.
-const ripiegoPerLivello = (rip, liv) => {
-  const maxL = 5;
+// Ordina un elenco di sedi per livello crescente (prima le più desiderate). Sedi con lo stesso
+// livello sono equivalenti — il motore le prova nell'ordine dell'array originale.
+const ordinaPerLivello = (sedi, liv, maxLivello) => {
   const out = [];
-  for (let l = 1; l <= maxL; l++) {
-    rip.forEach((s) => { if ((liv[s] || 1) === l) out.push(s); });
+  for (let l = 1; l <= maxLivello; l++) {
+    sedi.forEach((s) => { if ((liv[s] || 1) === l) out.push(s); });
   }
-  return out; // es. [SP, CL, ME] se SP=1, CL=2, ME=2 -> [SP, CL, ME]
+  return out;
 };
-
-// Sedi fisiche richieste dallo scenario in base al numero di medici presenti
-const sediScenario = (n) => (n <= 1 ? [0] : n === 2 ? [0, 1] : n === 3 ? [0, 1, 2] : [0, 1, 2, 3]);
+const MAX_LIV_VERDE = 5, MAX_LIV_BLU = 4;
 
 // Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
 // passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
@@ -144,7 +147,7 @@ const sediScenario = (n) => (n <= 1 ? [0] : n === 2 ? [0, 1] : n === 3 ? [0, 1, 
 function elaboraTurno(d, turno, slotKey, dispo, debiti) {
   const candidati = MEDICI.filter((m) => {
     const v = normDispo(dispo[m.id]?.[slotKey]);
-    return !v.no && (v.piene.length || v.ripiego.length);
+    return !v.no && (v.verde.length || v.blu.length);
   });
   const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
@@ -162,85 +165,81 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
     fisiche = [0];
     if (sel && debiti[sel.id] !== null) debiti[sel.id] -= turno.ore;
   } else {
-    const target = sediScenario(Math.min(ordinati.length, 4));
-    // Livello "effettivo" di una sede per un medico: piene 1..5, ripieghi 11..15
-    // (qualsiasi ripiego vale sempre meno di qualsiasi piena), Infinity se non dichiarata.
-    const livelloDi = (mid, sede, conRipiego) => {
-      const v = normDispo(dispo[mid][slotKey]);
-      if (v.piene.includes(sede)) return v.pieneLiv[sede] || 1;
-      if (conRipiego && v.ripiego.includes(sede)) return 10 + (v.ripiegoLiv[sede] || 1);
-      return Infinity;
-    };
-    const accDi = (m, conRipiego) => {
-      const v = normDispo(dispo[m.id][slotKey]);
-      // Piene ordinate per livello (ripiegoPerLivello è un ordinamento generico per livelli);
-      // con ripiego: prima tutte le piene per livello, poi i ripieghi per livello.
-      const pieneOrd = ripiegoPerLivello(v.piene, v.pieneLiv);
-      if (!conRipiego) return pieneOrd;
-      return [...pieneOrd, ...ripiegoPerLivello(v.ripiego, v.ripiegoLiv)];
-    };
-    // Confronto di priorità "vero" (stessa logica usata per costruire ordinati: bucket
-    // conDeb > senza incarico > debito esaurito, poi dentro il bucket categoria → debito → graduatoria).
-    // Serve per decidere se un candidato può scalzare un occupante che non ha alternative:
-    // questo è ciò che rende il ripiego capace di competere "a piena forza" anche contro chi
-    // aveva messo quella sede come prima preferenza, come stabilito.
+    // Bucket di priorità (conDeb > senza incarico > debito esaurito), usato sia per il confronto
+    // fisico che per quello a distanza.
     const bucketOf = (mid) => {
-      const d = debiti[mid];
-      if (d !== null && d > 0) return 0;
-      if (d === null) return 1;
+      const deb = debiti[mid];
+      if (deb !== null && deb > 0) return 0;
+      if (deb === null) return 1;
       return 2;
     };
-    const isBetterPriority = (aId, bId) => {
+    const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
+    // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
+    // l'assegnazione fisica che per la copertura a distanza (CONTEXT.md §3.1a):
+    //   titolarità sede (solo tra determinati) → categoria → debito → graduatoria.
+    const isBetterPriority = (aId, bId, sede) => {
       const ba = bucketOf(aId), bb = bucketOf(bId);
       if (ba !== bb) return ba < bb;
-      if (ba === 0) {
-        const A = byId[aId], B = byId[bId];
-        const pa = CAT_INFO[A.cat].prio, pb = CAT_INFO[B.cat].prio;
-        if (pa !== pb) return pa < pb;
-        if (debiti[aId] !== debiti[bId]) return debiti[aId] > debiti[bId];
-        return A.grad < B.grad;
+      if (ba !== 0) return byId[aId].grad < byId[bId].grad;
+      const A = byId[aId], B = byId[bId];
+      if (isDeterminato(aId) && isDeterminato(bId)) {
+        const titA = isTitolareDi(aId, sede), titB = isTitolareDi(bId, sede);
+        if (titA !== titB) return titA;
       }
-      return byId[aId].grad < byId[bId].grad;
+      const pa = CAT_INFO[A.cat].prio, pb = CAT_INFO[B.cat].prio;
+      if (pa !== pb) return pa < pb;
+      if (debiti[aId] !== debiti[bId]) return debiti[aId] > debiti[bId];
+      return A.grad < B.grad;
+    };
+
+    // ---- FASE 1: assegnazione fisica (verde) ----
+    // Target fisico: quante e quali sedi puntare in base al numero di medici presenti (max 4).
+    // Con 1 solo medico il target è dinamico: qualunque sede sia la sua preferenza verde migliore
+    // (non più forzato su Maniago). Con 2/3/4 medici, Maniago e Spilimbergo restano sempre le
+    // prime sedi puntate, poi Meduno, poi Claut — coerentemente con "MA e SP sempre prioritarie".
+    const nFisici = Math.min(ordinati.length, 4);
+    let target = [];
+    if (nFisici === 1) {
+      const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
+      if (v.verde.length) {
+        const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE)[0];
+        target = [SEDI5.indexOf(top)];
+      }
+    } else if (nFisici === 2) target = [0, 1];
+    else if (nFisici === 3) target = [0, 1, 2];
+    else if (nFisici >= 4) target = [0, 1, 2, 3];
+
+    const accVerdeDi = (mid) => {
+      const v = normDispo(dispo[mid]?.[slotKey]);
+      return ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE);
+    };
+    const livelloVerdeDi = (mid, sede) => {
+      const v = normDispo(dispo[mid]?.[slotKey]);
+      return v.verde.includes(sede) ? (v.verdeLiv[sede] || 1) : Infinity;
     };
     const sedeDi = {};
-    // prova(): il medico m cerca una sede tra le sue, nell'ordine dei SUOI livelli,
-    // senza mai accettare una sede di livello peggiore di maxLiv.
-    // Ricollocazione di un occupante per fare posto:
-    // - a PARI livello o migliore (indifferenza dichiarata): sempre consentita — non gli
-    //   costa nulla, e libera la sede per chi non ha alternative
-    // - a livello PEGGIORE: consentita SOLO se il richiedente ha priorità superiore.
-    //   In quel caso l'occupante verrebbe comunque scalzato, e per lui una sede di livello
-    //   peggiore è sempre meglio dell'esclusione totale dal turno.
-    // Chi ha dichiarato un livello migliore su una sede ha quindi DIRITTO di tenerla
-    // contro chiunque non lo superi in gerarchia (categoria → debito → graduatoria).
-    const prova = (m, visitate, conRipiego, maxLiv) => {
-      const acc = accDi(m, conRipiego);
+    // provaFisica(): il medico m cerca una sede fisica tra le sue preferenze verdi, nell'ordine
+    // dei SUOI livelli, senza mai accettare una sede di livello peggiore di maxLiv. Ricollocazione
+    // dell'occupante: a pari/miglior livello sempre consentita (indifferenza dichiarata, non gli
+    // costa nulla); a livello peggiore solo se il richiedente ha VERA priorità superiore su quella
+    // sede (titolarità → categoria → debito → graduatoria tra determinati).
+    const provaFisica = (m, visitate, maxLiv) => {
+      const acc = accVerdeDi(m.id);
       for (const sede of acc) {
         const si = target.find((i) => SEDI5[i] === sede);
         if (si === undefined || visitate.has(si)) continue;
-        const liv = livelloDi(m.id, sede, conRipiego);
+        const liv = livelloVerdeDi(m.id, sede);
         if (liv > maxLiv) continue;
         visitate.add(si);
         const occ = slots[si];
-        if (occ === null) {
-          slots[si] = m.id; sedeDi[m.id] = si;
-          return true;
-        }
+        if (occ === null) { slots[si] = m.id; sedeDi[m.id] = si; return true; }
         if (occ === m.id) continue;
-        // Il livello massimo che l'occupante può accettare nello spostarsi:
-        // pari al suo livello attuale se il richiedente NON lo supera in gerarchia,
-        // illimitato se lo supera (meglio una sede peggiore che essere scalzato fuori).
-        const occLiv = livelloDi(occ, sede, conRipiego);
-        const occMax = isBetterPriority(m.id, occ) ? Infinity : occLiv;
+        const occLiv = livelloVerdeDi(occ, sede);
+        const occMax = isBetterPriority(m.id, occ, sede) ? Infinity : occLiv;
         delete sedeDi[occ];
-        if (prova(byId[occ], visitate, conRipiego, occMax)) {
-          slots[si] = m.id; sedeDi[m.id] = si;
-          return true;
-        }
+        if (provaFisica(byId[occ], visitate, occMax)) { slots[si] = m.id; sedeDi[m.id] = si; return true; }
         sedeDi[occ] = si; // ricollocazione fallita: l'occupante resta dov'era
-        // L'occupante non ha alternative accettabili: lo scalzo SOLO se ho realmente
-        // priorità migliore (categoria → debito → graduatoria), mai altrimenti
-        if (isBetterPriority(m.id, occ)) {
+        if (isBetterPriority(m.id, occ, sede)) {
           delete sedeDi[occ];
           slots[si] = m.id; sedeDi[m.id] = si;
           return true;
@@ -248,73 +247,64 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
       }
       return false;
     };
-    // PASSO 1: solo preferenze piene, in ordine di priorità, nei livelli dichiarati
     for (const m of ordinati) {
       if (Object.keys(sedeDi).length >= target.length) break;
-      prova(m, new Set(), false, Infinity);
+      provaFisica(m, new Set(), Infinity);
     }
-    // PASSO 2: sedi dello scenario ancora scoperte → si attivano i ripieghi
-    // (stessa funzione: l'acc ora include i ripieghi, ordinati dopo tutte le piene)
-    if (Object.keys(sedeDi).length < target.length) {
-      for (const m of ordinati) {
-        if (Object.keys(sedeDi).length >= target.length) break;
-        if (sedeDi[m.id] !== undefined) continue;
-        prova(m, new Set(), true, Infinity);
-      }
-    }
-    // Dopo tutti i passaggi, ricalcola slots dalla fonte di verità (sedeDi).
-    // Durante la ricollocazione ricorsiva, il medico può essere assegnato a uno slot
-    // intermedio e poi spostato su uno slot definitivo — lasciando un "fantasma"
-    // in slots che non corrisponde a nessuna voce in sedeDi. Ricostruiamo per garantire
-    // che slots rifletta esattamente e solo chi è effettivamente fisico.
+    // Rebuild slots da sedeDi (fonte di verità), per eliminare "fantasmi" da ricollocazioni intermedie.
     slots = [null, null, null, null, null];
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
-
-    // scala il debito a chi è rimasto effettivamente dentro
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
       if (debiti[mid] !== null) debiti[mid] -= turno.ore;
     });
     fisiche = Object.values(sedeDi);
 
-    // AVVISO: sedi dello scenario rimaste senza presenza fisica.
-    // I nomi suggeriti seguono SEMPRE l'ordine di gerarchia ufficiale (categoria → debito →
-    // graduatoria): essendo 'fuori' derivato da 'ordinati' (già ordinato così), il primo
-    // nome elencato è sempre il candidato più corretto da contattare per primo.
-    const mancanti = target.filter((si) => slots[si] === null);
-    if (mancanti.length && ordinati.length) {
-      const dentro = new Set(Object.keys(sedeDi).map(Number));
-      const fuori = ordinati.filter((m) => !dentro.has(m.id)).map((m) => {
-        const v = normDispo(dispo[m.id][slotKey]);
-        const parti = [];
-        if (v.piene.length) parti.push(`preferenza: ${v.piene.map((s) => SEDI_BREVI[s]).join(", ")}`);
-        if (v.ripiego.length) {
-          const sup = ["¹","²","³","⁴","⁵"];
-          parti.push(`ripiego: ${ripiegoPerLivello(v.ripiego, v.ripiegoLiv).map((s) => SEDI_BREVI[s] + sup[(v.ripiegoLiv[s] || 1) - 1]).join(", ")}`);
+    // ---- FASE 2: copertura a distanza (blu) ----
+    // Nessuna copertura è automatica: solo i FISICI di questo turno possono coprire a distanza,
+    // e solo le sedi per cui hanno dichiarato blu. Ogni medico copre al massimo 1 sede a distanza
+    // (la prima disponibile nel suo ordine blu). In caso di conflitto sulla stessa sede, vince
+    // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
+    // → debito → graduatoria (CONTEXT.md §3.1a).
+    const sitiCoperti = new Set(Object.values(sedeDi));
+    const accBluDi = (mid) => {
+      const v = normDispo(dispo[mid]?.[slotKey]);
+      return ordinaPerLivello(v.blu, v.bluLiv, MAX_LIV_BLU);
+    };
+    const sedeBluDi = {};
+    const provaBlu = (mid, visitate) => {
+      const acc = accBluDi(mid);
+      for (const sede of acc) {
+        const si = SEDI5.indexOf(sede);
+        if (sitiCoperti.has(si) || visitate.has(si)) continue;
+        visitate.add(si);
+        const occ = sedeBluDi[si];
+        if (occ === undefined) { sedeBluDi[si] = mid; return true; }
+        if (occ === mid) continue;
+        if (isBetterPriority(mid, occ, sede)) {
+          delete sedeBluDi[si];
+          if (provaBlu(occ, visitate)) { sedeBluDi[si] = mid; return true; }
+          sedeBluDi[si] = mid;
+          return true;
         }
-        return `${m.nome} (${parti.join(" · ") || "nessuna sede"})`;
-      });
-      avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti lo scenario richiede la copertura fisica di ${mancanti.map((si) => SEDI5[si]).join(", ")}, rimasta scoperta per i vincoli di sede dichiarati. Contattare ${fuori.length ? fuori.join(" oppure ") : "i medici del turno"} per chiedere la disponibilità a spostarsi, in ottemperanza alla priorità delle CDC e degli scenari.`;
-    }
+      }
+      return false;
+    };
+    ordinati.filter((m) => sedeDi[m.id] !== undefined).forEach((m) => provaBlu(m.id, new Set()));
+    Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
-    // coperture a distanza — logica generalizzata
-    if (slots.some(Boolean)) {
-      if (!slots[1]) slots[1] = slots[0] || slots[2] || slots[3];
-      if (!slots[0]) slots[0] = slots[1] || slots[2] || slots[3];
-      // ME: "priorità superiore" = gerarchia completa (categoria -> debito -> graduatoria), non solo grad
-      if (!slots[2]) slots[2] = isBetterPriority(slots[0], slots[1]) ? slots[0] : slots[1];
-      if (!slots[3]) slots[3] = slots[0];
-      // AN: qui la regola è esplicitamente "grad migliore" (solo graduatoria), non l'intera gerarchia
-      if (!slots[4]) slots[4] = byId[slots[1]].grad <= byId[slots[2]].grad ? slots[1] : slots[2];
+    // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
+    const scoperte = [0, 1, 2, 3, 4].filter((si) => slots[si] === null);
+    if (scoperte.length && ordinati.length) {
+      avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): ${scoperte.map((si) => SEDI5[si]).join(", ")}.`;
     }
   }
 
   return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
 }
 
-// Un turno ha "preferiti" se almeno un medico lo ha segnato come preferito
-// (sulla preferenza piena e/o anche sul ripiego): in entrambi i casi il turno
-// viene elaborato per primo, per preservare il debito verso il giorno desiderato.
+// Un turno ha "preferiti" se almeno un medico lo ha segnato come preferito (in entrambi i casi
+// il turno viene elaborato per primo, per preservare il debito verso il giorno desiderato).
 function slotHaPreferiti(dispo, slotKey) {
   const v0 = (m) => normDispo(dispo[m.id]?.[slotKey]);
   return MEDICI.some((m) => { const v = v0(m); return !v.no && (v.preferito || v.preferitoRip); });
@@ -352,11 +342,12 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   });
 
   // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con ciò che il medico
-  // desiderava. Regole concordate:
-  //  - preferito SOLO sulla preferenza piena → soddisfatto solo se ottiene una sede in preferenza;
-  //    se finisce sul ripiego o resta fuori, viene generato un avviso.
-  //  - preferito ANCHE sul ripiego ("lo vuole a tutti i costi") → soddisfatto sia con la
-  //    preferenza sia con il ripiego; avviso solo se resta completamente fuori.
+  // desiderava. Nel sistema verde/blu la copertura a distanza richiede SEMPRE una presenza
+  // fisica altrove nello stesso turno (INV3): un medico che non ottiene alcuna sede verde
+  // non può quindi mai coprire nulla a distanza. Di conseguenza "preferito" e "preferitoRip"
+  // sono entrambi soddisfatti se e solo se il medico ottiene una sede fisica (qualunque
+  // livello verde, non necessariamente la sua prima scelta) — la distinzione tra i due resta
+  // solo nel testo dell'avviso quando il medico finisce escluso dal turno.
   // In nessun caso il preferito decide chi vince: qui si osserva soltanto il risultato.
   const meseStr = `${anno}-${String(mese + 1).padStart(2, "0")}-`;
   MEDICI.forEach((m) => {
@@ -375,22 +366,14 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
       } else {
         for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
       }
-      const assegnato = sedeOttenuta !== null;
+      const assegnatoFisico = sedeOttenuta !== null;
       if (out.extra) {
-        if (!assegnato) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
+        if (!assegnatoFisico) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
         return;
       }
-      const inPiene = assegnato && v.piene.includes(sedeOttenuta);
-      const inRip = assegnato && v.ripiego.includes(sedeOttenuta);
+      if (assegnatoFisico) return;
       if (v.preferitoRip) {
-        // lo vuole a tutti i costi: preferenza o ripiego vanno entrambi bene
-        if (!assegnato) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} voleva questo turno a tutti i costi (preferito anche sul ripiego), ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
-        return;
-      }
-      // preferito solo sulla preferenza piena
-      if (inPiene) return;
-      if (inRip) {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito sulla preferenza, ma ha ottenuto ${sedeOttenuta} (suo ripiego) invece di ${v.piene.map((s) => SEDI_BREVI[s]).join(", ") || "una sede in preferenza"}. Valutare uno scambio manuale se opportuno.` });
+        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} voleva questo turno a tutti i costi, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
         return;
       }
       avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
@@ -450,7 +433,7 @@ export default function App() {
   const [rapFine, setRapFine] = useState("");
   const [rapNotte, setRapNotte] = useState(true);
   const [rapGiorno, setRapGiorno] = useState(false);
-  const [rapSedi, setRapSedi] = useState({}); // sede -> 'piena' | 'ripiego'
+  const [rapSedi, setRapSedi] = useState({}); // sede -> 'verde' | 'blu'
   const [rapIndisp, setRapIndisp] = useState([]); // [{inizio, fine}] periodi di indisponibilità
   const [confermaAzzera, setConfermaAzzera] = useState(false); // doppio tocco per azzerare il mese
   const azzeraTimer = useRef(null);
@@ -525,60 +508,44 @@ export default function App() {
   }, [giorniMese]);
 
 
-  const toggleSedeCella = (mid, slotKey, sede) => {
+  // Imposta direttamente l'opzione scelta nel menu a tendina per una sede:
+  // "" = non disponibile, "V1".."V5" = verde livello 1-5 (fisica), "B1".."B4" = blu livello 1-4 (a distanza).
+  const setSedeOpzione = (mid, slotKey, sede, opzione) => {
     const cur = normDispo(dati.dispo[mid]?.[slotKey]);
     const next = {
-      piene: [...cur.piene], pieneLiv: { ...cur.pieneLiv }, ripiego: [...cur.ripiego], ripiegoLiv: { ...cur.ripiegoLiv },
+      verde: cur.verde.filter((s) => s !== sede), verdeLiv: { ...cur.verdeLiv },
+      blu: cur.blu.filter((s) => s !== sede), bluLiv: { ...cur.bluLiv },
       no: false, preferito: cur.no ? false : cur.preferito, preferitoRip: cur.no ? false : cur.preferitoRip,
     };
-    if (next.piene.includes(sede)) {
-      const livAttuale = next.pieneLiv[sede] || 1;
-      if (livAttuale < 5) {
-        // aumenta il livello della piena: 1 → 2 → ... → 5
-        // (livelli PARI su più sedi = per il medico sono indifferenti)
-        next.pieneLiv[sede] = livAttuale + 1;
-      } else {
-        // piena livello 5 → ripiego livello 1
-        next.piene = next.piene.filter((s) => s !== sede);
-        delete next.pieneLiv[sede];
-        next.ripiego.push(sede);
-        next.ripiegoLiv[sede] = 1;
-      }
-    } else if (next.ripiego.includes(sede)) {
-      const livAttuale = next.ripiegoLiv[sede] || 1;
-      if (livAttuale < 5) {
-        // aumenta il livello: rip.1 → rip.2 → ... → rip.5
-        next.ripiegoLiv[sede] = livAttuale + 1;
-      } else {
-        // ripiego livello 5 → fuori
-        next.ripiego = next.ripiego.filter((s) => s !== sede);
-        delete next.ripiegoLiv[sede];
-      }
-    } else {
-      // fuori → preferenza piena livello 1
-      next.piene.push(sede);
-      next.pieneLiv[sede] = 1;
+    delete next.verdeLiv[sede];
+    delete next.bluLiv[sede];
+    if (opzione[0] === "V") {
+      next.verde.push(sede);
+      next.verdeLiv[sede] = Number(opzione.slice(1));
+    } else if (opzione[0] === "B") {
+      next.blu.push(sede);
+      next.bluLiv[sede] = Number(opzione.slice(1));
     }
     // coerenza: un preferito non può riferirsi a una lista di sedi vuota
-    if (!next.piene.length) { next.preferito = false; next.pieneLiv = {}; }
-    if (!next.ripiego.length) { next.preferitoRip = false; next.ripiegoLiv = {}; }
+    if (!next.verde.length) next.preferito = false;
+    if (!next.blu.length) next.preferitoRip = false;
     const nd = { ...(dati.dispo[mid] || {}) };
-    if (next.piene.length || next.ripiego.length) nd[slotKey] = next; else delete nd[slotKey];
+    if (next.verde.length || next.blu.length) nd[slotKey] = next; else delete nd[slotKey];
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   const setNoCella = (mid, slotKey, valore) => {
     const nd = { ...(dati.dispo[mid] || {}) };
-    if (valore) nd[slotKey] = { piene: [], pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: true, preferito: false, preferitoRip: false };
+    if (valore) nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
     else delete nd[slotKey];
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   const setPreferitoCella = (mid, slotKey, campo, valore) => {
     const cur = normDispo(dati.dispo[mid]?.[slotKey]);
     if (cur.no) return; // un turno non disponibile non può essere preferito
-    const next = { piene: cur.piene, pieneLiv: cur.pieneLiv, ripiego: cur.ripiego, ripiegoLiv: cur.ripiegoLiv, no: false, preferito: cur.preferito, preferitoRip: cur.preferitoRip };
+    const next = { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito, preferitoRip: cur.preferitoRip };
     next[campo] = valore;
-    if (!next.piene.length) next.preferito = false;
-    if (!next.ripiego.length) next.preferitoRip = false;
+    if (!next.verde.length) next.preferito = false;
+    if (!next.blu.length) next.preferitoRip = false;
     const nd = { ...(dati.dispo[mid] || {}) };
     nd[slotKey] = next;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
@@ -621,7 +588,7 @@ export default function App() {
     if (mediciList.some((m) => m.nome === nome)) { alert("Esiste già un medico con questo nome."); return; }
     if (!Number.isFinite(grad) || grad < 0) { alert("Inserisci una posizione in graduatoria valida (numero ≥ 0)."); return; }
     const nuovoId = Math.max(...mediciList.map((m) => m.id)) + 1;
-    setMedici([...mediciList, { id: nuovoId, nome, cat: nuovoMedico.cat, grad }]);
+    setMedici([...mediciList, { id: nuovoId, nome, cat: nuovoMedico.cat, grad, sedeContratto: null }]);
     setNuovoMedico({ nome: "", cat: "SENZA", grad: "" });
   };
   const rimuoviMedico = (id) => {
@@ -658,8 +625,8 @@ export default function App() {
       if (!r.inizio || !r.fine) { alert("Completa tutte le date nei periodi di indisponibilità (o rimuovi le righe vuote)."); return; }
       if (new Date(r.inizio + "T00:00:00") > new Date(r.fine + "T00:00:00")) { alert("In ogni periodo di indisponibilità, 'Al' deve essere successiva (o uguale) a 'Dal'."); return; }
     }
-    const piene = Object.entries(rapSedi).filter(([, v]) => v === "piena").map(([s]) => s);
-    const ripiego = Object.entries(rapSedi).filter(([, v]) => v === "ripiego").map(([s]) => s);
+    const verde = Object.entries(rapSedi).filter(([, v]) => v === "verde").map(([s]) => s);
+    const blu = Object.entries(rapSedi).filter(([, v]) => v === "blu").map(([s]) => s);
 
     const inQualcheIndisp = (y, m, d) => {
       const t = new Date(y, m, d).getTime();
@@ -706,7 +673,7 @@ export default function App() {
           if (!info.turni.some((t) => t.id === "G")) saltatiNoDiurno++;
         }
         richiesti.forEach((tid) => {
-          touch(y, m, d, tid, { piene: [], ripiego: [], ripiegoLiv: {}, no: true, preferito: false, preferitoRip: false });
+          touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false });
           scrittiIndisp++;
         });
       }
@@ -715,7 +682,7 @@ export default function App() {
     // PASSO 2: il resto del periodo di riferimento diventa disponibile con le sedi scelte —
     // MA solo se non è già stato toccato dal passo 1, e solo se non esisteva GIA' un'indisponibilità
     // esplicita precedente (es. il 12 agosto segnato in un'azione passata): quella resta protetta.
-    if (piene.length || ripiego.length) {
+    if (verde.length || blu.length) {
       for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
         const y = dt.getFullYear(), m = dt.getMonth(), d = dt.getDate();
         if (inQualcheIndisp(y, m, d)) continue; // già gestito (ed esplicitamente escluso) al passo 1
@@ -732,9 +699,9 @@ export default function App() {
           const slotKey = `${dk(y, m, d)}|${tid}`;
           const preesistente = normDispo(dispoEsistente[rapMedico]?.[slotKey]);
           if (preesistente.no) { protetti++; return; } // indisponibilità dichiarata in precedenza: non si tocca
-          const ripLivRap = {};
-          ripiego.forEach((s) => { ripLivRap[s] = 1; });
-          touch(y, m, d, tid, { piene: [...piene], ripiego: [...ripiego], ripiegoLiv: ripLivRap, no: false, preferito: false, preferitoRip: false });
+          const verdeLivRap = {}; verde.forEach((s) => { verdeLivRap[s] = 1; });
+          const bluLivRap = {}; blu.forEach((s) => { bluLivRap[s] = 1; });
+          touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false, preferito: false, preferitoRip: false });
           scrittiDisp++;
         });
       }
@@ -998,7 +965,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         medici: MEDICI.map((m) => ({ nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0 })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
-        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.piene.map((s) => SEDI_BREVI[s]).join(",")}${nv.ripiego.length ? "|rip:" + ripiegoPerLivello(nv.ripiego, nv.ripiegoLiv).map((s) => SEDI_BREVI[s] + (nv.ripiegoLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF" : ""}${nv.preferitoRip ? "|PREFRIP" : ""}`; })])),
+        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF" : ""}${nv.preferitoRip ? "|PREFRIP" : ""}`; })])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
           turni: g.turni.map((t) => ({ turno: t.label, sedi: t.extra ? { copertura: t.slots[0] ? byId[t.slots[0]].nome : "SCOPERTO" } : Object.fromEntries(SEDI5.map((s, i) => [s, t.slots[i] ? byId[t.slots[i]].nome : "—"])) })),
@@ -1018,23 +985,30 @@ Le regole ordinarie di assegnazione (categoria, debito, graduatoria) si applican
 UNICA ECCEZIONE: gli errori del coordinatore vanno sempre corretti retroattivamente, in qualsiasi fase.
 
 == SEDI E SCENARI DI COPERTURA ==
-Maniago e Spilimbergo devono sempre essere coperte PRIMA delle altre sedi.
-- Scenario 1 (1 medico): va fisicamente in una CDC (MA o SP), copre l'altra a distanza, copre anche ME, CL, AN a distanza.
-- Scenario 2 (2 medici): uno a MA, uno a SP. Chi ha priorità più alta (titolarità o graduatoria) copre ME a distanza. L'altro copre CL o AN.
-- Scenario 3 (3 medici): copertura fisica MA, SP, ME. Claut → sempre a distanza da Maniago. Anduins → a distanza da chi tra SP e ME ha graduatoria più alta.
-- Scenario 4 (4 medici): tutte le sedi coperte tranne una. Claut → a distanza da MA. Anduins → a distanza da SP o ME per titolarità/graduatoria.
+Maniago e Spilimbergo (le 2 CDC) devono sempre essere coperte PRIMA delle altre sedi.
+Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dichiarano (verde/blu, vedi sotto).
+- Scenario 1 (1 medico): fisico nella sede verde ottenuta (non più forzato su Maniago). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
+- Scenario 2 (2 medici): fisici nelle 2 CDC. Coprono a distanza le sedi per cui hanno dichiarato blu (massimo 1 a testa). Conflitti sulla stessa sede blu: titolarità sede → categoria → debito → graduatoria. Sedi senza blu dichiarato → SCOPERTE.
+- Scenario 3 (3 medici): fisici a Maniago, Spilimbergo, Meduno. Stessa logica blu per le sedi restanti. Sedi senza blu → SCOPERTE.
+- Scenario 4 (4 medici): 4 sedi fisiche (Maniago, Spilimbergo, Meduno, Claut). Stessa logica blu per Anduins. Sedi senza blu → SCOPERTE.
 
 == GERARCHIA CATEGORIE (priorità decrescente) ==
-1. Indeterminato 36h/sett → spareggio: debito orario poi graduatoria
-2. Indeterminato 24h/sett → spareggio: debito orario poi graduatoria
-3. Determinato 36h/sett → spareggio: debito orario poi graduatoria
-4. Determinato 24h/sett → spareggio: debito orario poi graduatoria
-5. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore
+1. INDET (indeterminato, qualunque orario) → spareggio: debito orario poi graduatoria
+2. Determinato 36h/sett → spareggio: titolarità sede (solo tra determinati, vedi sotto) → debito orario → graduatoria
+3. Determinato 24h/sett → spareggio: titolarità sede (solo tra determinati) → debito orario → graduatoria
+4. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore
 La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo positivo.
+
+== TITOLARITÀ DI SEDE (solo determinati) ==
+Ogni medico determinato (36h o 24h) può avere un contratto di titolarità per Maniago, Spilimbergo, o nessuna.
+Tra due determinati in conflitto per la sede di cui uno è titolare, il titolare vince SEMPRE quella sede,
+sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu), prima ancora del confronto di
+categoria 36h/24h: titolarità sede → categoria → debito → graduatoria, in entrambi i casi.
+La titolarità non ha alcun effetto se uno dei due contendenti non è determinato (es. contro un INDET o un senza incarico).
 
 == FRAMEWORK DEBITO ORARIO ==
 Conteggio mensile in ore effettive (NON settimanale, NON in numero di turni).
-Monte ore mensile: 36h/sett → ~156 ore mensili | 24h/sett → ~104 ore mensili.
+Monte ore mensile: INDET → 96 ore | Determinato 36h/sett → ~156 ore | Determinato 24h/sett → ~104 ore.
 Risoluzione conflitto turno per turno in ordine cronologico:
 - Debito diverso → vince chi ha debito residuo MAGGIORE
 - Debito identico → vince chi è PIÙ ALTO in graduatoria (numero più basso = posizione migliore)
@@ -1050,14 +1024,14 @@ Un medico che il mese precedente non ha completato il monte ore può recuperare 
 == SENZA INCARICO ==
 Vince sempre il più alto in graduatoria, senza eccezioni. Nessun conteggio ore, nessuna flessibilità.
 
-== DISPONIBILITÀ ==
+== DISPONIBILITÀ (verde/blu) ==
 Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponibile. Nessuno stato intermedio visibile.
 - "NO" interno = indisponibilità dichiarata esplicitamente (protetta da sovrascritture massive)
 - Assenza di dati = equivale a non disponibile
-- "PREF" = turno preferito sulla preferenza piena (informativo, non decisionale sui conflitti)
-- "PREFRIP" = lo vuole a tutti i costi anche in ripiego (informativo, non decisionale)
-- Sia le preferenze piene che i ripieghi hanno livelli 1..5 (MA1,SP2 = Maniago prima scelta, Spilimbergo seconda)
-- Livelli PARI su più preferenze piene = sedi INDIFFERENTI per il medico: il motore può spostarlo liberamente tra di esse per massimizzare il numero di medici al lavoro. Livello più basso = sede che il medico ha diritto di tenere, a meno che qualcuno con priorità superiore (categoria→debito→graduatoria) lo scalzi. I livelli non cambiano MAI chi vince un conflitto, solo quale sede viene assegnata a ciascun vincitore.
+- VERDE = sede FISICA desiderata, livelli 1..5 (MA1,SP2 = Maniago prima scelta, Spilimbergo seconda). Livelli PARI = sedi INDIFFERENTI per il medico: il motore può spostarlo liberamente tra di esse per massimizzare il numero di medici al lavoro. Livello più basso = sede che il medico ha diritto di tenere, a meno che qualcuno con priorità superiore lo scalzi. I livelli non cambiano MAI chi vince un conflitto, solo quale sede viene assegnata a ciascun vincitore.
+- BLU = sede che il medico è disposto a COPRIRE A DISTANZA (da qualunque sede fisica gli venga assegnata), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
+- "PREF" = turno preferito sulla sede fisica/verde (informativo, non decisionale sui conflitti)
+- "PREFRIP" = lo vuole a tutti i costi anche solo con copertura a distanza/blu (informativo, non decisionale)
 
 == COMPORTAMENTO ==
 - Segnala sempre ogni conflitto risolto e il criterio usato
@@ -1072,7 +1046,7 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ]}
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"WANG"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
-- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"ripiego":["Meduno","Claut"],"ripiego_liv":{"Meduno":1,"Claut":2},"preferito":true,"preferito_ripiego":false} → imposta la disponibilità: "sedi"=preferenze piene, "sedi_liv"=livello 1..5 per ciascuna piena (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "ripiego"=sedi di ripiego, "ripiego_liv"=livello per ciascuna sede ripiego (1=prima scelta, 5=ultima, omesso=1), "preferito"/"preferito_ripiego" informativi. Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate pienamente) usa Maniago:1, Spilimbergo:2.
+- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":true,"preferito_ripiego":false} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"/"preferito_ripiego" informativi. Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"WANG","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
@@ -1168,19 +1142,19 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const slotKey = `${dk(anno, mese, a.giorno)}|${a.turno}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.az === "dispo_togli") delete nd[slotKey];
-        else if (a.az === "dispo_no") nd[slotKey] = { piene: [], pieneLiv: {}, ripiego: [], ripiegoLiv: {}, no: true, preferito: false, preferitoRip: false };
+        else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
         else {
-          const piene = (a.sedi || []).filter((s) => SEDI5.includes(s));
-          const rip = (a.ripiego || []).filter((s) => SEDI5.includes(s) && !piene.includes(s));
-          if (!piene.length && !rip.length) { errori.push(`sedi non valide per ${a.medico} g${a.giorno}`); return; }
+          const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
+          const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
+          if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${a.medico} g${a.giorno}`); return; }
           const prefRip = !!a.preferito_ripiego;
-          if (prefRip && !rip.length) errori.push(`preferito sul ripiego per ${a.medico} g${a.giorno} ignorato: nessuna sede di ripiego indicata`);
-          // sedi_liv / ripiego_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
-          const pieneLivAI = {};
-          piene.forEach((s) => { pieneLivAI[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
-          const ripLivAI = {};
-          rip.forEach((s) => { ripLivAI[s] = (a.ripiego_liv && a.ripiego_liv[s]) ? Number(a.ripiego_liv[s]) : 1; });
-          nd[slotKey] = { piene, pieneLiv: pieneLivAI, ripiego: rip, ripiegoLiv: ripLivAI, no: false, preferito: !!a.preferito && piene.length > 0, preferitoRip: prefRip && rip.length > 0 };
+          if (prefRip && !blu.length) errori.push(`preferito a tutti i costi per ${a.medico} g${a.giorno} ignorato: nessuna sede blu indicata`);
+          // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
+          const verdeLivAI = {};
+          verde.forEach((s) => { verdeLivAI[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
+          const bluLivAI = {};
+          blu.forEach((s) => { bluLivAI[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
+          nd[slotKey] = { verde, verdeLiv: verdeLivAI, blu, bluLiv: bluLivAI, no: false, preferito: !!a.preferito && verde.length > 0, preferitoRip: prefRip && blu.length > 0 };
         }
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
@@ -1257,7 +1231,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: "#5b5f59", margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi scelte) oppure <b style={{color:"#a03030"}}>✕ non disponibile</b> (rosso) — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per scegliere le sedi in <b style={{color:"#1a5c4a"}}>preferenza</b> verde o <b style={{color:"#a07a00"}}>ripiego</b> giallo (usato solo se serve a completare lo scenario), e i <b style={{color:"#8a5a00"}}>★ preferiti</b>: sulla preferenza e/o anche in ripiego (= lo vuole a tutti i costi). Nel popup ogni tocco aumenta il livello della sede: preferenza 1→5, poi ripiego 1→5, poi esce. <b>Livelli pari su più preferenze = sedi indifferenti</b> per il medico: il motore può spostarlo tra di esse per far lavorare anche chi ha una sola sede; il livello più basso è la sede che ha diritto di tenere. In cella: "2·SP¹CL²" = 2 preferenze (tutte liv.1) + Spilimbergo 1° ripiego + Claut 2°; se le preferenze hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sulla preferenza, ★ dopo = lo vuole anche in ripiego. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:"#a03030"}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:"#1a5c4a"}}>Verde 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:"#1a56c4"}}>Blu 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -1291,21 +1265,21 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                     <label style={{ cursor: "pointer" }}><input type="checkbox" checked={rapGiorno} onChange={(e) => setRapGiorno(e.target.checked)} /> Diurno (solo weekend/festivi)</label>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: "#8a8f88", marginBottom: 6 }}>Sedi per i giorni <b style={{color:"#1a5c4a"}}>disponibili</b> del periodo — tocca: preferenza verde → ripiego giallo → togli</div>
+                    <div style={{ fontSize: 11, color: "#8a8f88", marginBottom: 6 }}>Sedi per i giorni <b style={{color:"#1a5c4a"}}>disponibili</b> del periodo (tutte a livello 1) — tocca: verde fisica → blu a distanza → togli</div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {SEDI5.map((s) => {
                         const stato = rapSedi[s] || "off";
                         return (
                           <span key={s} onClick={() => setRapSedi((prev) => {
                             const cur = prev[s] || "off";
-                            const next = cur === "off" ? "piena" : cur === "piena" ? "ripiego" : "off";
+                            const next = cur === "off" ? "verde" : cur === "verde" ? "blu" : "off";
                             const np = { ...prev };
                             if (next === "off") delete np[s]; else np[s] = next;
                             return np;
                           })}
                             style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none",
-                              background: stato === "piena" ? "#1a5c4a" : stato === "ripiego" ? "#f0cb4d" : "#eceee9",
-                              color: stato === "piena" ? "#fff" : stato === "ripiego" ? "#5b4400" : "#a9ada5" }}>
+                              background: stato === "verde" ? "#1a5c4a" : stato === "blu" ? "#3a6fd9" : "#eceee9",
+                              color: stato === "verde" ? "#fff" : stato === "blu" ? "#fff" : "#a9ada5" }}>
                             {SEDI_BREVI[s]}
                           </span>
                         );
@@ -1366,7 +1340,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                         {colonne.map((c, i) => {
                           const sk = `${c.key}|${c.turno.id}`;
                           const sedi = normDispo(dati.dispo[m.id]?.[sk]);
-                          const on = !sedi.no && (sedi.piene.length + sedi.ripiego.length > 0);
+                          const on = !sedi.no && (sedi.verde.length + sedi.blu.length > 0);
                           const inEdit = editCella && editCella.mid === m.id && editCella.slotKey === sk;
                           // Dicotomico: SOLO 2 stati visivi possibili — disponibile (verde) o non disponibile
                           // (rosso). "Non specificato" e "NO esplicito" appaiono identici: la distinzione
@@ -1382,19 +1356,19 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                               }}>
                               {on ? (() => {
                                 const sup = ["¹","²","³","⁴","⁵"];
-                                const ripStr = sedi.ripiego.length
-                                  ? "·" + ripiegoPerLivello(sedi.ripiego, sedi.ripiegoLiv)
-                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.ripiegoLiv[s] || 1) - 1]).join("")
+                                const bluStr = sedi.blu.length
+                                  ? "·" + ordinaPerLivello(sedi.blu, sedi.bluLiv, MAX_LIV_BLU)
+                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.bluLiv[s] || 1) - 1]).join("")
                                     + (sedi.preferitoRip ? "★" : "")
                                   : "";
-                                // Piene: compatte (solo conteggio) se tutte a livello 1,
+                                // Verdi: compatte (solo conteggio) se tutte a livello 1,
                                 // dettagliate (sigla+livello) se il medico ha espresso un ordine
-                                const tutteLv1 = sedi.piene.every((s) => (sedi.pieneLiv[s] || 1) === 1);
-                                const pieneStr = tutteLv1
-                                  ? String(sedi.piene.length)
-                                  : ripiegoPerLivello(sedi.piene, sedi.pieneLiv)
-                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.pieneLiv[s] || 1) - 1]).join("");
-                                return `${sedi.preferito ? "★" : ""}${pieneStr}${ripStr}`;
+                                const tutteLv1 = sedi.verde.every((s) => (sedi.verdeLiv[s] || 1) === 1);
+                                const verdeStr = tutteLv1
+                                  ? String(sedi.verde.length)
+                                  : ordinaPerLivello(sedi.verde, sedi.verdeLiv, MAX_LIV_VERDE)
+                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.verdeLiv[s] || 1) - 1]).join("");
+                                return `${sedi.preferito ? "★" : ""}${verdeStr}${bluStr}`;
                               })() : "✕"}
                             </td>
                           );
@@ -1428,36 +1402,38 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Ogni tocco su una sede aumenta il livello: <b style={{ color: "#1a5c4a" }}>preferenza</b> verde 1→5, poi <b style={{ color: "#a07a00" }}>ripiego</b> giallo 1→5, poi esce. Livelli <b>pari</b> su più sedi verdi = per il medico sono <b>indifferenti</b> (il motore può spostarlo tra di esse per far lavorare più medici); livello più basso = sede che ha diritto di tenere.</div>
-                        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Verde 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Blu 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa).</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
-                            const sup = ["¹","²","³","⁴","⁵"];
-                            const stato = sedi.piene.includes(s) ? "piena" : sedi.ripiego.includes(s) ? "ripiego" : "no";
-                            const livello = stato === "piena" ? (sedi.pieneLiv[s] || 1) : stato === "ripiego" ? (sedi.ripiegoLiv[s] || 1) : null;
+                            const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
                             return (
-                              <span key={s} onClick={() => toggleSedeCella(editCella.mid, editCella.slotKey, s)}
-                                title={stato === "piena" ? `Preferenza livello ${livello} — tocca per aumentare, dopo il 5 passa a ripiego` : stato === "ripiego" ? `Ripiego livello ${livello} — tocca per aumentare, al 6° tocco esce` : "Tocca per aggiungere come preferenza piena"}
-                                style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none",
-                                  background: stato === "piena" ? "#1a5c4a" : stato === "ripiego" ? "#f0cb4d" : "#eceee9",
-                                  color: stato === "piena" ? "#fff" : stato === "ripiego" ? "#5b4400" : "#a9ada5" }}>
-                                {SEDI_BREVI[s]}{livello !== null ? sup[livello - 1] : ""}
-                              </span>
+                              <label key={s} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                                <span style={{ fontWeight: 700, minWidth: 24 }}>{SEDI_BREVI[s]}</span>
+                                <select value={valore} onChange={(e) => setSedeOpzione(editCella.mid, editCella.slotKey, s, e.target.value)}
+                                  style={{ flex: 1, fontSize: 12, padding: "5px 4px", borderRadius: 5, border: "1px solid #c8ccc6",
+                                    background: valore.startsWith("V") ? "#e3f2ec" : valore.startsWith("B") ? "#e3ebfa" : "#fff",
+                                    color: valore.startsWith("V") ? "#1a5c4a" : valore.startsWith("B") ? "#1a3d8f" : "#5b5f59" }}>
+                                  <option value="">Non disponibile</option>
+                                  {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Verde {l}</option>)}
+                                  {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Blu {l}</option>)}
+                                </select>
+                              </label>
                             );
                           })}
                         </div>
-                        {(sedi.piene.length > 0 || sedi.ripiego.length > 0) && (
+                        {(sedi.verde.length > 0 || sedi.blu.length > 0) && (
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                            {sedi.piene.length > 0 && (
+                            {sedi.verde.length > 0 && (
                               <span onClick={() => setPreferitoCella(editCella.mid, editCella.slotKey, "preferito", !sedi.preferito)}
                                 style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none", border: "1px solid " + (sedi.preferito ? "#d9a53f" : "#d6dad3"), background: sedi.preferito ? "#fdf3dd" : "#fff", color: sedi.preferito ? "#8a5a00" : "#8a8f88" }}>
-                                {sedi.preferito ? "★" : "☆"} Preferito (sulla preferenza)
+                                {sedi.preferito ? "★" : "☆"} Preferito (sulla sede fisica)
                               </span>
                             )}
-                            {sedi.ripiego.length > 0 && (
+                            {sedi.blu.length > 0 && (
                               <span onClick={() => setPreferitoCella(editCella.mid, editCella.slotKey, "preferitoRip", !sedi.preferitoRip)}
-                                title="Lo vuole comunque, anche se finisce sul ripiego"
+                                title="Lo vuole comunque, anche se copre solo a distanza"
                                 style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none", border: "1px solid " + (sedi.preferitoRip ? "#d9a53f" : "#d6dad3"), background: sedi.preferitoRip ? "#fdf3dd" : "#fff", color: sedi.preferitoRip ? "#8a5a00" : "#8a8f88" }}>
-                                {sedi.preferitoRip ? "★" : "☆"} Anche in ripiego
+                                {sedi.preferitoRip ? "★" : "☆"} Anche solo a distanza
                               </span>
                             )}
                           </div>
@@ -1497,7 +1473,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d6dad3" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => (
@@ -1513,6 +1489,16 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                         <input type="number" min={0} value={m.grad}
                           onChange={(e) => aggiornaMedico(m.id, { grad: Number(e.target.value) })}
                           style={{ width: 58, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                      </td>
+                      <td style={{ padding: "6px 8px" }}>
+                        {isDeterminato(m.id) ? (
+                          <select value={m.sedeContratto || ""} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value || null })}
+                            title="Sede di titolarità: vince sempre quella sede tra determinati, prima della categoria 36h/24h"
+                            style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }}>
+                            <option value="">Nessuna</option>
+                            {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
+                          </select>
+                        ) : "—"}
                       </td>
                       <td style={{ padding: "6px 8px" }}>{CAT_INFO[m.cat].ore ?? "—"}</td>
                       <td style={{ padding: "6px 8px" }}>
@@ -1628,7 +1614,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (verde, con le sedi s
                     {proposta.azioni.map((a, i) => {
                       let d = "";
                       if (a.az === "schema") d = `Schema: giorno ${a.giorno} · ${a.turno} · ${a.sede} → ${a.medico || "— (svuota)"}`;
-                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.ripiego || []).length ? ` (+ ripiego: ${a.ripiego.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? " ★ preferito" : ""}${a.preferito_ripiego ? " ★ anche ripiego" : ""}`;
+                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? " ★ preferito" : ""}${a.preferito_ripiego ? " ★ anche a distanza" : ""}`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;

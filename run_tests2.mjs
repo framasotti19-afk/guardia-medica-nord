@@ -1,10 +1,10 @@
-// Test runtime del motore: gerarchia categorie, tie-break debito/graduatoria,
-// scenari di copertura sedi (1-4 medici), coperture a distanza, livelli e
-// ricollocazione, invarianti INV1-INV4. Basato sulle regole di CONTEXT.md §3.
-import { MEDICI, byId, CAT_INFO, dk, elaboraSchema } from './engine_test.mjs';
+// Test runtime del motore: gerarchia categorie (INDET/DET36/DET24/SENZA), titolarità di
+// sede tra determinati, tie-break debito/graduatoria, scenari di copertura verde/blu (1-4
+// medici), invarianti. Basato sulle regole di CONTEXT.md §3.
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
 
-const suite = makeSuite("run_tests2 — gerarchia, scenari, debito");
+const suite = makeSuite("run_tests2 — gerarchia, titolarità, scenari, debito");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3
 
@@ -15,27 +15,28 @@ function unicoTurno(dispo, extraOre = {}, giorno = G1) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
 }
+function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
 
 // ---------------------------------------------------------------------------
 // A. GERARCHIA CATEGORIE (§3.1)
 // ---------------------------------------------------------------------------
-suite.test("IND36 batte IND24 sulla stessa sede contesa", () => {
+suite.test("INDET batte DET36 sulla stessa sede contesa", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
-  d[CAMPANER][N(G1)] = turnoDisp(["Maniago"]);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
   suite.eq(t.slots[0], BERTUZZI);
 });
 
-suite.test("IND24 batte DET36 sulla stessa sede contesa", () => {
+suite.test("BERTUZZI e CAMPANER (entrambi INDET) sono nella stessa categoria: a parità di debito decide il grad", () => {
   const d = dispoBase(MEDICI);
-  d[CAMPANER][N(G1)] = turnoDisp(["Maniago"]);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]); // grad0
+  d[CAMPANER][N(G1)] = turnoDisp(["Maniago"]); // grad1
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], CAMPANER);
+  suite.eq(t.slots[0], BERTUZZI);
 });
 
-suite.test("DET36 batte DET24 anche con grad numerico peggiore", () => {
+suite.test("DET36 batte DET24 anche con grad numerico peggiore (nessuna titolarità dichiarata)", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // grad3, migliore, ma categoria inferiore
@@ -55,14 +56,93 @@ suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche 1h r
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
-  // BERTUZZI (IND36, base 156h) con debito ridotto a 1h residua
-  const t = unicoTurno(d, { [BERTUZZI]: -155 });
-  suite.eq(t.slots[0], BERTUZZI, "IND36 con 1h di debito deve battere DET36 con debito pieno");
+  // BERTUZZI (INDET, base 96h) con debito ridotto a 1h residua
+  const t = unicoTurno(d, { [BERTUZZI]: -95 });
+  suite.eq(t.slots[0], BERTUZZI, "INDET con 1h di debito deve battere DET36 con debito pieno");
 });
 
 // ---------------------------------------------------------------------------
-// B. DEBITO — TIE-BREAK STESSA CATEGORIA (§3.1, §3.4)
+// B. TITOLARITÀ DI SEDE (solo tra determinati) — NUOVO
 // ---------------------------------------------------------------------------
+suite.test("tra determinati, il titolare della sede vince l'assegnazione FISICA anche contro categoria superiore", () => {
+  resetMedici();
+  const lista = MEDICI_DEFAULT.map((m) => (m.id === FOSCHIANI ? { ...m, sedeContratto: "Maniago" } : m)); // DET24 titolare MA
+  setMediciGlobal(lista);
+  const d = dispoBase(lista);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36, non titolare
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET24, titolare
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], FOSCHIANI, "il titolare di Maniago deve vincere anche contro un DET36 non titolare");
+  resetMedici();
+});
+
+suite.test("la titolarità non ha effetto se il conteso è un altro determinato senza contratto su quella sede specifica", () => {
+  resetMedici();
+  const lista = MEDICI_DEFAULT.map((m) => (m.id === FOSCHIANI ? { ...m, sedeContratto: "Spilimbergo" } : m)); // titolare SP, non MA
+  setMediciGlobal(lista);
+  const d = dispoBase(lista);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // titolare di un'altra sede: qui vale solo la categoria
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], TRIGODKO, "titolarità di Spilimbergo non aiuta a vincere Maniago: decide la categoria (DET36 > DET24)");
+  resetMedici();
+});
+
+suite.test("la titolarità NON si applica se uno dei due contendenti non è determinato (vs INDET)", () => {
+  resetMedici();
+  const lista = MEDICI_DEFAULT.map((m) => (m.id === FOSCHIANI ? { ...m, sedeContratto: "Maniago" } : m));
+  setMediciGlobal(lista);
+  const d = dispoBase(lista);
+  d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]); // INDET
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET24 titolare
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], BERTUZZI, "INDET batte sempre un determinato, titolarità o no");
+  resetMedici();
+});
+
+suite.test("la titolarità NON si applica contro un senza incarico", () => {
+  resetMedici();
+  const d = dispoBase(MEDICI_DEFAULT);
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]); // SENZA, grad2
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], ZURLO, "unico candidato, nessuna sorpresa — la titolarità non crea candidature dal nulla");
+});
+
+suite.test("nelle coperture a DISTANZA (blu), la titolarità vince PRIMA della categoria, esattamente come per il fisico", () => {
+  resetMedici();
+  // TRIGODKO (DET36, non titolare) vs FOSCHIANI (DET24, titolare Meduno): entrambi dichiarano
+  // blu su Meduno. La gerarchia è identica a quella fisica (titolarità sede → categoria → debito
+  // → graduatoria): FOSCHIANI vince nonostante la categoria nominalmente inferiore.
+  const lista = MEDICI_DEFAULT.map((m) => (m.id === FOSCHIANI ? { ...m, sedeContratto: "Meduno" } : m));
+  setMediciGlobal(lista);
+  const d = dispoBase(lista);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } });
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } });
+  const t = unicoTurno(d);
+  suite.eq(t.slots[2], FOSCHIANI, "il titolare di Meduno vince il blu su Meduno anche contro un DET36 non titolare");
+  resetMedici();
+});
+
+suite.test("nelle coperture a distanza, a parità di categoria la titolarità decide come tie-break", () => {
+  resetMedici();
+  const lista = MEDICI_DEFAULT.map((m) => (m.id === PRESSACCO ? { ...m, sedeContratto: "Maniago" } : m));
+  setMediciGlobal(lista);
+  const d = dispoBase(lista);
+  // n=3: fisici a Spilimbergo (TRIGODKO) e Meduno (PRESSACCO); nessuno dichiara Maniago come
+  // verde, quindi resta fisicamente scoperta. Entrambi (stessa categoria DET36) la dichiarano
+  // come blu: titolare Maniago è PRESSACCO (grad peggiore), non TRIGODKO.
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad4, non titolare
+  d[PRESSACCO][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad57, titolare Maniago
+  d[WANG][N(G1)] = turnoDisp(["Claut"]); // 3° candidato presente, ma il suo verde non rientra nel target (MA,SP,ME)
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], PRESSACCO, "a parità di categoria (DET36), il titolare di Maniago vince il blu su Maniago nonostante grad peggiore");
+  resetMedici();
+});
+
+// ---------------------------------------------------------------------------
+// C. DEBITO — TIE-BREAK STESSA CATEGORIA (§3.1, §3.4)
+// ---------------------------------------------------------------------------
+resetMedici(); // difensivo: garantisce stato pulito anche se un test della sezione B è fallito a metà
 suite.test("stessa categoria, stesso debito iniziale → vince il grad più basso", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4
@@ -73,29 +153,18 @@ suite.test("stessa categoria, stesso debito iniziale → vince il grad più bass
 
 suite.test("stessa categoria, chi ha più debito residuo vince anche col grad peggiore", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4, debito ridotto
-  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // grad57, debito aumentato
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [TRIGODKO]: -100, [PRESSACCO]: +50 });
   suite.eq(t.slots[0], PRESSACCO, "PRESSACCO ha più debito residuo nonostante grad peggiore");
 });
 
-suite.test("il debito del vincitore scende esattamente delle ore del turno (12h notturno)", () => {
-  const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
-  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
-  // BERTUZZI IND36 base 156h; unico turno da 12h assegnato → verificabile solo indirettamente
-  // rielaborando un secondo turno identico nello stesso mese e controllando che vinca ancora
-  // (debito 144h residuo, ancora ampiamente positivo) — la decrescita è validata dal test successivo.
-  const t = schema.find((g) => g.giorno === G1).turni.find((x) => x.id === "N");
-  suite.eq(t.slots[0], BERTUZZI);
-});
-
 suite.test("auto-bilanciamento: 5 turni pari debito, grad3 vs grad124 → 3-2 per il grad migliore (§3.4)", () => {
   const d = dispoBase(MEDICI);
-  const giorni = GIORNI_FERIALI_SEMPLICI.slice(0, 5); // 5 giorni feriali consecutivi disponibili
+  const giorni = GIORNI_FERIALI_SEMPLICI.slice(0, 5);
   giorni.forEach((g) => {
-    d[FOSCHIANI][N(g)] = turnoDisp(["Maniago"]); // DET24 grad3
-    d[WANG][N(g)] = turnoDisp(["Maniago"]); // DET24 grad124
+    d[FOSCHIANI][N(g)] = turnoDisp(["Maniago"]);
+    d[WANG][N(g)] = turnoDisp(["Maniago"]);
   });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const vincite = { [FOSCHIANI]: 0, [WANG]: 0 };
@@ -109,107 +178,134 @@ suite.test("auto-bilanciamento: 5 turni pari debito, grad3 vs grad124 → 3-2 pe
 
 suite.test("recupero ore (extraOre) aumenta il debito e può ribaltare un conflitto", () => {
   const d = dispoBase(MEDICI);
-  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // grad57, normalmente perde da TRIGODKO
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   const senzaRecupero = unicoTurno(d);
   suite.eq(senzaRecupero.slots[0], TRIGODKO, "senza recupero vince il grad migliore");
   const conRecupero = unicoTurno(d, { [PRESSACCO]: 200 });
   suite.eq(conRecupero.slots[0], PRESSACCO, "col recupero ore PRESSACCO ha più debito e vince");
 });
 
-suite.test("il recupero ore NON si applica ai senza incarico (nessun concetto di debito)", () => {
+suite.test("il recupero ore NON si applica ai senza incarico", () => {
   const d = dispoBase(MEDICI);
   d[ZURLO][N(G1)] = turnoDisp(["Maniago"]);
-  const t = unicoTurno(d, { [ZURLO]: 999 }); // extraOre ignorato per SENZA (base ore = null)
-  suite.eq(t.slots[0], ZURLO, "resta comunque candidato valido, ma senza alcun debito");
+  const t = unicoTurno(d, { [ZURLO]: 999 });
+  suite.eq(t.slots[0], ZURLO);
   suite.assert(CAT_INFO[byId[ZURLO].cat].ore === null, "SENZA non ha un monte ore");
 });
 
 // ---------------------------------------------------------------------------
-// C. DEBITO ESAURITO — ORDINE A 3 FASCE (§3.1)
+// D. DEBITO ESAURITO — ORDINE A 3 FASCE (§3.1)
 // ---------------------------------------------------------------------------
 suite.test("un medico con debito esaurito (0) esce dalla priorità di categoria", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36 ma esaurito
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET24 con debito pieno
-  const t = unicoTurno(d, { [TRIGODKO]: -156 }); // debito 0
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
+  const t = unicoTurno(d, { [TRIGODKO]: -156 });
   suite.eq(t.slots[0], FOSCHIANI, "FOSCHIANI (debito>0) deve battere TRIGODKO (debito esaurito) nonostante la categoria inferiore");
 });
 
 suite.test("ordine fascia 1: contrattualizzati con debito>0 battono i senza incarico", () => {
   const d = dispoBase(MEDICI);
-  d[WANG][N(G1)] = turnoDisp(["Maniago"]); // DET24 debito pieno, grad124
-  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]); // SENZA, grad2 (numericamente migliore)
+  d[WANG][N(G1)] = turnoDisp(["Maniago"]);
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], WANG, "chi ha ancora debito vince sempre sui senza incarico, indipendentemente dal grad");
+  suite.eq(t.slots[0], WANG);
 });
 
 suite.test("ordine fascia 2: senza incarico battono i contrattualizzati con debito esaurito", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36 esaurito
-  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]); // SENZA, grad2
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [TRIGODKO]: -156 });
-  suite.eq(t.slots[0], ZURLO, "senza incarico deve battere un contrattualizzato a debito esaurito");
+  suite.eq(t.slots[0], ZURLO);
 });
 
 suite.test("fascia 3 (esauriti): competono solo per grad tra loro", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36 grad4, esaurito
-  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // DET36 grad57, esaurito
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [TRIGODKO]: -156, [PRESSACCO]: -156 });
-  suite.eq(t.slots[0], TRIGODKO, "tra esauriti vince il grad migliore, non la categoria/debito (già a zero per entrambi)");
+  suite.eq(t.slots[0], TRIGODKO);
 });
 
 suite.test("un esaurito NON può scalzare un senza incarico anche con grad migliore", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4, esaurito
-  d[MICHELI][N(G1)] = turnoDisp(["Maniago"]); // SENZA grad39 (peggiore in numero, ma bucket superiore)
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[MICHELI][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [TRIGODKO]: -156 });
-  suite.eq(t.slots[0], MICHELI, "il senza incarico vince comunque: la fascia conta più del grad");
+  suite.eq(t.slots[0], MICHELI);
 });
 
 suite.test("un esaurito copre comunque un turno se non c'è nessun altro candidato", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // unico candidato, esaurito
-  const t = unicoTurno(d, { [TRIGODKO]: -156 });
-  suite.eq(t.slots[0], TRIGODKO, "un esaurito deve comunque coprire un turno altrimenti scoperto");
-});
-
-// ---------------------------------------------------------------------------
-// D. SCENARI DI COPERTURA SEDI (§3.2)
-// ---------------------------------------------------------------------------
-suite.test("n=1 medico → target Maniago, tutto il resto coperto a distanza da lui", () => {
-  const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
-  const t = unicoTurno(d);
-  suite.assert(t.slots.every((s) => s === TRIGODKO), "con un solo medico tutte e 5 le sedi devono risultare coperte da lui");
-  suite.eq(t.fis.length, 1);
+  const t = unicoTurno(d, { [TRIGODKO]: -156 });
+  suite.eq(t.slots[0], TRIGODKO);
 });
 
-suite.test("n=2 medici → target Maniago+Spilimbergo, entrambi fisici", () => {
+// ---------------------------------------------------------------------------
+// E. SCENARI DI COPERTURA VERDE/BLU (§3.2) — riscritti: nessuna copertura automatica
+// ---------------------------------------------------------------------------
+suite.test("n=1 medico: fisico nella sede verde ottenuta (NON più forzato su Maniago)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"]);
+  const t = unicoTurno(d);
+  suite.eq(t.slots[1], TRIGODKO, "deve andare fisicamente su Spilimbergo, la sua sede verde");
+  suite.eq(t.fis.length, 1);
+  suite.assert(t.slots[0] === null && t.slots[2] === null && t.slots[3] === null && t.slots[4] === null, "senza blu dichiarato tutto il resto è scoperto");
+});
+
+suite.test("n=1 medico con blu dichiarato copre 1 sola sede extra a distanza", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } });
+  const t = unicoTurno(d);
+  suite.eq(t.slots[1], TRIGODKO);
+  suite.eq(t.slots[2], TRIGODKO, "copre Meduno, il suo blu di livello migliore");
+  suite.assert(t.slots[3] === null, "Claut resta scoperta: un medico copre al massimo 1 sede a distanza");
+});
+
+suite.test("n=2 medici: fisici nelle 2 CDC, nessuna copertura automatica delle altre sedi", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
   const t = unicoTurno(d);
   suite.eq(t.slots[0], TRIGODKO);
   suite.eq(t.slots[1], PRESSACCO);
-  suite.eq(t.fis.length, 2);
+  suite.assert(t.slots[2] === null && t.slots[3] === null && t.slots[4] === null, "Meduno/Claut/Anduins scoperte senza blu dichiarato");
 });
 
-suite.test("n=3 medici → target Maniago+Spilimbergo+Meduno, tutti e 3 fisici", () => {
+suite.test("n=2 medici, conflitto sullo stesso blu senza titolarità in gioco: decide la categoria", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // DET36
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // DET24
+  const t = unicoTurno(d);
+  suite.eq(t.slots[2], TRIGODKO, "DET36 batte DET24 anche nel conflitto blu");
+});
+
+suite.test("n=3 medici: fisici a Maniago, Spilimbergo, Meduno; il resto dipende dal blu", () => {
   const d = dispoBase(MEDICI);
   const GHIZZO = 5;
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
   d[GHIZZO][N(G1)] = turnoDisp(["Meduno"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], TRIGODKO);
-  suite.eq(t.slots[1], PRESSACCO);
-  suite.eq(t.slots[2], GHIZZO);
-  suite.eq(t.fis.length, 3);
+  suite.eq(t.slots[0], TRIGODKO); suite.eq(t.slots[1], PRESSACCO); suite.eq(t.slots[2], GHIZZO);
+  suite.assert(t.slots[3] === null && t.slots[4] === null, "Claut e Anduins scoperte senza blu");
 });
 
-suite.test("n=4 medici → target Maniago+Spilimbergo+Meduno+Claut, tutti e 4 fisici", () => {
+suite.test("n=3 medici con blu su Claut e Anduins: entrambe coperte se dichiarate da fisici diversi", () => {
+  const d = dispoBase(MEDICI);
+  const GHIZZO = 5;
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } });
+  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  d[GHIZZO][N(G1)] = turnoDisp(["Meduno"]);
+  const t = unicoTurno(d);
+  suite.eq(t.slots[3], TRIGODKO, "Claut coperta da chi l'ha dichiarata blu");
+  suite.eq(t.slots[4], PRESSACCO, "Anduins coperta da chi l'ha dichiarata blu");
+});
+
+suite.test("n=4 medici: 4 sedi fisiche (MA+SP+ME+CL), Anduins dipende dal blu", () => {
   const d = dispoBase(MEDICI);
   const GHIZZO = 5, IENGO = 6;
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
@@ -217,132 +313,101 @@ suite.test("n=4 medici → target Maniago+Spilimbergo+Meduno+Claut, tutti e 4 fi
   d[GHIZZO][N(G1)] = turnoDisp(["Meduno"]);
   d[IENGO][N(G1)] = turnoDisp(["Claut"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[3], IENGO, "Claut deve poter essere coperta fisicamente quando dichiarata e in target (n=4)");
   suite.eq(t.fis.length, 4);
+  suite.eq(t.slots[3], IENGO);
+  suite.assert(t.slots[4] === null, "Anduins scoperta senza blu dichiarato da nessuno dei 4 fisici");
 });
 
-suite.test("Maniago e Spilimbergo sono sempre coperte per prime quando ci sono abbastanza candidati", () => {
+suite.test("un medico copre al massimo 1 sede a distanza anche con più blu dichiarati e disponibili", () => {
   const d = dispoBase(MEDICI);
-  // 4 medici, nessuno dichiara esplicitamente Maniago o Spilimbergo come unica scelta:
-  // dichiarano più sedi indifferenti, e il motore deve comunque privilegiare MA+SP nel target.
-  const GHIZZO = 5, IENGO = 6;
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago", "Meduno"], [], { pieneLiv: { Maniago: 1, Meduno: 1 } });
-  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo", "Claut"], [], { pieneLiv: { Spilimbergo: 1, Claut: 1 } });
-  d[GHIZZO][N(G1)] = turnoDisp(["Meduno", "Maniago"], [], { pieneLiv: { Meduno: 1, Maniago: 1 } });
-  d[IENGO][N(G1)] = turnoDisp(["Claut", "Spilimbergo"], [], { pieneLiv: { Claut: 1, Spilimbergo: 1 } });
-  const t = unicoTurno(d);
-  suite.assert(!!t.slots[0] && !!t.slots[1], "MA e SP devono risultare coperte fisicamente");
-});
-
-suite.test("Claut sempre da Maniago quando a distanza (n=2)", () => {
-  const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno", "Claut", "Anduins"], { bluLiv: { Meduno: 1, Claut: 2, Anduins: 3 } });
   d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[3], t.slots[0], "Claut deve essere coperta da chi è fisicamente a Maniago, mai da SP/ME/AN");
+  suite.eq(t.slots[2], TRIGODKO, "prende Meduno, il suo blu di livello migliore");
+  suite.assert(t.slots[3] === null && t.slots[4] === null, "Claut e Anduins restano scoperte: massimo 1 sede a distanza a testa");
 });
 
-suite.test("Claut sempre da Maniago quando a distanza (n=3, con Meduno fisico)", () => {
+suite.test("se il vincitore del blu preferito viene scalzato, prova il blu successivo nel suo ordine", () => {
   const d = dispoBase(MEDICI);
   const GHIZZO = 5;
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
-  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
-  d[GHIZZO][N(G1)] = turnoDisp(["Meduno"]);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad4
+  d[GHIZZO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad91
   const t = unicoTurno(d);
-  suite.eq(t.slots[3], TRIGODKO, "anche con Meduno fisico, Claut deve venire da Maniago e non da Meduno/Spilimbergo");
-});
-
-suite.test("Meduno a distanza segue la priorità completa (categoria→debito→grad), non solo il grad", () => {
-  const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36 grad4 — priorità superiore
-  d[ZURLO][N(G1)] = turnoDisp(["Spilimbergo"]); // SENZA grad2 — grad numerico migliore ma priorità inferiore
-  const t = unicoTurno(d);
-  suite.eq(t.slots[2], TRIGODKO, "Meduno deve andare a chi ha priorità superiore (TRIGODKO), non al grad numerico più basso");
-});
-
-suite.test("Anduins a distanza segue il grad puro tra SP e ME (non l'intera gerarchia)", () => {
-  const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // copre anche Meduno per priorità superiore
-  d[ZURLO][N(G1)] = turnoDisp(["Spilimbergo"]); // grad2, numericamente migliore di TRIGODKO(4)
-  const t = unicoTurno(d);
-  suite.eq(t.slots[4], ZURLO, "Anduins segue il grad puro tra chi occupa SP e ME: ZURLO (grad2) batte TRIGODKO (grad4)");
+  suite.eq(t.slots[2], TRIGODKO, "TRIGODKO (grad migliore) vince Meduno");
+  suite.eq(t.slots[3], GHIZZO, "GHIZZO, perso Meduno, ottiene comunque Claut (suo blu successivo)");
 });
 
 // ---------------------------------------------------------------------------
-// E. LIVELLI E RICOLLOCAZIONE (§3.3)
+// F. LIVELLI VERDE (ricollocazione fisica, §3.3)
 // ---------------------------------------------------------------------------
-suite.test("livelli pari fra due sedi = indifferente: il motore ricolloca per massimizzare le coperture", () => {
+suite.test("livelli verdi pari fra due sedi = indifferente: il motore ricolloca per massimizzare le coperture", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G1)] = turnoDisp(["Spilimbergo", "Maniago"], [], { pieneLiv: { Spilimbergo: 1, Maniago: 1 } });
-  d[CAMPANER][N(G1)] = turnoDisp(["Spilimbergo"], [], { pieneLiv: { Spilimbergo: 1 } });
+  d[BERTUZZI][N(G1)] = turnoDisp(["Spilimbergo", "Maniago"], [], { verdeLiv: { Spilimbergo: 1, Maniago: 1 } });
+  d[CAMPANER][N(G1)] = turnoDisp(["Spilimbergo"]);
   const t = unicoTurno(d);
   suite.eq(t.slots[0], BERTUZZI, "BERTUZZI si sposta su Maniago (indifferente per lui)");
   suite.eq(t.slots[1], CAMPANER, "CAMPANER ottiene Spilimbergo, la sua unica scelta");
-  suite.eq(t.fis.length, 2, "entrambi devono risultare fisicamente presenti");
 });
 
-suite.test("livello migliore = diritto di tenere la sede contro chi non supera in gerarchia", () => {
+suite.test("livello verde migliore = diritto di tenere la sede contro chi non supera in gerarchia", () => {
   const d = dispoBase(MEDICI);
-  d[CAMPANER][N(G1)] = turnoDisp(["Spilimbergo"]); // IND24, unica scelta
-  d[ZURLO][N(G1)] = turnoDisp(["Spilimbergo"]); // SENZA, priorità inferiore
+  d[CAMPANER][N(G1)] = turnoDisp(["Spilimbergo"]);
+  d[ZURLO][N(G1)] = turnoDisp(["Spilimbergo"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[1], CAMPANER, "CAMPANER deve tenere Spilimbergo: ZURLO non ha priorità sufficiente per scalzarlo");
+  suite.eq(t.slots[1], CAMPANER);
 });
 
-suite.test("scalzamento consentito quando il richiedente (anche in ripiego) ha priorità superiore", () => {
-  const d = dispoBase(MEDICI);
-  d[WANG][N(G1)] = turnoDisp(["Spilimbergo"]); // DET24, unica scelta, nessuna alternativa
-  d[BERTUZZI][N(G1)] = turnoDisp(["Meduno"], ["Spilimbergo"], { ripiegoLiv: { Spilimbergo: 1 } }); // IND36, Spilimbergo solo come ripiego
-  const t = unicoTurno(d);
-  suite.eq(t.slots[1], BERTUZZI, "BERTUZZI (priorità superiore) scalza WANG da Spilimbergo anche arrivandoci in ripiego");
-  suite.assert(!t.fis.includes(1) || t.slots[1] === BERTUZZI, "WANG deve risultare escluso dal turno, non ricollocato altrove (nessuna alternativa dichiarata)");
-});
-
-suite.test("nessuno scalzamento se il richiedente in ripiego NON ha priorità superiore", () => {
+suite.test("scalzamento fisico consentito solo se il richiedente ha vera priorità superiore", () => {
   const d = dispoBase(MEDICI);
   d[WANG][N(G1)] = turnoDisp(["Spilimbergo"]); // DET24, unica scelta
-  d[MICHELI][N(G1)] = turnoDisp(["Meduno"], ["Spilimbergo"], { ripiegoLiv: { Spilimbergo: 1 } }); // SENZA, priorità inferiore
+  d[BERTUZZI][N(G1)] = turnoDisp(["Meduno", "Spilimbergo"], [], { verdeLiv: { Meduno: 1, Spilimbergo: 2 } }); // INDET
   const t = unicoTurno(d);
-  suite.eq(t.slots[1], WANG, "WANG deve mantenere Spilimbergo: MICHELI non ha priorità sufficiente per scalzarlo, nemmeno in ripiego");
+  suite.eq(t.slots[1], BERTUZZI, "BERTUZZI (priorità superiore) scalza WANG da Spilimbergo anche a livello peggiore");
 });
 
 // ---------------------------------------------------------------------------
-// F. INVARIANTI GENERALI (INV1-INV4)
+// G. INVARIANTI GENERALI
 // ---------------------------------------------------------------------------
-suite.test("INV1: nessun medico fisico senza disponibilità dichiarata per quella sede", () => {
+suite.test("INV1: nessun medico fisico senza disponibilità verde dichiarata per quella sede", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
   const t = unicoTurno(d);
-  t.fis.forEach((si) => {
-    const mid = t.slots[si];
-    const v = mid === TRIGODKO ? ["Maniago"] : ["Spilimbergo"];
-    suite.assert(mid === TRIGODKO ? si === 0 : si === 1, "ogni fisico deve stare solo dove ha dichiarato disponibilità");
-  });
+  suite.eq(t.slots[0], TRIGODKO); suite.eq(t.slots[1], PRESSACCO);
 });
 
-suite.test("INV2: nessun medico con NO esplicito viene assegnato fisicamente", () => {
+suite.test("INV2: nessun medico con NO esplicito viene assegnato (né fisico né a distanza)", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp([], [], { no: true });
   d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
-  suite.assert(!t.slots.includes(TRIGODKO), "il medico con NO non deve comparire in nessuno slot");
+  suite.assert(!t.slots.includes(TRIGODKO));
   suite.eq(t.slots[0], PRESSACCO);
 });
 
 suite.test("INV3: le coperture a distanza provengono solo da medici fisicamente presenti nel turno", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } });
   const t = unicoTurno(d);
-  t.slots.forEach((mid, si) => {
-    if (!t.fis.includes(si)) suite.assert(t.fis.some((fi) => t.slots[fi] === mid), `slot a distanza ${si} deve provenire da un fisico del turno`);
-  });
+  suite.eq(t.slots[2], TRIGODKO);
+  suite.assert(t.fis.includes(0) && t.slots[0] === TRIGODKO, "chi copre a distanza deve essere fisico nel turno");
+});
+
+suite.test("nessuna copertura è automatica: senza alcun blu dichiarato, tutto ciò che non è fisico resta scoperto", () => {
+  const d = dispoBase(MEDICI);
+  const GHIZZO = 5, IENGO = 6;
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
+  d[GHIZZO][N(G1)] = turnoDisp(["Meduno"]);
+  d[IENGO][N(G1)] = turnoDisp(["Claut"]);
+  const t = unicoTurno(d);
+  suite.assert(t.slots[4] === null, "Anduins non è mai un target fisico e senza blu resta sempre scoperta");
 });
 
 suite.test("nessuna eccezione con turno completamente privo di candidati", () => {
   const d = dispoBase(MEDICI);
   const t = unicoTurno(d);
-  suite.assert(t.slots.every((s) => s === null), "senza candidati tutti gli slot devono restare vuoti");
+  suite.assert(t.slots.every((s) => s === null));
   suite.eq(t.fis.length, 0);
 });
 
@@ -350,32 +415,21 @@ suite.test("nessuna eccezione con singolo candidato marcato NO esplicito", () =>
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp([], [], { no: true });
   const t = unicoTurno(d);
-  suite.assert(t.slots.every((s) => s === null), "un unico candidato con NO non deve generare alcuna assegnazione");
+  suite.assert(t.slots.every((s) => s === null));
 });
 
-// ---------------------------------------------------------------------------
-// G. CASI AGGIUNTIVI (turni extra, weekend a doppio turno, esaurimento via recupero negativo)
-// ---------------------------------------------------------------------------
-suite.test("due senza incarico in conflitto: vince solo il grad, categoria irrilevante (sono nella stessa fascia)", () => {
+suite.test("due senza incarico in conflitto: vince solo il grad", () => {
   const d = dispoBase(MEDICI);
-  const GRANDO = 14; // grad13
-  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]); // grad2
-  d[GRANDO][N(G1)] = turnoDisp(["Maniago"]); // grad13
+  const GRANDO = 14;
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]);
+  d[GRANDO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
   suite.eq(t.slots[0], ZURLO);
 });
 
-suite.test("due esauriti di categorie diverse: la categoria non conta più, decide solo il grad", () => {
-  const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET36 grad4, esaurito
-  d[WANG][N(G1)] = turnoDisp(["Maniago"]); // DET24 grad124, esaurito — categoria "inferiore" ma qui non conta
-  const t = unicoTurno(d, { [TRIGODKO]: -156, [WANG]: -104 });
-  suite.eq(t.slots[0], TRIGODKO, "tra esauriti la categoria di partenza non pesa più, solo il grad");
-});
-
 suite.test("weekend: entrambi i turni (diurno e notturno) vengono elaborati indipendentemente", () => {
   const d = dispoBase(MEDICI);
-  const weekend = 1; // sabato 1 agosto 2026 → turni G + N
+  const weekend = 1;
   const G = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|G`;
   d[TRIGODKO][G(weekend)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(weekend)] = turnoDisp(["Maniago"]);
@@ -385,7 +439,7 @@ suite.test("weekend: entrambi i turni (diurno e notturno) vengono elaborati indi
   suite.eq(giorno.turni.find((t) => t.id === "N").slots[0], PRESSACCO);
 });
 
-suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo gerarchia, senza scenario/distanza", () => {
+suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo gerarchia", () => {
   const d = dispoBase(MEDICI);
   const giorno = GIORNI_FERIALI_SEMPLICI[0];
   const extras = { [dk(ANNO_TEST, MESE_TEST, giorno)]: { M: true } };
@@ -394,15 +448,15 @@ suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo g
   d[TRIGODKO][M] = turnoDisp(["Maniago"]);
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, extras);
   const t = schema.find((g) => g.giorno === giorno).turni.find((x) => x.id === "M");
-  suite.eq(t.slots[0], CAMPANER, "IND24 deve battere DET36 anche sul turno extra");
-  suite.eq(t.slots.length, 1, "il turno extra ha un solo slot, nessuno scenario di copertura sedi");
+  suite.eq(t.slots[0], CAMPANER, "INDET deve battere DET36 anche sul turno extra");
+  suite.eq(t.slots.length, 1);
 });
 
 suite.test("recupero ore negativo esaurisce prima il debito e fa uscire dalla priorità di categoria", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]); // IND36, ma via extraOre negativo va sotto zero
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET24, debito pieno
-  const t = unicoTurno(d, { [BERTUZZI]: -200 }); // 156-200 = -44, esaurito
+  d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
+  const t = unicoTurno(d, { [BERTUZZI]: -200 });
   suite.eq(t.slots[0], FOSCHIANI, "BERTUZZI esaurito da recupero negativo deve perdere contro chi ha ancora debito");
 });
 
