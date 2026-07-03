@@ -1177,6 +1177,10 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - In caso di dati ambigui o mancanti, chiedi chiarimento prima di procedere
 - Gli errori del coordinatore si correggono sempre retroattivamente, in qualsiasi fase
 
+== STILE DI RISPOSTA E LIMITI ==
+- Fai al massimo 3-4 azioni per risposta. Sii conciso, evita ripetizioni e non superare 2000 token di output.
+- Se l'utente chiede molte modifiche insieme (più di 3-4 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 3-4 in questo round (nella "spiegazione" e in "azioni"), poi indica chiaramente alla fine della "spiegazione" quante azioni restano ancora da fare e di cosa si tratta (es. "Ho preparato le prime 4 modifiche su 11 richieste. Ne restano 7 (elenco). Conferma queste, poi chiedimi di continuare per le successive."). L'utente proseguirà con round successivi finché non restano azioni.
+
 RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati:
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
@@ -1202,9 +1206,11 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       });
       const data = await resp.json();
       if (!resp.ok) {
-        // API ha risposto con errore HTTP (es. 401, 529, ecc.)
-        const errMsg = data?.error?.message || `HTTP ${resp.status}`;
-        setAiMsgs((p) => [...p, { role: "assistant", content: `Errore API: ${errMsg}. L'AI integrata funziona solo quando l'app è aperta come artifact attivo in claude.ai.` }]);
+        // API ha risposto con errore HTTP (es. 401, 529, ecc.): mostra il messaggio completo di Anthropic
+        const errObj = data?.error;
+        const dettaglio = errObj ? `${errObj.type || "errore"}: ${errObj.message || JSON.stringify(errObj)}` : JSON.stringify(data);
+        const reqId = data?.request_id ? ` [request_id: ${data.request_id}]` : "";
+        setAiMsgs((p) => [...p, { role: "assistant", content: `Errore API (HTTP ${resp.status}): ${dettaglio}${reqId}` }]);
         setAiBusy(false);
         return;
       }

@@ -433,6 +433,9 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 ## 13. PROMPTS E SISTEMI ESTERNI
 
 **Assistente AI nell'app** — usa il system prompt in `chiediAI`. Conosce tutte le regole di business (gerarchia, titolarità, debito), il formato JSON per modificare disponibilità (verde/blu) e schema. Il prompt è nel codice e può essere aggiornato.
+- Modello `claude-sonnet-4-6`, `max_tokens: 16000`.
+- Sezione `STILE DI RISPOSTA E LIMITI` nel prompt: massimo 3-4 azioni per risposta, output entro 2000 token. Se l'utente chiede più modifiche di quante ne stiano in un round, l'AI ne esegue solo le prime 3-4 e indica nella "spiegazione" quante azioni restano — l'utente prosegue con round successivi finché non ne restano.
+- Errori HTTP dalla chiamata a `api.anthropic.com` (`!resp.ok`): mostrato in chat il messaggio completo restituito da Anthropic (`error.type` + `error.message`, più `request_id` se presente), non più un messaggio generico fisso.
 
 **Progetto Claude separato** — esiste un prompt di sistema separato (fuori da questa app) per processare email di disponibilità e produrre un file Excel. Non è nel file `.jsx`.
 
