@@ -2,6 +2,9 @@
 // Verde: ordine di prova per la ricollocazione fisica. Blu: ordine di prova per la copertura
 // a distanza, con conflitto risolto dalla stessa gerarchia usata per il fisico:
 // titolarità sede → categoria → debito → graduatoria.
+// A parità di livello (sia verde che blu) l'ordine di prova segue sempre SEDI5 (Maniago →
+// Spilimbergo → Meduno → Claut → Anduins), MAI l'ordine in cui il medico ha dichiarato le sedi:
+// la parità rende due sedi "indifferenti" per il medico, non davvero equivalenti tra loro.
 import { MEDICI, dk, elaboraSchema, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
 
@@ -20,15 +23,19 @@ function unicoTurno(dispo, extraOre = {}) {
 // ---------------------------------------------------------------------------
 suite.test("ordinaPerLivello ordina le sedi per livello crescente", () => {
   const out = ordinaPerLivello(["Meduno", "Spilimbergo", "Claut"], { Meduno: 2, Spilimbergo: 1, Claut: 2 }, MAX_LIV_VERDE);
-  suite.eq(out.join(","), "Spilimbergo,Meduno,Claut", "livello 1 prima, poi livello 2 nell'ordine di inserimento originale");
+  suite.eq(out.join(","), "Spilimbergo,Meduno,Claut", "livello 1 prima, poi livello 2 nell'ordine fisso SEDI5 (Meduno prima di Claut)");
 });
 suite.test("livello mancante (non dichiarato) vale di default 1", () => {
   const out = ordinaPerLivello(["Meduno"], {}, MAX_LIV_VERDE);
   suite.eq(out.join(","), "Meduno");
 });
-suite.test("più sedi allo stesso livello mantengono l'ordine di inserimento nell'array", () => {
+suite.test("più sedi allo stesso livello: la parità NON le rende equivalenti, vince l'ordine fisso SEDI5", () => {
   const out = ordinaPerLivello(["Claut", "Anduins", "Meduno"], { Claut: 1, Anduins: 1, Meduno: 1 }, MAX_LIV_VERDE);
-  suite.eq(out.join(","), "Claut,Anduins,Meduno");
+  suite.eq(out.join(","), "Meduno,Claut,Anduins", "l'ordine di dichiarazione (Claut, Anduins, Meduno) viene ignorato: decide sempre Maniago→Spilimbergo→Meduno→Claut→Anduins");
+});
+suite.test("parità tra una CDC e una sede secondaria: la CDC vince sempre, come se fosse un livello migliore", () => {
+  const out = ordinaPerLivello(["Meduno", "Maniago"], { Meduno: 1, Maniago: 1 }, MAX_LIV_VERDE);
+  suite.eq(out.join(","), "Maniago,Meduno", "Maniago dichiarato livello 1 e Meduno livello 1: si prova comunque prima Maniago, esattamente come Maniago:1 + Meduno:2");
 });
 suite.test("il cap di livello massimo è rispettato (blu si ferma a 4, non considera un ipotetico 5)", () => {
   const out = ordinaPerLivello(["Meduno", "Claut"], { Meduno: 4, Claut: 5 }, MAX_LIV_BLU);

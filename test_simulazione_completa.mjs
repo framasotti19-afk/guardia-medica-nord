@@ -58,18 +58,18 @@ function generaScenario(seed, anno, mese) {
         const slotKey = `${info.key}|${turno.id}`;
         if (chance(0.3)) return; // giorno non compilato affatto (nessuna dichiarazione)
         if (turno.extra) {
-          if (chance(0.3)) dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: false, preferitoRip: false };
+          if (chance(0.3)) dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: chance(0.03) ? casa : null };
           return;
         }
         if (chance(0.2)) {
-          dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
+          dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
           return;
         }
         const verde = [casa]; const verdeLiv = { [casa]: 1 + Math.floor(rnd() * MAX_LIV_VERDE) };
         if (verde2) { verde.push(verde2); verdeLiv[verde2] = verdeLiv[casa]; } // pari livello: indifferenti
         dispo[m.id][slotKey] = {
           verde, verdeLiv, blu: [...blu], bluLiv: { ...bluLiv },
-          no: false, preferito: chance(0.03), preferitoRip: chance(0.01),
+          no: false, preferito: chance(0.03) ? pick(verde) : null,
         };
       });
     }

@@ -349,6 +349,28 @@ suite.test("livelli verdi pari fra due sedi = indifferente: il motore ricolloca 
   suite.eq(t.slots[1], CAMPANER, "CAMPANER ottiene Spilimbergo, la sua unica scelta");
 });
 
+suite.test("parità di livello fra una CDC e una sede secondaria: vince sempre la CDC, MAI l'ordine di dichiarazione", () => {
+  const d = dispoBase(MEDICI);
+  // MICHELI unico candidato (n=1, target dinamico): dichiara Meduno PRIMA di Maniago nell'array,
+  // entrambi a livello 1 (pari). Se la parità fosse risolta per ordine di inserimento, andrebbe
+  // a Meduno; deve invece andare a Maniago perché le CDC vengono sempre prima a parità di livello.
+  d[MICHELI][N(G1)] = turnoDisp(["Meduno", "Maniago"], [], { verdeLiv: { Meduno: 1, Maniago: 1 } });
+  const t = unicoTurno(d);
+  suite.eq(t.slots[0], MICHELI, "va a Maniago nonostante l'abbia dichiarato dopo Meduno nell'array");
+  suite.assert(t.slots[2] === null, "Meduno resta scoperta: la parità con Maniago non la rende una scelta equivalente");
+});
+
+suite.test("parità Maniago/Meduno = identico risultato di Maniago:1 + Meduno:2 (la parità non è vera indifferenza tra CDC e sede secondaria)", () => {
+  const d1 = dispoBase(MEDICI);
+  d1[MICHELI][N(G1)] = turnoDisp(["Meduno", "Maniago"], [], { verdeLiv: { Meduno: 1, Maniago: 1 } });
+  const t1 = unicoTurno(d1);
+  const d2 = dispoBase(MEDICI);
+  d2[MICHELI][N(G1)] = turnoDisp(["Meduno", "Maniago"], [], { verdeLiv: { Meduno: 2, Maniago: 1 } });
+  const t2 = unicoTurno(d2);
+  suite.eq(t1.slots[0], t2.slots[0], "stesso esito su Maniago sia dichiarando Meduno:1 (pari) sia Meduno:2 (esplicitamente peggiore)");
+  suite.eq(t1.slots[0], MICHELI);
+});
+
 suite.test("livello verde migliore = diritto di tenere la sede contro chi non supera in gerarchia", () => {
   const d = dispoBase(MEDICI);
   d[CAMPANER][N(G1)] = turnoDisp(["Spilimbergo"]);

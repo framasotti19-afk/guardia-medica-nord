@@ -54,13 +54,13 @@ MEDICI.forEach((m, idx) => {
       if (turno.extra) {
         // disponibile ai turni extra solo se "vicino" (verde = casa) e non troppo spesso
         if (chance(0.35)) {
-          dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: false, preferitoRip: false };
+          dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: null };
         }
         return;
       }
       if (chance(0.22)) {
         // indisponibilità esplicita (impegno personale)
-        dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
+        dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
         return;
       }
       const verde = [casa];
@@ -69,13 +69,12 @@ MEDICI.forEach((m, idx) => {
       const blu = [blu1];
       const bluLiv = { [blu1]: 1 };
       if (blu2) { blu.push(blu2); bluLiv[blu2] = 2; }
-      let preferito = false, preferitoRip = false;
+      let preferito = null;
       if (preferitiDati < 2 && chance(0.05)) {
-        preferito = true;
+        preferito = pick(verde); // ★ su una sede verde specifica dichiarata
         preferitiDati++;
-        if (chance(0.3)) preferitoRip = true;
       }
-      dispo[m.id][slotKey] = { verde, verdeLiv, blu, bluLiv, no: false, preferito, preferitoRip };
+      dispo[m.id][slotKey] = { verde, verdeLiv, blu, bluLiv, no: false, preferito };
     });
   }
 });

@@ -24,17 +24,17 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1646 righe)
+## 2. STRUTTURA DEL FILE (~1764 righe)
 
 ```
 righe 1-108     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
-righe 109-146   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU
-righe 147-315   → MOTORE: elaboraTurno (cuore dell'algoritmo di assegnazione: fisica + a distanza)
-righe 316-401   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
-righe 402-418   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
-righe 419-726   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici)
-righe 727-955   → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 956-1646  → COMPONENTE REACT (UI, AI, render)
+righe 109-183   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
+righe 184-385   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
+righe 386-469   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
+righe 470-486   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
+righe 487-826   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
+righe 827-1056  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
+righe 1057-1764 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -44,7 +44,7 @@ python3 -c "
 src = open('turni-guardia-medica.jsx').read()
 end = src.index('// ============ COMPONENTE ============')
 engine = src[:end].replace('import { useState, useMemo, useRef, useEffect } from \"react\";\n', '')
-open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, MESI_DISPONIBILI, MESI_IT };\n')
+open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };\n')
 print('motore estratto')
 "
 ```
@@ -115,36 +115,34 @@ dispo[mid][slotKey] = {
   blu: ["Meduno"],                        // sedi che è disposto a COPRIRE A DISTANZA
   bluLiv: { Meduno: 1 },                  // livello 1..4 per ogni sede blu
   no: false,                              // NO esplicito (protegge dall'inserimento rapido)
-  preferito: false,                       // vuole questo turno come sede fisica (verde)
-  preferitoRip: false,                    // lo vuole "a tutti i costi" (soddisfatto solo da una sede
-                                           // fisica qualunque, poiché coprire a distanza richiede
-                                           // sempre una presenza fisica altrove — vedi nota sotto)
+  preferito: "Maniago",                   // ★ SEDE VERDE specifica preferita per questo turno,
+                                           // o null — deve essere una delle sedi in `verde` (§3.5)
 }
 ```
 
 **Verde (sede fisica):**
-- Livelli 1..5. Livelli PARI tra più sedi = indifferenti per il medico. Il motore può spostarlo tra di esse per massimizzare le coperture (es. Maniago:1, Spilimbergo:1 → entrambi lo stesso per lui).
+- Livelli 1..5. Livelli PARI tra più sedi rendono il medico "indifferente" ai fini della ricollocazione: il motore può spostarlo tra quelle sedi per massimizzare le coperture.
+- **La parità NON rende però due sedi davvero equivalenti tra loro.** L'ordine in cui il motore le prova a parità di livello segue sempre l'ordine fisso `SEDI5` — Maniago → Spilimbergo → Meduno → Claut → Anduins — **mai** l'ordine in cui il medico le ha dichiarate. Una CDC (Maniago/Spilimbergo) pari con una sede secondaria vince quindi sempre la CDC, esattamente come se fosse un livello migliore: un medico che dichiara Maniago livello 1 e Meduno livello 1 va a Maniago, con lo stesso risultato di Maniago livello 1 + Meduno livello 2 (vedi `ordinaPerLivello` in §5).
 - Livello più basso = sede che il medico ha diritto di tenere contro chiunque non lo superi in gerarchia (titolarità → categoria → debito → graduatoria tra determinati; categoria → debito → graduatoria altrimenti).
 - **I livelli non cambiano MAI chi vince un conflitto.** Cambiano solo quale sede viene assegnata a ciascun vincitore, massimizzando il numero di medici al lavoro.
 - Non esiste più una distinzione piena/ripiego a due livelli: verde è un'unica lista di preferenze fisiche 1-5.
 
 **Blu (copertura a distanza):**
 - Livelli 1..4 (non 5: al massimo 4 "altre" sedi da poter coprire oltre alla propria).
+- Stessa regola di parità del verde: a livello blu pari tra più sedi, l'ordine di prova segue sempre `SEDI5` (Maniago → Spilimbergo → Meduno → Claut → Anduins), non l'ordine di dichiarazione — stesso helper `ordinaPerLivello` condiviso con il verde.
 - Il medico deve essere **fisicamente presente** (verde) da qualche parte nello stesso turno per poter coprire una sede a distanza — un medico che dichiara solo blu (senza alcuna sede verde raggiungibile) non copre mai nulla.
 - Copre al massimo **1 sola sede a distanza**, la prima disponibile nel suo ordine blu dichiarato. Se scalzato dalla sua prima scelta blu (da un medico con priorità superiore), riprova con la successiva.
 - Conflitto sulla stessa sede blu tra più medici fisici: **titolarità sede → categoria → debito → graduatoria** — stessa identica gerarchia usata per l'assegnazione fisica (vedi §3.1a).
 - Il blu non scalza mai una presenza fisica: può competere solo per sedi non fisicamente coperte.
 
-**Nota su preferito/preferitoRip:** poiché coprire a distanza richiede sempre una presenza fisica altrove (che già soddisfa da sola `preferito`), nel sistema verde/blu `preferito` e `preferitoRip` sono soddisfatti dagli stessi identici casi (qualunque sede verde ottenuta, indipendentemente dal livello). La distinzione tra i due resta solo nel testo dell'avviso generato quando il medico finisce escluso dal turno ("non gli è stato assegnato" vs "voleva a tutti i costi, ma...").
-
 **Nessuna retrocompatibilità con il vecchio formato piene/ripiego:** il salvataggio dati esistente basato su `piene`/`ripiego` non viene automaticamente convertito — è un cambio di formato deliberato (§6, punto "sistema di disponibilità"), le disponibilità già inserite vanno reinserite con il nuovo menu a tendina.
 
 ### 3.4 Meccanismo auto-bilanciante del debito
 
-Turni elaborati in ordine cronologico (ma i turni con almeno un "preferito" vengono elaborati TUTTI PRIMA del resto):
+Turni elaborati in ordine cronologico (ma i turni con almeno un preferito ★ dichiarato vengono elaborati TUTTI PRIMA del resto):
 
 ```
-turni_del_mese = [...conPref, ...resto]  // conPref = turni con preferito o preferitoRip
+turni_del_mese = [...conPref, ...resto]  // conPref = turni con almeno un preferito ★ dichiarato
 ```
 
 Questo è critico: cambia i debiti progressivi e quindi i risultati di conflitti successivi.
@@ -155,9 +153,15 @@ Dopo ogni assegnazione il debito del vincitore scende. Al turno successivo a par
 Esempio con 5 turni a parità di debito iniziale:
 - A(grad3) vs B(grad124): A 1°, B 2°, A 3°, B 4°, A 5° → risultato 3-2 per A
 
-### 3.5 Preferiti
+### 3.5 Preferiti — sede specifica
 
-Il flag `preferito` NON decide mai chi vince un conflitto. Serve solo a garantire che il turno preferito venga elaborato tra i primi (fase `conPref`), così il debito del medico è ancora pieno quando viene valutato — aumentando la probabilità (non la certezza) di ottenerlo. La gerarchia rimane intoccata.
+Il flag ★ **preferito si attacca a una sede VERDE specifica**, non alla giornata generica: il medico dichiara "voglio questo turno preferibilmente su questa sede", marcando con ★ una delle sedi che ha già dichiarato verde per quel turno (`preferito` = nome della sede, o `null`).
+
+- Il preferito NON decide mai chi vince un conflitto. Serve solo a garantire che il turno venga elaborato tra i primi (fase `conPref`), così il debito del medico è ancora pieno quando viene valutato — aumentando la probabilità (non la certezza) di ottenerlo. La gerarchia rimane l'unico criterio decisionale.
+- **Soddisfatto se e solo se il medico ottiene fisicamente esattamente quella sede** — non una sede verde qualunque. Se ottiene una sede fisica diversa (anche se dichiarata come sua seconda scelta verde), o se non ottiene alcuna sede, il coordinatore riceve un avviso; il testo distingue i due casi ("ha ottenuto SEDEX invece" vs "non gli è stata assegnata alcuna sede").
+- Un medico ha al massimo **un solo** preferito per turno: marcarne uno nuovo toglie automaticamente quello precedente (radio, non multi-selezione).
+- Il preferito deve sempre riferirsi a una sede che il medico ha **attualmente** dichiarato verde per quel turno: se la sede verde viene rimossa (o cambiata in blu/non disponibile), il preferito su quella sede si azzera automaticamente.
+- **Non esiste più un preferito "anche in ripiego a distanza"** (il vecchio `preferitoRip`): era ridondante col blu, dato che coprire a distanza richiede comunque una presenza fisica altrove, e comunque il preferito ora è già specifico sulla sede fisica desiderata.
 
 ### 3.6 Calendario mensile e fasi
 
@@ -168,6 +172,26 @@ Il flag `preferito` NON decide mai chi vince un conflitto. Serve solo a garantir
 - **Giorno 15**: invio schema definitivo all'azienda
 
 **First come, first served** si applica solo alle richieste arrivate dopo il giorno 3. Le regole ordinarie (gerarchia, debito, graduatoria) si applicano solo alle disponibilità entro il giorno 3. **Eccezione assoluta:** errori del coordinatore si correggono sempre retroattivamente.
+
+### 3.7 Spaziatura temporale
+
+Tra i turni disponibili di un medico, il motore preferisce **sempre** quello temporalmente più distante dall'ultimo turno FISICO già assegnato allo stesso medico. Vale sempre, non solo se il medico ha dichiarato un tetto settimanale (§3.8).
+
+- **Non decide mai chi vince un conflitto tra medici diversi, né quale sede viene assegnata** — questo resta compito esclusivo della gerarchia normale (titolarità → categoria → debito → graduatoria) e dei livelli verdi/blu. Meccanicamente, la spaziatura agisce come un **pre-filtro sulla candidatura**, non come un criterio di gerarchia aggiuntivo: se il vincitore "naturale" di una sede ha lavorato il giorno prima (o lo stesso giorno, su un altro turno) — distanza di calendario ≤ 1 — ED esiste un altro candidato che ha dichiarato verde la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa a quest'ultimo. Tra più alternative possibili, a decidere chi subentra è sempre e soltanto la gerarchia normale (non un ordine arbitrario).
+- **Non lascia MAI una sede scoperta per questo motivo**: se non esiste alcuna alternativa valida per quella sede specifica, il medico più recente resta dov'è — la copertura vince sempre sulla spaziatura. Un'alternativa "vale" solo se ha dichiarato verde la stessa identica sede contesa; un medico presente su un'ALTRA sede non conta come alternativa.
+- La distanza si misura in **giorni di calendario reali**, non nell'ordine interno di elaborazione (che può processare un turno con un preferito ★ prima di uno cronologicamente precedente — §3.4): la spaziatura calcola sempre `|data_turno - data_ultimo_assegnato|`, quindi resta corretta anche quando "ultimo assegnato" si riferisce, al momento del controllo, a una data cronologicamente successiva a quella in elaborazione.
+- Automatica, non richiede alcuna dichiarazione esplicita dal medico.
+- Un turno coperto **a distanza** (blu) non conta come "turno fisico" ai fini di questa regola: la distanza si misura sempre dall'ultimo posizionamento FISICO, mai da una copertura blu (che comunque avviene sempre nello stesso giorno di una presenza fisica — INV3).
+
+### 3.8 Tetto settimanale (opzionale)
+
+Il medico può dichiarare, per una specifica settimana (lunedì-domenica), un numero massimo di turni che vuole fare: `dispo[mid]["SETT:" + lunedì] = { maxTurni: N }` — una chiave ortogonale ai normali slotKey `"YYYY-MM-DD|ID"` (mai un turno vero e proprio, va sempre esclusa da qualunque iterazione sui turni di un medico).
+
+- Una volta raggiunto il tetto quella settimana, il medico **non è più candidato per nessuna sede** di nessun turno rimanente della stessa settimana — è come se avesse dichiarato NO per quei turni, ma solo a partire dal momento in cui il tetto viene raggiunto (i turni della settimana già elaborati restano validi).
+- **Nessuna copertura automatica di ripiego**: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile — coerente con la filosofia generale del sistema dichiarativo (§3.2).
+- Se non dichiarato, nessun limite (comportamento invariato, retrocompatibile).
+- Il tetto si applica anche ai turni **extra** (MMG mattina/pomeriggio): contano come "un turno" ai fini del conteggio.
+- Impostabile dall'interfaccia nel pannello "Inserimento rapido per intervallo" (campo opzionale "Tetto turni/settimana", applicato a tutte le settimane coperte dal periodo scelto) o via assistente AI (azione `tetto_settimana`).
 
 ---
 
@@ -194,19 +218,29 @@ La lista è modificabile dall'interfaccia (tab "3 · Medici / ore extra": catego
 ### elaboraTurno (cuore)
 
 ```javascript
-function elaboraTurno(d, turno, slotKey, dispo, debiti) {
-  // 1. Trova candidati con disponibilità valida (verde o blu) per questo slotKey
+function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+  // 1. Trova candidati con disponibilità valida (verde o blu) per questo slotKey, ESCLUSI quelli
+  //    che hanno già raggiunto il tetto settimanale dichiarato per la settimana di questo turno
+  //    (capSettimanale, §3.8) — se non dichiarato, nessuna esclusione (comportamento invariato)
   // 2. Li ordina: [conDeb (cat→deb→grad), senzaInc (grad), esaur (grad)] — ordine globale,
   //    la titolarità NON entra in questo ordinamento globale (è specifica per sede)
   // 3. FASE 1 — assegnazione fisica (verde):
   //    - target = sedi fisiche da puntare (dinamico per n=1, altrimenti MA[,SP[,ME[,CL]]])
   //    - provaFisica() — assegnazione con ricollocazione e scalzamento:
-  //      - Rispetta livelli verdi (veto se livello migliore)
+  //      - Rispetta livelli verdi (veto se livello migliore); a parità di livello l'ordine di
+  //        prova segue sempre SEDI5 (Maniago→Spilimbergo→Meduno→Claut→Anduins), MAI l'ordine
+  //        di dichiarazione — vedi ordinaPerLivello
   //      - Ricollocazione: se l'occupante è indifferente (pari livello), si sposta
   //      - Scalzamento: solo se il richiedente ha priorità superiore secondo isBetterPriority()
   //        (titolarità sede → categoria → debito → graduatoria tra determinati)
+  //    - SPAZIATURA TEMPORALE (§3.7): per ogni vincitore fisico, se ha lavorato ieri (o oggi
+  //      stesso su un altro turno — distanza di calendario ≤ 1, con Math.abs perché conPref può
+  //      processare fuori ordine cronologico) ED esiste un'alternativa che ha dichiarato verde
+  //      la STESSA sede e non ha ancora ottenuto nulla, la sede passa all'alternativa (decisa
+  //      sempre dalla gerarchia normale tra gli alternativi). Mai una sede scoperta per questo:
+  //      senza alternativa valida, il medico recente resta.
   //    - Rebuild slots da sedeDi (elimina "fantasmi" da ricollocazioni intermedie)
-  //    - Scala i debiti dei fisici
+  //    - Scala i debiti dei fisici, incrementa settimanaCount, aggiorna ultimoFisico
   // 4. FASE 2 — copertura a distanza (blu):
   //    - Solo i FISICI di questo turno tentano, nell'ordine di ordinati
   //    - provaBlu() — stesso schema ricorsivo di bump/retry, con la STESSA isBetterPriority()
@@ -223,6 +257,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
 - INV3: coperture a distanza solo da medici fisicamente presenti nel turno, e solo su sedi che hanno dichiarato come BLU
 - INV_BLU1: un medico copre al massimo 1 sede a distanza per turno
 - INV_GER: nessun medico con priorità inferiore (titolarità sede → categoria → debito → grad — stessa identica gerarchia sia per il fisico che per il blu) occupa una sede che un medico con priorità superiore voleva e non ha ottenuto
+- INV_SETT: nessun medico risulta fisico più volte di quante dichiarate dal proprio tetto settimanale (se dichiarato) per la settimana di quel turno
 
 **Invarianti storiche RIMOSSE con il nuovo sistema** (non più valide, sostituite dal modello dichiarativo):
 - ~~INV4: Claut a distanza viene sempre da Maniago~~ — ora dipende esclusivamente da chi dichiara blu su Claut.
@@ -232,9 +267,11 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
 ```javascript
 function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   // Inizializza debiti: CAT_INFO[cat].ore + (extraOre[mid] || 0)
+  // Inizializza settimanaCount ({}) e ultimoFisico ({}) — stato condiviso tra tutte le chiamate
+  // a elaboraTurno di questo stesso elaboraSchema (§3.7, §3.8)
   // Costruisce lista turni del mese
   // ORDINE CRITICO: [...conPref, ...resto]
-  //   conPref = turni dove almeno un medico ha preferito=true o preferitoRip=true
+  //   conPref = turni dove almeno un medico ha marcato con ★ una sua sede verde (preferito != null)
   //   Questo ordine cambia i debiti progressivi — il checker di gerarchia DEVE rispettarlo
   // Chiama elaboraTurno per ogni turno nell'ordine sopra
   // Raccoglie avvisi: copertura scoperta (per sede) + preferiti non rispettati
@@ -251,9 +288,11 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 4. **Menu a tendina per sede** — sostituisce il vecchio ciclo a tocchi: per ogni sede, un `<select>` con Non disponibile / Verde 1-5 / Blu 1-4
 5. **Sistema verde/blu** — verde = sede fisica (unificata, niente più piena/ripiego a due livelli), blu = disponibilità a coprire a distanza (nessuna copertura automatica, un medico copre al massimo 1 sede a distanza)
 6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati prima della categoria 36h/24h
-7. **Preferito sulla sede fisica e "a tutti i costi"** — 2 flag separati, informativi non decisionali
+7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
 8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati
 9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML)
+10. **Spaziatura temporale** — a parità di alternative valide, evita di assegnare due turni consecutivi allo stesso medico; non lascia mai sedi scoperte per questo (§3.7)
+11. **Tetto settimanale opzionale** — il medico dichiara un massimo di turni per settimana, impostabile da UI (Rapido) o AI (§3.8)
 10. **AI integrata** — conosce tutte le regole (incluse titolarità e verde/blu), può modificare disponibilità e schema tramite JSON
 11. **Medici modificabili** — categoria, graduatoria e titolarità di sede modificabili dall'UI, aggiunta/rimozione medici
 12. **Azzera mese con doppio tocco** — sicuro, posizionato lontano dai pulsanti di esportazione
@@ -283,16 +322,17 @@ python3 -c "
 src = open('turni-guardia-medica.jsx').read()
 end = src.index('// ============ COMPONENTE ============')
 engine = src[:end].replace('import { useState, useMemo, useRef, useEffect } from \"react\";\n', '')
-open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, MESI_DISPONIBILI, MESI_IT };\n')
+open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };\n')
 "
 
 # Lancia tutti i test
-node run_tests2.mjs            # 44 test runtime (gerarchia, titolarità, scenari verde/blu, debito)
-node test_preferiti2.mjs       # 14 test preferiti e ordine elaborazione
-node test_rapido2.mjs          # 16 test inserimento rapido, menu a tendina e protezione NO
-node test_livelli_verde_blu.mjs # 10 test livelli verde 1-5 e blu 1-4
+node run_tests2.mjs            # 46 test runtime (gerarchia, titolarità, scenari verde/blu, debito)
+node test_preferiti2.mjs       # 13 test preferiti (sede specifica) e ordine elaborazione
+node test_rapido2.mjs          # 18 test inserimento rapido, menu a tendina e protezione NO
+node test_livelli_verde_blu.mjs # 11 test livelli verde 1-5 e blu 1-4
 node test_stesso_cat2.mjs      # 8 test conflitti stessa categoria
 node test_nuove_funzioni.mjs   # 16 test livelli verde, titolarità e medici modificabili
+node test_spaziatura_settimana.mjs  # 13 test spaziatura temporale (§3.7) e tetto settimanale (§3.8)
 node test_simulazione_completa.mjs  # ~41600 check su scenari randomici (10 semi × 17 mesi, con titolarità)
 node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
 ```
@@ -312,10 +352,10 @@ npx tsc --jsx preserve --noEmit --allowJs check.tsx 2>&1 | grep -E "error TS(1[0
 # output vuoto = ok
 
 # 2. Verifica nessuna funzione duplicata
-for fn in setSedeOpzione setNoCella setPreferitoCella toggleExtra elabora azzeraMese \
+for fn in setSedeOpzione setNoCella setPreferitoSede toggleExtra elabora azzeraMese \
   setMedici aggiornaMedico aggiungiMedico rimuoviMedico setSlot applicaRapido \
   applicaProposta chiediAI nomeToId elaboraSchema elaboraTurno normDispo \
-  ordinaPerLivello isDeterminato setMediciGlobal; do
+  ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale; do
   n=$(grep -c "const $fn = \|function $fn(" turni-guardia-medica.jsx)
   [ "$n" != "1" ] && echo "DUPLICATA: $fn"
 done
@@ -324,8 +364,8 @@ done
 python3 -c "..."  # vedi sopra
 node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
   node test_livelli_verde_blu.mjs && node test_stesso_cat2.mjs && \
-  node test_nuove_funzioni.mjs && node test_simulazione_completa.mjs && \
-  node test_simulazione_email.mjs
+  node test_nuove_funzioni.mjs && node test_spaziatura_settimana.mjs && \
+  node test_simulazione_completa.mjs && node test_simulazione_email.mjs
 
 # 4. Se si tocca turni-guardia-medica.jsx, rigenera anche docs/app.jsx (copia GitHub Pages) —
 #    vedi §14 per le 3 modifiche minime da riapplicare dopo la copia.
@@ -341,7 +381,7 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 
 2. **delete sedeDi[occ] prematuro** — in `provaFisica()`, il `delete sedeDi[occ]` avveniva dopo la ricollocazione riuscita, cancellando la nuova sede dell'occupante. Fix: `provaFisica()` usa `maxLiv` per permettere/negare la ricollocazione, e gestisce correttamente il ripristino.
 
-3. **normDispo con oggetti residui di formati legacy** — rompeva silenziosamente il motore. Fix: `normDispo` normalizza sempre a `{verde, verdeLiv, blu, bluLiv, no, preferito, preferitoRip}`.
+3. **normDispo con oggetti residui di formati legacy** — rompeva silenziosamente il motore. Fix: `normDispo` normalizza sempre a `{verde, verdeLiv, blu, bluLiv, no, preferito}`.
 
 4. **Meduno a distanza usava il solo grad invece della gerarchia completa** (bug storico del vecchio sistema automatico, non più applicabile: nel sistema verde/blu ogni copertura a distanza è dichiarativa e il conflitto usa sempre categoria→titolarità→debito→graduatoria).
 
@@ -373,7 +413,7 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 import { MEDICI, byId, CAT_INFO, SEDI5, dk, elaboraSchema } from './engine_test.mjs';
 const base = () => { const d={}; MEDICI.forEach(m=>d[m.id]={}); return d; };
 const N = (g) => `${dk(2026,7,g)}|N`;
-const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false, preferito:false, preferitoRip:false });
+const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false, preferito:null });
 // ... test case ...
 ```
 

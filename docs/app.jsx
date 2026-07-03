@@ -116,47 +116,89 @@ function turniDelGiorno(y, m, d, extras) {
 }
 
 // ============ MOTORE ============
-// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:bool, preferitoRip:bool }
+// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:sede|null }
 // - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
 //   indifferenti per il medico: il motore può spostarlo liberamente tra loro per massimizzare le
-//   coperture; livello più basso = sede che ha diritto di tenere contro chi non lo supera in gerarchia)
+//   coperture; livello più basso = sede che ha diritto di tenere contro chi non lo supera in gerarchia.
+//   La parità di livello NON rende due sedi davvero equivalenti tra loro: il motore prova sempre
+//   prima quella che viene prima nell'ordine fisso SEDI5, cioè Maniago → Spilimbergo → Meduno →
+//   Claut → Anduins, indipendentemente dall'ordine in cui il medico le ha dichiarate — vedi
+//   ordinaPerLivello e CONTEXT.md §3.3)
 // - blu: sedi che il medico è disposto a COPRIRE A DISTANZA, da qualunque sede fisica gli venga
-//   assegnata, in ordine di preferenza (livelli 1..4). Nessuna copertura a distanza è automatica:
-//   serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza
-//   (la prima disponibile nel suo ordine blu dichiarato).
+//   assegnata, in ordine di preferenza (livelli 1..4; stessa regola di tie-break per pari livello
+//   dell'ordine fisso SEDI5, tramite lo stesso ordinaPerLivello). Nessuna copertura a distanza è
+//   automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a
+//   distanza (la prima disponibile nel suo ordine blu dichiarato).
 // - no: indisponibilità dichiarata esplicitamente
-// - preferito: vuole questo turno come assegnazione fisica (verde)
-// - preferitoRip: soddisfatto anche se ottiene solo una copertura a distanza (blu) invece che fisica
+// - preferito: la SEDE VERDE specifica su cui il medico vuole questo turno (una delle sedi in
+//   `verde`, o null se non ha espresso una preferenza). Non decide MAI chi vince un conflitto né
+//   quale sede riceve un vincitore (quello resta compito esclusivo dei livelli verdi/blu e della
+//   gerarchia) — serve solo a generare un avviso per il coordinatore se il medico finisce assegnato
+//   fisicamente altrove, o non assegnato affatto (CONTEXT.md §3.5).
 // slots = 5 posizioni [Maniago, Spilimbergo, Meduno, Claut, Anduins]
 
 // Normalizza il formato dati
 const normDispo = (v) => {
-  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: false, preferitoRip: false };
+  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: null };
   return {
     verde: v.verde || [], verdeLiv: v.verdeLiv || {},
     blu: v.blu || [], bluLiv: v.bluLiv || {},
-    no: !!v.no, preferito: !!v.preferito, preferitoRip: !!v.preferitoRip,
+    no: !!v.no, preferito: v.preferito || null,
   };
 };
 
 // Ordina un elenco di sedi per livello crescente (prima le più desiderate). Sedi con lo stesso
-// livello sono equivalenti — il motore le prova nell'ordine dell'array originale.
+// livello sono "indifferenti" per il medico (il motore può spostarlo liberamente tra loro), ma
+// la parità non le rende mai davvero equivalenti tra loro: a parità di livello si prova sempre
+// prima la sede che viene prima nell'ordine fisso SEDI5 (Maniago → Spilimbergo → Meduno → Claut
+// → Anduins), non l'ordine in cui il medico le ha dichiarate. Così una CDC (Maniago/Spilimbergo)
+// pari con una sede secondaria vince comunque la CDC, esattamente come se fosse un livello
+// migliore — l'ordine di dichiarazione non ha alcun peso (CONTEXT.md §3.3).
 const ordinaPerLivello = (sedi, liv, maxLivello) => {
   const out = [];
   for (let l = 1; l <= maxLivello; l++) {
-    sedi.forEach((s) => { if ((liv[s] || 1) === l) out.push(s); });
+    SEDI5.forEach((s) => { if (sedi.includes(s) && (liv[s] || 1) === l) out.push(s); });
   }
   return out;
 };
 const MAX_LIV_VERDE = 5, MAX_LIV_BLU = 4;
 
+// Differenza in giorni interi tra due date "YYYY-MM-DD" (b - a). Usata per la regola di
+// spaziatura temporale (CONTEXT.md §3.7): confronta SEMPRE date di calendario, mai l'ordine
+// di elaborazione interno (che può processare i turni "preferiti" fuori ordine cronologico).
+const giorniTra = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+
+// Lunedì (ISO, lun-dom) della settimana che contiene la data "YYYY-MM-DD", come chiave stringa —
+// usata per il tetto settimanale dichiarabile dal medico (CONTEXT.md §3.8).
+const settimanaDi = (dataStr) => {
+  const dt = new Date(dataStr + "T00:00:00");
+  const dow = (dt.getDay() + 6) % 7; // 0=lunedì .. 6=domenica
+  dt.setDate(dt.getDate() - dow);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
+// Tetto settimanale dichiarato dal medico per la settimana `wk` (chiave = lunedì), o null se
+// non dichiarato (nessun limite). Dichiarato come dispo[mid]["SETT:" + wk] = { maxTurni: N },
+// una chiave orthogonale ai normali slotKey "YYYY-MM-DD|ID" (mai un turno vero e proprio).
+const capSettimanale = (dispo, mid, wk) => {
+  const raw = dispo[mid]?.["SETT:" + wk];
+  const n = raw && raw.maxTurni;
+  return typeof n === "number" && n >= 0 ? n : null;
+};
+
 // Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
 // passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
-// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti condiviso.
-function elaboraTurno(d, turno, slotKey, dispo, debiti) {
+// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
+// settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
+// turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
+function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+  const dataStr = slotKey.split("|")[0];
+  const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
     const v = normDispo(dispo[m.id]?.[slotKey]);
-    return !v.no && (v.verde.length || v.blu.length);
+    if (v.no || !(v.verde.length || v.blu.length)) return false;
+    const cap = capSettimanale(dispo, m.id, wk);
+    if (cap !== null && (settimanaCount[m.id]?.[wk] || 0) >= cap) return false; // tetto settimanale raggiunto
+    return true;
   });
   const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
@@ -172,7 +214,12 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
     const sel = ordinati[0] || null;
     slots = [sel ? sel.id : null];
     fisiche = [0];
-    if (sel && debiti[sel.id] !== null) debiti[sel.id] -= turno.ore;
+    if (sel) {
+      if (debiti[sel.id] !== null) debiti[sel.id] -= turno.ore;
+      settimanaCount[sel.id] = settimanaCount[sel.id] || {};
+      settimanaCount[sel.id][wk] = (settimanaCount[sel.id][wk] || 0) + 1;
+      ultimoFisico[sel.id] = dataStr;
+    }
   } else {
     // Bucket di priorità (conDeb > senza incarico > debito esaurito), usato sia per il confronto
     // fisico che per quello a distanza.
@@ -260,12 +307,38 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
       if (Object.keys(sedeDi).length >= target.length) break;
       provaFisica(m, new Set(), Infinity);
     }
+
+    // ---- Regola di spaziatura temporale (CONTEXT.md §3.7) ----
+    // Tra i turni disponibili di un medico, il motore preferisce sempre quello più distante
+    // dall'ultimo turno fisico già assegnato: se un vincitore ha lavorato ieri (o oggi stesso, su
+    // un altro turno dello stesso giorno) ED esiste un altro candidato che ha dichiarato verde la
+    // STESSA sede e non ha ancora ottenuto nulla, la sede passa a quest'ultimo. Non cambia MAI chi
+    // vince un conflitto (tra gli eventuali alternativi decide sempre l'ordine di ordinati, cioè
+    // la stessa gerarchia di sempre) e non lascia MAI una sede scoperta per questo: se non esiste
+    // alcuna alternativa valida, il medico più recente resta dov'è (la copertura vince sempre).
+    Object.keys(sedeDi).forEach((midStr) => {
+      const mid = Number(midStr);
+      const si = sedeDi[mid];
+      if (si === undefined) return; // già spostato da uno scambio precedente in questo stesso giro
+      const ultimo = ultimoFisico[mid];
+      // Valore assoluto: a causa del riordino conPref/resto, "ultimo" può riferirsi a una data
+      // cronologicamente SUCCESSIVA a dataStr (processata prima perché aveva un preferito) — la
+      // distanza reale di calendario non ha segno.
+      if (ultimo === undefined || Math.abs(giorniTra(ultimo, dataStr)) > 1) return; // spaziatura già sufficiente
+      const sede = SEDI5[si];
+      const alternativa = ordinati.find((o) => o.id !== mid && sedeDi[o.id] === undefined && normDispo(dispo[o.id]?.[slotKey]).verde.includes(sede));
+      if (alternativa) { delete sedeDi[mid]; sedeDi[alternativa.id] = si; }
+    });
+
     // Rebuild slots da sedeDi (fonte di verità), per eliminare "fantasmi" da ricollocazioni intermedie.
     slots = [null, null, null, null, null];
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
       if (debiti[mid] !== null) debiti[mid] -= turno.ore;
+      settimanaCount[mid] = settimanaCount[mid] || {};
+      settimanaCount[mid][wk] = (settimanaCount[mid][wk] || 0) + 1;
+      ultimoFisico[mid] = dataStr;
     });
     fisiche = Object.values(sedeDi);
 
@@ -312,11 +385,11 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti) {
   return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
 }
 
-// Un turno ha "preferiti" se almeno un medico lo ha segnato come preferito (in entrambi i casi
-// il turno viene elaborato per primo, per preservare il debito verso il giorno desiderato).
+// Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo
+// turno (il turno viene elaborato per primo, per preservare il debito verso il giorno desiderato).
 function slotHaPreferiti(dispo, slotKey) {
   const v0 = (m) => normDispo(dispo[m.id]?.[slotKey]);
-  return MEDICI.some((m) => { const v = v0(m); return !v.no && (v.preferito || v.preferitoRip); });
+  return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
 }
 
 function elaboraSchema(dispo, extraOre, anno, mese, extras) {
@@ -325,6 +398,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
     const base = CAT_INFO[m.cat].ore;
     debiti[m.id] = base === null ? null : base + (extraOre[m.id] || 0);
   });
+  const settimanaCount = {}; // mid -> { weekKey: numero di turni già assegnati quella settimana }
+  const ultimoFisico = {};   // mid -> data "YYYY-MM-DD" dell'ultimo turno fisico assegnato
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
 
   // Flat list di tutti i turni del mese, in ordine di calendario
@@ -345,26 +420,23 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   const avvisiRaw = []; // {d, testo}
 
   [...conPref, ...resto].forEach(({ d, turno, slotKey }) => {
-    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti);
+    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico);
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
 
-  // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con ciò che il medico
-  // desiderava. Nel sistema verde/blu la copertura a distanza richiede SEMPRE una presenza
-  // fisica altrove nello stesso turno (INV3): un medico che non ottiene alcuna sede verde
-  // non può quindi mai coprire nulla a distanza. Di conseguenza "preferito" e "preferitoRip"
-  // sono entrambi soddisfatti se e solo se il medico ottiene una sede fisica (qualunque
-  // livello verde, non necessariamente la sua prima scelta) — la distinzione tra i due resta
-  // solo nel testo dell'avviso quando il medico finisce escluso dal turno.
-  // In nessun caso il preferito decide chi vince: qui si osserva soltanto il risultato.
+  // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con la SEDE specifica che il
+  // medico ha marcato con ★ (CONTEXT.md §3.5). Soddisfatto se e solo se ottiene fisicamente
+  // esattamente quella sede; se ottiene una sede fisica diversa, o nessuna sede, genera un
+  // avviso — con testo diverso nei due casi. In nessun caso il preferito decide chi vince o
+  // quale sede viene assegnata: qui si osserva soltanto il risultato già deciso dalla gerarchia.
   const meseStr = `${anno}-${String(mese + 1).padStart(2, "0")}-`;
   MEDICI.forEach((m) => {
     const perMedico = dispo[m.id] || {};
     Object.entries(perMedico).forEach(([sk, raw]) => {
       if (!sk.startsWith(meseStr)) return;
       const v = normDispo(raw);
-      if (v.no || (!v.preferito && !v.preferitoRip)) return;
+      if (v.no || !v.preferito) return;
       const d = Number(sk.slice(8, 10));
       const tid = sk.split("|")[1];
       const out = risultati[`${d}|${tid}`];
@@ -375,17 +447,16 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
       } else {
         for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
       }
-      const assegnatoFisico = sedeOttenuta !== null;
       if (out.extra) {
-        if (!assegnatoFisico) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
+        if (sedeOttenuta === null) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
         return;
       }
-      if (assegnatoFisico) return;
-      if (v.preferitoRip) {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} voleva questo turno a tutti i costi, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
-        return;
+      if (sedeOttenuta === v.preferito) return; // preferito soddisfatto: sede esatta ottenuta
+      if (sedeOttenuta === null) {
+        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma non gli è stata assegnata alcuna sede (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
+      } else {
+        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma ha ottenuto ${sedeOttenuta} (priorità superiori di altri sulla sede preferita). Valutare un intervento manuale se opportuno.` });
       }
-      avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
     });
   });
 
@@ -444,6 +515,7 @@ function App() {
   const [rapGiorno, setRapGiorno] = useState(false);
   const [rapSedi, setRapSedi] = useState({}); // sede -> 'verde' | 'blu'
   const [rapIndisp, setRapIndisp] = useState([]); // [{inizio, fine}] periodi di indisponibilità
+  const [rapMaxSettimana, setRapMaxSettimana] = useState(""); // "" = nessun tetto, altrimenti numero
   const [confermaAzzera, setConfermaAzzera] = useState(false); // doppio tocco per azzerare il mese
   const azzeraTimer = useRef(null);
   const [nuovoMedico, setNuovoMedico] = useState({ nome: "", cat: "SENZA", grad: "" });
@@ -524,7 +596,7 @@ function App() {
     const next = {
       verde: cur.verde.filter((s) => s !== sede), verdeLiv: { ...cur.verdeLiv },
       blu: cur.blu.filter((s) => s !== sede), bluLiv: { ...cur.bluLiv },
-      no: false, preferito: cur.no ? false : cur.preferito, preferitoRip: cur.no ? false : cur.preferitoRip,
+      no: false, preferito: cur.no ? null : cur.preferito,
     };
     delete next.verdeLiv[sede];
     delete next.bluLiv[sede];
@@ -535,26 +607,24 @@ function App() {
       next.blu.push(sede);
       next.bluLiv[sede] = Number(opzione.slice(1));
     }
-    // coerenza: un preferito non può riferirsi a una lista di sedi vuota
-    if (!next.verde.length) next.preferito = false;
-    if (!next.blu.length) next.preferitoRip = false;
+    // coerenza: il preferito deve sempre riferirsi a una sede attualmente verde
+    if (!next.verde.includes(next.preferito)) next.preferito = null;
     const nd = { ...(dati.dispo[mid] || {}) };
     if (next.verde.length || next.blu.length) nd[slotKey] = next; else delete nd[slotKey];
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   const setNoCella = (mid, slotKey, valore) => {
     const nd = { ...(dati.dispo[mid] || {}) };
-    if (valore) nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
+    if (valore) nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
     else delete nd[slotKey];
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
-  const setPreferitoCella = (mid, slotKey, campo, valore) => {
+  // Imposta (o toglie, se già impostata) la sede VERDE preferita con ★: un medico ha al massimo
+  // una sede preferita per turno, e deve essere una delle sedi che ha dichiarato verde (§3.5).
+  const setPreferitoSede = (mid, slotKey, sede) => {
     const cur = normDispo(dati.dispo[mid]?.[slotKey]);
-    if (cur.no) return; // un turno non disponibile non può essere preferito
-    const next = { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito, preferitoRip: cur.preferitoRip };
-    next[campo] = valore;
-    if (!next.verde.length) next.preferito = false;
-    if (!next.blu.length) next.preferitoRip = false;
+    if (cur.no || !cur.verde.includes(sede)) return;
+    const next = { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito === sede ? null : sede };
     const nd = { ...(dati.dispo[mid] || {}) };
     nd[slotKey] = next;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
@@ -682,7 +752,7 @@ function App() {
           if (!info.turni.some((t) => t.id === "G")) saltatiNoDiurno++;
         }
         richiesti.forEach((tid) => {
-          touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false });
+          touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null });
           scrittiIndisp++;
         });
       }
@@ -710,24 +780,57 @@ function App() {
           if (preesistente.no) { protetti++; return; } // indisponibilità dichiarata in precedenza: non si tocca
           const verdeLivRap = {}; verde.forEach((s) => { verdeLivRap[s] = 1; });
           const bluLivRap = {}; blu.forEach((s) => { bluLivRap[s] = 1; });
-          touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false, preferito: false, preferitoRip: false });
+          touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false, preferito: null });
           scrittiDisp++;
         });
       }
     }
 
-    const totale = scrittiIndisp + scrittiDisp;
+    // PASSO 3 (opzionale): tetto settimanale — una dichiarazione per ciascuna settimana coperta
+    // dal range, scritta come dispo[rapMedico]["SETT:" + lunedì] = { maxTurni }. Una settimana può
+    // scavalcare il confine tra due mesi: la dichiarazione va scritta in ENTRAMBI i mesi toccati,
+    // così elaboraSchema la vede a prescindere da quale dei due mesi si stia elaborando.
+    let scrittiSettimana = 0;
+    if (rapMaxSettimana !== "" && Number(rapMaxSettimana) >= 0) {
+      const nMax = Number(rapMaxSettimana);
+      const settimaneViste = new Set();
+      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+        const dow = (dt.getDay() + 6) % 7; // 0=lunedì .. 6=domenica
+        const lun = new Date(dt); lun.setDate(dt.getDate() - dow);
+        const wk = dk(lun.getFullYear(), lun.getMonth(), lun.getDate());
+        if (settimaneViste.has(wk)) continue;
+        settimaneViste.add(wk);
+        const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+        const mesiToccati = new Set([mk(lun.getFullYear(), lun.getMonth()), mk(dom.getFullYear(), dom.getMonth())]);
+        mesiToccati.forEach((mkey) => {
+          const [my, mm] = mkey.split("-").map(Number);
+          if (!MESI_DISPONIBILI.some((x) => x.anno === my && x.mese === mm)) return;
+          if (!patchByMonth[mkey]) {
+            const baseDispo = (store[mkey] || {}).dispo || {};
+            patchByMonth[mkey] = { dispo: { ...baseDispo }, schema: null, avvisi: [] };
+          }
+          const patchDispo = patchByMonth[mkey].dispo;
+          const nd = { ...(patchDispo[rapMedico] || {}) };
+          nd["SETT:" + wk] = { maxTurni: nMax };
+          patchDispo[rapMedico] = nd;
+        });
+        scrittiSettimana++;
+      }
+    }
+
+    const totale = scrittiIndisp + scrittiDisp + scrittiSettimana;
     if (!totale) { alert("Nessun turno compilato: controlla le date e le opzioni scelte."); return; }
     applicaPatchMultiMese(patchByMonth);
     const note = [];
     if (scrittiDisp) note.push(`${scrittiDisp} turni disponibili`);
     if (scrittiIndisp) note.push(`${scrittiIndisp} turni indisponibili`);
     if (protetti) note.push(`${protetti} turni già indisponibili in precedenza mantenuti invariati`);
+    if (scrittiSettimana) note.push(`tetto di ${rapMaxSettimana} turni/settimana impostato su ${scrittiSettimana} settimane`);
     if (saltatiFuoriRange) note.push(`${saltatiFuoriRange} giorni fuori dal calendario disponibile (ago 2026 – dic 2027) ignorati`);
     if (saltatiNoDiurno) note.push(`${saltatiNoDiurno} giorni senza turno diurno (feriali) ignorati per il diurno`);
     alert(`${byId[rapMedico].nome}: ${note.join("; ")}.`);
     setRapidoOpen(false);
-    setRapInizio(""); setRapFine(""); setRapSedi({}); setRapIndisp([]);
+    setRapInizio(""); setRapFine(""); setRapSedi({}); setRapIndisp([]); setRapMaxSettimana("");
   };
 
   // ============ EXPORT .XLSX nativo con bordi e colori (zip costruito a mano) ============
@@ -974,7 +1077,8 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         medici: MEDICI.map((m) => ({ nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0 })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
-        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF" : ""}${nv.preferitoRip ? "|PREFRIP" : ""}`; })])),
+        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
+        tettiSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETT:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETT:")).map(([sk, v]) => `settimana del ${sk.slice(5)}: max ${v.maxTurni} turni`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
           turni: g.turni.map((t) => ({ turno: t.label, sedi: t.extra ? { copertura: t.slots[0] ? byId[t.slots[0]].nome : "SCOPERTO" } : Object.fromEntries(SEDI5.map((s, i) => [s, t.slots[i] ? byId[t.slots[i]].nome : "—"])) })),
@@ -1039,8 +1143,11 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - Assenza di dati = equivale a non disponibile
 - VERDE = sede FISICA desiderata, livelli 1..5 (MA1,SP2 = Maniago prima scelta, Spilimbergo seconda). Livelli PARI = sedi INDIFFERENTI per il medico: il motore può spostarlo liberamente tra di esse per massimizzare il numero di medici al lavoro. Livello più basso = sede che il medico ha diritto di tenere, a meno che qualcuno con priorità superiore lo scalzi. I livelli non cambiano MAI chi vince un conflitto, solo quale sede viene assegnata a ciascun vincitore.
 - BLU = sede che il medico è disposto a COPRIRE A DISTANZA (da qualunque sede fisica gli venga assegnata), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
-- "PREF" = turno preferito sulla sede fisica/verde (informativo, non decisionale sui conflitti)
-- "PREFRIP" = lo vuole a tutti i costi anche solo con copertura a distanza/blu (informativo, non decisionale)
+- "PREF:XX" = il medico ha marcato con ★ la sede verde XX come sua sede fisica preferita per quel turno (informativo, non decisionale sui conflitti: se ottiene un'altra sede fisica, o nessuna, genera solo un avviso al coordinatore)
+
+== SPAZIATURA TEMPORALE E TETTO SETTIMANALE ==
+- Il motore preferisce SEMPRE, per ogni medico, il turno più distante dall'ultimo turno fisico già assegnato: se un vincitore ha lavorato il giorno prima (o lo stesso giorno su un altro turno) ED esiste un altro candidato che ha dichiarato verde la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa a quest'ultimo. Non cambia MAI chi vince un conflitto tra medici diversi (tra eventuali alternative decide sempre la gerarchia normale) e non lascia MAI una sede scoperta per questo motivo: se non esiste un'alternativa valida, il medico più recente resta dov'è. Automatico, non richiede dichiarazioni.
+- Il medico può inoltre dichiarare esplicitamente un tetto massimo di turni per settimana (lun-dom): una volta raggiunto, non è più considerato candidato quella settimana, su nessuna sede. Nessuna copertura automatica di ripiego: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile.
 
 == COMPORTAMENTO ==
 - Segnala sempre ogni conflitto risolto e il criterio usato
@@ -1055,11 +1162,12 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ]}
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"WANG"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
-- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":true,"preferito_ripiego":false} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"/"preferito_ripiego" informativi. Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
+- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"WANG","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
 - {"az":"ore_extra","medico":"PRESSACCO","ore":24} → imposta le ore extra del mese (0 per azzerare; solo medici con contratto)
+- {"az":"tetto_settimana","medico":"WANG","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
 STATO ATTUALE: ${JSON.stringify(stato)}`;
@@ -1145,25 +1253,37 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         extraOre = { ...extraOre, [mid]: Math.max(0, Number(a.ore) || 0) };
         return;
       }
+      if (a.az === "tetto_settimana") {
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        const wk = settimanaDi(dk(anno, mese, a.giorno));
+        const nd = { ...(dispo[mid] || {}) };
+        if (a.maxTurni === null || a.maxTurni === undefined) delete nd["SETT:" + wk];
+        else nd["SETT:" + wk] = { maxTurni: Math.max(0, Number(a.maxTurni) || 0) };
+        dispo = { ...dispo, [mid]: nd };
+        dispoModificata = true;
+        return;
+      }
       if (a.az === "dispo_aggiungi" || a.az === "dispo_togli" || a.az === "dispo_no") {
         const mid = nomeToId(a.medico);
         if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
         const slotKey = `${dk(anno, mese, a.giorno)}|${a.turno}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.az === "dispo_togli") delete nd[slotKey];
-        else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: false, preferitoRip: false };
+        else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
         else {
           const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
           const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
           if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${a.medico} g${a.giorno}`); return; }
-          const prefRip = !!a.preferito_ripiego;
-          if (prefRip && !blu.length) errori.push(`preferito a tutti i costi per ${a.medico} g${a.giorno} ignorato: nessuna sede blu indicata`);
+          // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
+          const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
+          if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${a.medico} g${a.giorno}: non è tra le sedi verdi dichiarate`);
           // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
           const verdeLivAI = {};
           verde.forEach((s) => { verdeLivAI[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
           const bluLivAI = {};
           blu.forEach((s) => { bluLivAI[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
-          nd[slotKey] = { verde, verdeLiv: verdeLivAI, blu, bluLiv: bluLivAI, no: false, preferito: !!a.preferito && verde.length > 0, preferitoRip: prefRip && blu.length > 0 };
+          nd[slotKey] = { verde, verdeLiv: verdeLivAI, blu, bluLiv: bluLivAI, no: false, preferito: pref };
         }
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
@@ -1318,6 +1438,15 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     <button onClick={() => setRapIndisp((prev) => [...prev, { inizio: "", fine: "" }])}
                       style={{ padding: "6px 12px", borderRadius: 6, border: "1px dashed #a03030", background: "#fff", color: "#a03030", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Aggiungi periodo non disponibile</button>
                   </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, color: "#5b5f59", display: "flex", alignItems: "center", gap: 8 }}>
+                      Tetto turni/settimana (opzionale)
+                      <input type="number" min="0" step="1" placeholder="nessun limite" value={rapMaxSettimana}
+                        onChange={(e) => setRapMaxSettimana(e.target.value)}
+                        style={{ width: 90, fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6" }} />
+                    </label>
+                    <div style={{ fontSize: 10, color: "#8a8f88", marginTop: 4 }}>Se impostato, il medico non verrà mai considerato candidato oltre questo numero di turni per ciascuna settimana (lun-dom) coperta dal periodo sopra — anche se disponibile su altri giorni. Nessuna copertura automatica di ripiego: le sedi oltre il tetto restano scoperte se nessun altro medico è disponibile.</div>
+                  </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={applicaRapido} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Applica</button>
                     <button onClick={() => setRapidoOpen(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Chiudi</button>
@@ -1368,16 +1497,16 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                                 const bluStr = sedi.blu.length
                                   ? "·" + ordinaPerLivello(sedi.blu, sedi.bluLiv, MAX_LIV_BLU)
                                       .map((s) => SEDI_BREVI[s] + sup[(sedi.bluLiv[s] || 1) - 1]).join("")
-                                    + (sedi.preferitoRip ? "★" : "")
                                   : "";
-                                // Verdi: compatte (solo conteggio) se tutte a livello 1,
-                                // dettagliate (sigla+livello) se il medico ha espresso un ordine
+                                // Verdi: compatte (solo conteggio) se tutte a livello 1 e nessuna sede
+                                // preferita marcata; altrimenti dettagliate (sigla+livello), con ★
+                                // attaccata specificamente alla sede preferita (non alla giornata).
                                 const tutteLv1 = sedi.verde.every((s) => (sedi.verdeLiv[s] || 1) === 1);
-                                const verdeStr = tutteLv1
+                                const verdeStr = (tutteLv1 && !sedi.preferito)
                                   ? String(sedi.verde.length)
                                   : ordinaPerLivello(sedi.verde, sedi.verdeLiv, MAX_LIV_VERDE)
-                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.verdeLiv[s] || 1) - 1]).join("");
-                                return `${sedi.preferito ? "★" : ""}${verdeStr}${bluStr}`;
+                                      .map((s) => (s === sedi.preferito ? "★" : "") + SEDI_BREVI[s] + sup[(sedi.verdeLiv[s] || 1) - 1]).join("");
+                                return `${verdeStr}${bluStr}`;
                               })() : "✕"}
                             </td>
                           );
@@ -1411,12 +1540,13 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Verde 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Blu 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa).</div>
+                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Verde 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Blu 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede verde per marcarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
+                            const isVerde = valore.startsWith("V");
                             return (
-                              <label key={s} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                              <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, minWidth: 24 }}>{SEDI_BREVI[s]}</span>
                                 <select value={valore} onChange={(e) => setSedeOpzione(editCella.mid, editCella.slotKey, s, e.target.value)}
                                   style={{ flex: 1, fontSize: 12, padding: "5px 4px", borderRadius: 5, border: "1px solid #c8ccc6",
@@ -1426,27 +1556,17 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                                   {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Verde {l}</option>)}
                                   {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Blu {l}</option>)}
                                 </select>
+                                {isVerde && (
+                                  <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}
+                                    title={sedi.preferito === s ? "Sede preferita: tocca per togliere" : "Marca come sede preferita"}
+                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#8a5a00" : "#c8ccc6", userSelect: "none" }}>
+                                    {sedi.preferito === s ? "★" : "☆"}
+                                  </span>
+                                )}
                               </label>
                             );
                           })}
                         </div>
-                        {(sedi.verde.length > 0 || sedi.blu.length > 0) && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                            {sedi.verde.length > 0 && (
-                              <span onClick={() => setPreferitoCella(editCella.mid, editCella.slotKey, "preferito", !sedi.preferito)}
-                                style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none", border: "1px solid " + (sedi.preferito ? "#d9a53f" : "#d6dad3"), background: sedi.preferito ? "#fdf3dd" : "#fff", color: sedi.preferito ? "#8a5a00" : "#8a8f88" }}>
-                                {sedi.preferito ? "★" : "☆"} Preferito (sulla sede fisica)
-                              </span>
-                            )}
-                            {sedi.blu.length > 0 && (
-                              <span onClick={() => setPreferitoCella(editCella.mid, editCella.slotKey, "preferitoRip", !sedi.preferitoRip)}
-                                title="Lo vuole comunque, anche se copre solo a distanza"
-                                style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none", border: "1px solid " + (sedi.preferitoRip ? "#d9a53f" : "#d6dad3"), background: sedi.preferitoRip ? "#fdf3dd" : "#fff", color: sedi.preferitoRip ? "#8a5a00" : "#8a8f88" }}>
-                                {sedi.preferitoRip ? "★" : "☆"} Anche solo a distanza
-                              </span>
-                            )}
-                          </div>
-                        )}
                         <div style={{ display: "flex", gap: 8 }}>
                           <button onClick={() => setEditCella(null)} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "none", background: "#12312a", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Chiudi</button>
                         </div>
@@ -1623,11 +1743,12 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     {proposta.azioni.map((a, i) => {
                       let d = "";
                       if (a.az === "schema") d = `Schema: giorno ${a.giorno} · ${a.turno} · ${a.sede} → ${a.medico || "— (svuota)"}`;
-                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? " ★ preferito" : ""}${a.preferito_ripiego ? " ★ anche a distanza" : ""}`;
+                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;
                       else if (a.az === "ore_extra") d = `Ore extra: ${a.medico} → ${a.ore}h`;
+                      else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";
                       else d = JSON.stringify(a);
                       return <li key={i}>{d}</li>;

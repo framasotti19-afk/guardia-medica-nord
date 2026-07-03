@@ -1,14 +1,9 @@
 // Test su preferiti e ordine di elaborazione (CONTEXT.md §3.4, §3.5).
-// Il flag "preferito" NON decide mai chi vince un conflitto: serve solo a far
-// elaborare quel turno per primo (fase conPref), e genera avvisi post-elaborazione
-// quando l'esito non corrisponde al desiderio del medico.
-//
-// Nota sul modello verde/blu: la copertura a distanza richiede SEMPRE una presenza
-// fisica altrove nello stesso turno (INV3). Un medico che non ottiene alcuna sede
-// verde non può quindi mai coprire nulla a distanza — "preferito" e "preferitoRip"
-// sono perciò entrambi soddisfatti se e solo se il medico ottiene una sede FISICA
-// (qualunque livello verde, non necessariamente la sua prima scelta). La distinzione
-// tra i due resta solo nel testo dell'avviso quando il medico finisce escluso.
+// Il flag ★ "preferito" si attacca a una SEDE VERDE SPECIFICA (non alla giornata generica):
+// il medico dichiara "voglio questo turno preferibilmente su questa sede". Soddisfatto se e
+// solo se ottiene fisicamente ESATTAMENTE quella sede; se ottiene una sede fisica diversa, o
+// nessuna sede, genera un avviso al coordinatore. In nessun caso decide chi vince un conflitto:
+// serve solo a far elaborare quel turno per primo (fase conPref) e a generare avvisi post-hoc.
 import { MEDICI, byId, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
 
@@ -32,7 +27,7 @@ suite.test("il preferito NON decide chi vince: l'esito è identico con o senza i
 
   const conPref = dispoBase(MEDICI);
   conPref[TRIGODKO][N(GIORNI_FERIALI_SEMPLICI[0])] = turnoDisp(["Maniago"]);
-  conPref[PRESSACCO][N(GIORNI_FERIALI_SEMPLICI[0])] = turnoDisp(["Maniago"], [], { preferito: true }); // PRESSACCO vuole questo turno
+  conPref[PRESSACCO][N(GIORNI_FERIALI_SEMPLICI[0])] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // PRESSACCO vuole questo turno su Maniago
   const { schema: s2 } = elabora(conPref);
 
   const t1 = s1.find((g) => g.giorno === GIORNI_FERIALI_SEMPLICI[0]).turni.find((t) => t.id === "N");
@@ -47,7 +42,7 @@ suite.test("turno con preferito viene elaborato PRIMA (debito ancora pieno) risp
   d[FOSCHIANI][N(g1)] = turnoDisp(["Maniago"]);
   d[WANG][N(g1)] = turnoDisp(["Maniago"]);
   d[FOSCHIANI][N(g2)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g2)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[WANG][N(g2)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   const { schema } = elabora(d);
   const tG2 = schema.find((g) => g.giorno === g2).turni.find((t) => t.id === "N");
   const tG1 = schema.find((g) => g.giorno === g1).turni.find((t) => t.id === "N");
@@ -62,7 +57,7 @@ suite.test("esempio §3.4: 5 turni pari debito, A(grad migliore) vs B → 3-2 an
     d[FOSCHIANI][N(g)] = turnoDisp(["Maniago"]);
     d[WANG][N(g)] = turnoDisp(["Maniago"]);
   });
-  d[WANG][N(giorni[2])] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[WANG][N(giorni[2])] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   const { schema } = elabora(d);
   const vincite = { [FOSCHIANI]: 0, [WANG]: 0 };
   giorni.forEach((g) => vincite[schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N").slots[0]]++);
@@ -70,83 +65,76 @@ suite.test("esempio §3.4: 5 turni pari debito, A(grad migliore) vs B → 3-2 an
   suite.assert(vincite[FOSCHIANI] >= 2, "il risultato deve restare vicino al 3-2 strutturale, il preferito non altera la gerarchia");
 });
 
-suite.test("preferito ottenuto (sede verde qualunque, top choice) → nessun avviso generato", () => {
+suite.test("preferito sulla sede effettivamente ottenuta (unico candidato) → nessun avviso generato", () => {
   const g = GIORNI_FERIALI_SEMPLICI[0];
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(g)] = turnoDisp(["Maniago"], [], { preferito: true }); // unico candidato, ottiene sicuramente la sede
+  d[BERTUZZI][N(g)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // unico candidato, ottiene sicuramente quella sede
   const { avvisi } = elabora(d);
   suite.eq(avvisiPreferiti(avvisi).length, 0);
 });
 
-suite.test("preferito soddisfatto anche da una sede verde di livello peggiore (non la prima scelta)", () => {
+suite.test("preferito su una sede diversa da quella ottenuta → avviso, anche se il medico lavora comunque", () => {
   const g = GIORNI_FERIALI_SEMPLICI[0];
   const d = dispoBase(MEDICI);
-  // BERTUZZI vince sempre Maniago: WANG lo vuole come preferito ma non ha priorità;
-  // dichiara però ANCHE Spilimbergo come seconda scelta verde e la ottiene.
+  // BERTUZZI vince sempre Maniago: WANG lo preferirebbe (grad peggiore, non ha priorità), ma
+  // dichiara ANCHE Spilimbergo come seconda scelta verde e la ottiene — sede diversa da quella
+  // marcata con ★, quindi il preferito NON è soddisfatto anche se WANG lavora comunque.
   d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g)] = turnoDisp(["Maniago", "Spilimbergo"], [], { preferito: true, verdeLiv: { Maniago: 1, Spilimbergo: 2 } });
+  d[WANG][N(g)] = turnoDisp(["Maniago", "Spilimbergo"], [], { preferito: "Maniago", verdeLiv: { Maniago: 1, Spilimbergo: 2 } });
   const { avvisi, schema } = elabora(d);
   const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
-  suite.eq(t.slots[1], WANG, "WANG deve comunque ottenere Spilimbergo, la sua seconda scelta");
-  suite.eq(avvisiPreferiti(avvisi).length, 0, "una sede fisica qualunque soddisfa il preferito, non serve sia la prima scelta");
+  suite.eq(t.slots[1], WANG, "WANG ottiene comunque Spilimbergo, la sua seconda scelta");
+  const avvisoPref = avvisi.find((a) => a.includes("WANG") && a.includes("★"));
+  suite.assert(!!avvisoPref, "il preferito su Maniago non è soddisfatto: WANG ha ottenuto Spilimbergo, non la sede preferita");
+  suite.assert(avvisoPref.includes("ha ottenuto Spilimbergo"), "l'avviso deve indicare quale sede è stata effettivamente ottenuta");
+});
+
+suite.test("preferito sulla sede esatta ottenuta, pur non essendo la prima scelta verde → nessun avviso", () => {
+  const g = GIORNI_FERIALI_SEMPLICI[0];
+  const d = dispoBase(MEDICI);
+  d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
+  // WANG preferisce Spilimbergo (la sua SECONDA scelta verde) e la ottiene: soddisfatto, perché
+  // il preferito è legato alla sede specifica marcata, non alla priorità dei livelli verdi.
+  d[WANG][N(g)] = turnoDisp(["Maniago", "Spilimbergo"], [], { preferito: "Spilimbergo", verdeLiv: { Maniago: 1, Spilimbergo: 2 } });
+  const { avvisi, schema } = elabora(d);
+  const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
+  suite.eq(t.slots[1], WANG);
+  suite.eq(avvisiPreferiti(avvisi).length, 0, "WANG ha ottenuto esattamente la sede marcata con ★, anche se non è il suo livello verde migliore");
 });
 
 suite.test("preferito su verde, escluso dal turno (nessuna alternativa) → avviso di mancata assegnazione", () => {
   const g = GIORNI_FERIALI_SEMPLICI[0];
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g)] = turnoDisp(["Maniago"], [], { preferito: true }); // nessuna alternativa: se perde, resta fuori
+  d[WANG][N(g)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // nessuna alternativa: se perde, resta fuori
   const { avvisi, schema } = elabora(d);
   const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
   suite.assert(!t.slots.includes(WANG), "WANG deve restare fuori dal turno");
   // con WANG escluso, Spilimbergo resta scoperta (n=2 candidati, nessuno la dichiara) → 2 avvisi.
   suite.eq(avvisi.length, 2);
   const avvisoPref = avvisi.find((a) => a.includes("WANG") && a.includes("★"));
-  suite.assert(!!avvisoPref && avvisoPref.includes("non gli è stato assegnato"), "l'avviso preferiti deve segnalare la mancata assegnazione");
-});
-
-suite.test("preferitoRip soddisfatto allo stesso modo di preferito: qualunque sede verde va bene", () => {
-  const g = GIORNI_FERIALI_SEMPLICI[0];
-  const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g)] = turnoDisp(["Maniago", "Spilimbergo"], [], { preferito: true, preferitoRip: true, verdeLiv: { Maniago: 1, Spilimbergo: 2 } });
-  const { avvisi } = elabora(d);
-  suite.eq(avvisiPreferiti(avvisi).length, 0);
-});
-
-suite.test("preferitoRip escluso completamente dal turno → avviso \"a tutti i costi\"", () => {
-  const g = GIORNI_FERIALI_SEMPLICI[0];
-  const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-  d[TRIGODKO][N(g)] = turnoDisp(["Maniago"], [], { preferito: true, preferitoRip: true }); // nessuna alternativa: se perde, fuori
-  const { avvisi, schema } = elabora(d);
-  const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
-  suite.assert(!t.slots.includes(TRIGODKO));
-  // anche qui: Spilimbergo resta scoperta (n=2 candidati, uno escluso) → 2 avvisi.
-  suite.eq(avvisi.length, 2);
-  const avvisoPref = avvisi.find((a) => a.includes("a tutti i costi"));
-  suite.assert(!!avvisoPref, "l'avviso deve usare la formula \"a tutti i costi\" per preferitoRip non soddisfatto");
+  suite.assert(!!avvisoPref && avvisoPref.includes("non gli è stata assegnata alcuna sede"), "l'avviso preferiti deve segnalare la mancata assegnazione");
 });
 
 suite.test("dichiarare blu non basta a soddisfare il preferito se non si ottiene alcuna sede fisica", () => {
   // la copertura a distanza richiede sempre una presenza fisica altrove (INV3): se WANG non
   // ottiene alcuna sede verde, il suo blu dichiarato non può mai attivarsi, quindi resta escluso
-  // e genera comunque l'avviso di mancata assegnazione, anche con preferitoRip.
+  // e genera comunque l'avviso di mancata assegnazione.
   const g = GIORNI_FERIALI_SEMPLICI[0];
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g)] = turnoDisp(["Maniago"], ["Spilimbergo"], { preferito: true, preferitoRip: true, bluLiv: { Spilimbergo: 1 } });
+  d[WANG][N(g)] = turnoDisp(["Maniago"], ["Spilimbergo"], { preferito: "Maniago", bluLiv: { Spilimbergo: 1 } });
   const { avvisi, schema } = elabora(d);
   const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
   suite.assert(!t.slots.includes(WANG), "WANG non può coprire Spilimbergo a distanza senza essere fisico da qualche parte");
-  const avvisoPref = avvisi.find((a) => a.includes("WANG") && a.includes("a tutti i costi"));
+  const avvisoPref = avvisi.find((a) => a.includes("WANG") && a.includes("non gli è stata assegnata alcuna sede"));
   suite.assert(!!avvisoPref, "deve comunque generare l'avviso di mancata assegnazione");
 });
 
 suite.test("un preferito su una cella con NO esplicito non genera né priorità né avvisi", () => {
   const g = GIORNI_FERIALI_SEMPLICI[0];
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(g)] = turnoDisp([], [], { no: true, preferito: true });
+  d[BERTUZZI][N(g)] = turnoDisp([], [], { no: true, preferito: "Maniago" });
   const { avvisi, schema } = elabora(d);
   const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
   suite.assert(t.slots.every((s) => s === null), "il medico con NO non deve essere candidato nonostante il flag preferito");
@@ -159,7 +147,7 @@ suite.test("turno EXTRA con preferito non assegnato genera un avviso specifico p
   const M = `${dk(ANNO_TEST, MESE_TEST, g)}|M`;
   const d = dispoBase(MEDICI);
   d[BERTUZZI][M] = turnoDisp(["Maniago"]); // vince sempre (INDET)
-  d[WANG][M] = turnoDisp(["Maniago"], [], { preferito: true }); // perde, turno extra a slot singolo
+  d[WANG][M] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // perde, turno extra a slot singolo
   const { avvisi } = elaboraSchemaExtras(d, extras);
   suite.eq(avvisi.length, 1);
   suite.assert(avvisi[0].includes("WANG") && avvisi[0].includes("preferito"), "l'avviso deve riguardare il turno extra");
@@ -169,10 +157,10 @@ function elaboraSchemaExtras(dispo, extras) { return elaboraSchema(dispo, {}, AN
 suite.test("più medici con preferito sullo stesso turno: l'ordine tra turni conPref resta cronologico", () => {
   const [g1, g2] = GIORNI_FERIALI_SEMPLICI;
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(g1)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[FOSCHIANI][N(g1)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   d[WANG][N(g1)] = turnoDisp(["Maniago"]);
   d[FOSCHIANI][N(g2)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g2)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[WANG][N(g2)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   const { schema } = elabora(d);
   const tG1 = schema.find((x) => x.giorno === g1).turni.find((x) => x.id === "N");
   const tG2 = schema.find((x) => x.giorno === g2).turni.find((x) => x.id === "N");
@@ -188,14 +176,17 @@ suite.test("nessun preferito dichiarato nel mese → nessun avviso relativo ai p
 });
 
 suite.test("avvisi ordinati cronologicamente per giorno", () => {
-  const [g1, g2, g3] = GIORNI_FERIALI_SEMPLICI;
+  // Giorni volutamente NON consecutivi (distanza > 1), per isolare l'ordinamento degli avvisi
+  // dalla regola di spaziatura temporale (§3.7): su giorni consecutivi BERTUZZI, spaziato via
+  // dopo aver vinto Maniago il giorno prima, cederebbe la sede allo sfidante del giorno dopo.
+  const [g1, g2, g3] = [GIORNI_FERIALI_SEMPLICI[0], GIORNI_FERIALI_SEMPLICI[4], GIORNI_FERIALI_SEMPLICI[8]];
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(g3)] = turnoDisp(["Maniago"]);
-  d[WANG][N(g3)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[WANG][N(g3)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   d[BERTUZZI][N(g1)] = turnoDisp(["Maniago"]);
-  d[TRIGODKO][N(g1)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[TRIGODKO][N(g1)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   d[BERTUZZI][N(g2)] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][N(g2)] = turnoDisp(["Maniago"], [], { preferito: true });
+  d[FOSCHIANI][N(g2)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
   const { avvisi } = elabora(d);
   suite.eq(avvisi.length, 6);
   const giorniInOrdineAvvisi = avvisi.map((a) => Number(a.match(/Giorno (\d+)/)[1]));
