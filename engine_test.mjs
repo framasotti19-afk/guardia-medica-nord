@@ -41,13 +41,18 @@ const setMediciGlobal = (list) => {
   byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
 };
 
+// prio: livello di priorità di categoria. DET24 e DET12ASAP condividono LO STESSO prio (3) —
+// non sono in relazione di priorità tra loro: i conflitti tra i due si risolvono direttamente
+// con debito → graduatoria, esattamente come tra due medici della stessa categoria (CONTEXT.md §3.1).
 const CAT_INFO = {
-  INDET: { label: "Indet.", prio: 1, ore: 96, color: "#1a5c4a", bg: "#e3f2ec" },
-  DET36: { label: "Det. 36h", prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
-  DET24: { label: "Det. 24h", prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
-  SENZA: { label: "Senza inc.", prio: 4, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
+  INDET:    { label: "Indet.",        prio: 1, ore: 96,  color: "#1a5c4a", bg: "#e3f2ec" },
+  DET36:    { label: "Det. 36h",      prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
+  DET24:    { label: "Det. 24h",      prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
+  DET12ASAP:{ label: "Det. 12h ASAP", prio: 3, ore: 52,  color: "#6b4c9a", bg: "#efe8f7" },
+  DET12:    { label: "Det. 12h",      prio: 4, ore: 52,  color: "#4a708a", bg: "#e8eff5" },
+  SENZA:    { label: "Senza inc.",    prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
-const isDeterminato = (mid) => byId[mid].cat === "DET36" || byId[mid].cat === "DET24";
+const isDeterminato = (mid) => ["DET36", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
 
 const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL", Anduins: "AN" };

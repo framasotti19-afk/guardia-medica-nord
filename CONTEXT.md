@@ -24,17 +24,17 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1764 righe)
+## 2. STRUTTURA DEL FILE (~1778 righe)
 
 ```
-righe 1-108     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
-righe 109-183   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
-righe 184-385   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
-righe 386-469   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
-righe 470-486   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
-righe 487-826   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
-righe 827-1056  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1057-1764 → COMPONENTE REACT (UI, AI, render)
+righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
+righe 114-188   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
+righe 189-390   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
+righe 391-474   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
+righe 475-491   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
+righe 492-831   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
+righe 832-1066  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
+righe 1067-1778 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -55,18 +55,24 @@ print('motore estratto')
 
 ### 3.1 Gerarchia categorie
 
-| Priorità | Categoria | Debito mensile | Spareggio interno |
+| Priorità (prio) | Categoria | Debito mensile | Spareggio interno |
 |----------|-----------|----------------|-------------------|
 | 1° | INDET — Indeterminato (qualunque orario) | 96h | debito ↓ → graduatoria |
 | 2° | DET36 — Determinato 36h/sett | 156h | titolarità sede → debito ↓ → graduatoria |
 | 3° | DET24 — Determinato 24h/sett | 104h | titolarità sede → debito ↓ → graduatoria |
-| 4° | SENZA — Senza incarico | null (nessun debito) | solo graduatoria |
+| 3° | DET12ASAP — Determinato 12h/sett ASAP | 52h | titolarità sede → debito ↓ → graduatoria |
+| 4° | DET12 — Determinato 12h/sett | 52h | titolarità sede → debito ↓ → graduatoria |
+| 5° | SENZA — Senza incarico | null (nessun debito) | solo graduatoria |
 
 **INDET** sostituisce le vecchie categorie IND36/IND24 (fuse in un'unica categoria a priorità massima con un unico monte ore mensile di 96h, indipendentemente dall'orario contrattuale settimanale).
 
-**Regola del debito:** chi ha più debito residuo vince; a parità vince chi ha il numero di graduatoria più basso (= posizione migliore). Questo si applica SOLO all'interno della stessa categoria.
+**DET24 e DET12ASAP condividono lo STESSO livello di priorità (prio 3, in `CAT_INFO`).** Non sono in relazione gerarchica tra loro — nessuna delle due batte l'altra per categoria. Uno spareggio diretto tra un DET24 e un DET12ASAP si risolve esattamente come tra due medici della stessa categoria: titolarità sede → debito residuo → graduatoria. Il monte ore mensile resta comunque diverso (104h contro 52h), perché ciascuno matura debito secondo il proprio contratto — la parità riguarda solo la priorità di categoria nel confronto, non le ore.
 
-**La categoria prevale SEMPRE finché il medico ha debito > 0.** Un INDET con un'ora di debito batte qualsiasi DET36.
+**DET12** è l'unica categoria "determinata" priva di priorità speciale: perde sempre contro INDET, DET36, DET24 e DET12ASAP, e batte solo i medici senza incarico. Monte ore mensile 52h (12h/sett × 52 settimane ÷ 12 mesi), come DET12ASAP.
+
+**Regola del debito:** chi ha più debito residuo vince; a parità vince chi ha il numero di graduatoria più basso (= posizione migliore). Questo si applica SOLO all'interno dello stesso prio (quindi anche tra DET24 e DET12ASAP, che condividono prio 3).
+
+**La categoria prevale SEMPRE finché il medico ha debito > 0.** Un INDET con un'ora di debito batte qualsiasi DET36, e così via lungo tutta la gerarchia (eccetto tra DET24 e DET12ASAP, che sono a pari livello).
 
 **Debito esaurito (= 0 o negativo):** il medico esce dalla priorità di categoria. L'ordine di precedenza diventa:
 1. contrattualizzati con debito > 0 (ordinati per cat → titolarità → debito → grad)
@@ -77,12 +83,12 @@ print('motore estratto')
 
 ### 3.1a Titolarità di sede (solo determinati)
 
-Ogni medico **determinato** (DET36 o DET24) può avere un campo `sedeContratto`: `"Maniago"`, `"Spilimbergo"`, oppure `null` (nessuna). Non esiste per INDET o SENZA — è un concetto legato al contratto di lavoro dei soli determinati.
+Ogni medico **determinato** (DET36, DET24, DET12ASAP o DET12 — `isDeterminato(mid)`) può avere un campo `sedeContratto`: `"Maniago"`, `"Spilimbergo"`, oppure `null` (nessuna). Non esiste per INDET o SENZA — è un concetto legato al contratto di lavoro dei soli determinati.
 
 **Tra due determinati** in conflitto sulla sede di cui uno dei due è titolare, il titolare vince **sempre** quella sede — anche contro un determinato di categoria nominalmente superiore (es. un DET24 titolare di Maniago batte un DET36 non titolare, per Maniago). Questa regola vale **identica sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu)** — non ci sono due ordini diversi:
 
 ```
-titolarità sede (per la sede contesa) → categoria (36h/24h) → debito → graduatoria
+titolarità sede (per la sede contesa) → categoria → debito → graduatoria
 ```
 
 La titolarità **non ha mai effetto** se uno dei due contendenti non è determinato (un INDET batte sempre un determinato titolare o no; un senza incarico perde sempre contro un determinato con debito, titolare o no) e non ha effetto se il contendente è titolare di una sede **diversa** da quella contesa.
@@ -207,7 +213,7 @@ SENZA:  ZURLO(id13, grad2), GRANDO(id14, grad13), PITAU(id15, grad14), DE CECCO-
         MERLINO(id25, grad105), MARCUZZO(id26, grad109)
 ```
 
-Tutti i determinati (DET36/DET24) hanno `sedeContratto: null` nei dati simulati — nessuna titolarità nota, va assegnata quando si hanno i dati reali.
+Tutti i determinati (DET36/DET24/DET12ASAP/DET12) hanno `sedeContratto: null` nei dati simulati — nessuna titolarità nota, va assegnata quando si hanno i dati reali. Nessun medico di default è DET12ASAP o DET12 (categorie disponibili ma non usate nei dati simulati).
 
 La lista è modificabile dall'interfaccia (tab "3 · Medici / ore extra": categoria, graduatoria, titolarità di sede per i determinati) e salvata nello store persistente. In `store.medici` se presente, altrimenti `MEDICI_DEFAULT`.
 
@@ -287,18 +293,19 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 3. **Inserimento rapido per intervallo** — compila blocchi di disponibilità (verde e/o blu) con periodi di eccezione
 4. **Menu a tendina per sede** — sostituisce il vecchio ciclo a tocchi: per ogni sede, un `<select>` con Non disponibile / Verde 1-5 / Blu 1-4
 5. **Sistema verde/blu** — verde = sede fisica (unificata, niente più piena/ripiego a due livelli), blu = disponibilità a coprire a distanza (nessuna copertura automatica, un medico copre al massimo 1 sede a distanza)
-6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati prima della categoria 36h/24h
+6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati (DET36/DET24/DET12ASAP/DET12) prima della categoria
 7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
 8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati
-9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML)
+9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore.
 10. **Spaziatura temporale** — a parità di alternative valide, evita di assegnare due turni consecutivi allo stesso medico; non lascia mai sedi scoperte per questo (§3.7)
 11. **Tetto settimanale opzionale** — il medico dichiara un massimo di turni per settimana, impostabile da UI (Rapido) o AI (§3.8)
-10. **AI integrata** — conosce tutte le regole (incluse titolarità e verde/blu), può modificare disponibilità e schema tramite JSON
-11. **Medici modificabili** — categoria, graduatoria e titolarità di sede modificabili dall'UI, aggiunta/rimozione medici
-12. **Azzera mese con doppio tocco** — sicuro, posizionato lontano dai pulsanti di esportazione
-13. **Undo/redo** — history completo di tutte le azioni
-14. **Storage persistente** — `window.storage` (API Claude.ai), chiave `gm-turni-store-v3`
-15. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
+12. **AI integrata** — conosce tutte le regole (incluse titolarità e verde/blu), può modificare disponibilità e schema tramite JSON
+13. **Medici modificabili** — categoria, graduatoria e titolarità di sede modificabili dall'UI, aggiunta/rimozione medici
+14. **Azzera mese con doppio tocco** — sicuro, posizionato lontano dai pulsanti di esportazione
+15. **Undo/redo** — history completo di tutte le azioni
+16. **Storage persistente** — `window.storage` (API Claude.ai), chiave `gm-turni-store-v3`
+17. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
+18. **Categorie DET12ASAP e DET12** — determinati 12h/sett, 52h mensili; DET12ASAP a pari priorità con DET24 (spareggio diretto per titolarità → debito → graduatoria), DET12 sotto entrambi, sopra solo ai senza incarico (§3.1)
 
 ---
 
@@ -333,6 +340,7 @@ node test_livelli_verde_blu.mjs # 11 test livelli verde 1-5 e blu 1-4
 node test_stesso_cat2.mjs      # 8 test conflitti stessa categoria
 node test_nuove_funzioni.mjs   # 16 test livelli verde, titolarità e medici modificabili
 node test_spaziatura_settimana.mjs  # 13 test spaziatura temporale (§3.7) e tetto settimanale (§3.8)
+node test_categorie_12h.mjs    # 11 test DET12ASAP e DET12 (§3.1)
 node test_simulazione_completa.mjs  # ~41600 check su scenari randomici (10 semi × 17 mesi, con titolarità)
 node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
 ```
@@ -365,6 +373,7 @@ python3 -c "..."  # vedi sopra
 node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
   node test_livelli_verde_blu.mjs && node test_stesso_cat2.mjs && \
   node test_nuove_funzioni.mjs && node test_spaziatura_settimana.mjs && \
+  node test_categorie_12h.mjs && \
   node test_simulazione_completa.mjs && node test_simulazione_email.mjs
 
 # 4. Se si tocca turni-guardia-medica.jsx, rigenera anche docs/app.jsx (copia GitHub Pages) —

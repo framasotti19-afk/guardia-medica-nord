@@ -42,13 +42,18 @@ const setMediciGlobal = (list) => {
   byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
 };
 
+// prio: livello di priorità di categoria. DET24 e DET12ASAP condividono LO STESSO prio (3) —
+// non sono in relazione di priorità tra loro: i conflitti tra i due si risolvono direttamente
+// con debito → graduatoria, esattamente come tra due medici della stessa categoria (CONTEXT.md §3.1).
 const CAT_INFO = {
-  INDET: { label: "Indet.", prio: 1, ore: 96, color: "#1a5c4a", bg: "#e3f2ec" },
-  DET36: { label: "Det. 36h", prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
-  DET24: { label: "Det. 24h", prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
-  SENZA: { label: "Senza inc.", prio: 4, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
+  INDET:    { label: "Indet.",        prio: 1, ore: 96,  color: "#1a5c4a", bg: "#e3f2ec" },
+  DET36:    { label: "Det. 36h",      prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
+  DET24:    { label: "Det. 24h",      prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
+  DET12ASAP:{ label: "Det. 12h ASAP", prio: 3, ore: 52,  color: "#6b4c9a", bg: "#efe8f7" },
+  DET12:    { label: "Det. 12h",      prio: 4, ore: 52,  color: "#4a708a", bg: "#e8eff5" },
+  SENZA:    { label: "Senza inc.",    prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
-const isDeterminato = (mid) => byId[mid].cat === "DET36" || byId[mid].cat === "DET24";
+const isDeterminato = (mid) => ["DET36", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
 
 const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL", Anduins: "AN" };
@@ -876,7 +881,7 @@ export default function App() {
 
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="9">
+<fonts count="10">
 <font><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="8"/><name val="Calibri"/></font>
@@ -886,6 +891,7 @@ export default function App() {
 <font><sz val="8.5"/><name val="Calibri"/></font>
 <font><i/><sz val="8"/><color rgb="FF5B5F59"/><name val="Calibri"/></font>
 <font><b/><sz val="8.5"/><color rgb="FFB03030"/><name val="Calibri"/></font>
+<font><sz val="8.5"/><color rgb="FF666666"/><name val="Calibri"/></font>
 </fonts>
 <fills count="7">
 <fill><patternFill patternType="none"/></fill>
@@ -901,7 +907,7 @@ export default function App() {
 <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="13">
+<cellXfs count="14">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -915,6 +921,7 @@ export default function App() {
 <xf numFmtId="0" fontId="7" fillId="4" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="8" fillId="6" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
+<xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 </cellXfs>
 </styleSheet>`;
   // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB
@@ -976,6 +983,7 @@ export default function App() {
           if (sede === "MANIAGO" && t.slots[0]) testo = `${byId[t.slots[0]].nome} (MMG)`;
         } else if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
+          else { testo = "scoperto"; stile = 13; } // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
         } else {
           const si = mapIdx[sede];
           const mid = t.slots[si];
@@ -983,6 +991,8 @@ export default function App() {
             const nota = notaSlot(t.slots, si, t.fis);
             if (nota.tipo === "copertura") { testo = nota.testo; stile = 10; }
             else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
+          } else if (sede === "MEDUNO" || sede === "CLAUT" || sede === "ANDUINS") {
+            testo = "scoperto"; stile = 13; // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
           }
         }
         row += cell(r, k + 1, testo, stile);
@@ -1099,20 +1109,24 @@ Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dich
 == GERARCHIA CATEGORIE (priorità decrescente) ==
 1. INDET (indeterminato, qualunque orario) → spareggio: debito orario poi graduatoria
 2. Determinato 36h/sett → spareggio: titolarità sede (solo tra determinati, vedi sotto) → debito orario → graduatoria
-3. Determinato 24h/sett → spareggio: titolarità sede (solo tra determinati) → debito orario → graduatoria
-4. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore
+3. Determinato 24h/sett = Determinato 12h/sett ASAP (DET12ASAP) → STESSO livello di priorità, non sono in relazione
+   gerarchica tra loro: uno spareggio diretto tra i due si risolve con titolarità sede → debito orario →
+   graduatoria, esattamente come tra due medici della stessa categoria
+4. Determinato 12h/sett (DET12) → spareggio: titolarità sede → debito orario → graduatoria; perde sempre contro
+   INDET, Determinato 36h, Determinato 24h e DET12ASAP, batte solo i medici senza incarico
+5. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore
 La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo positivo.
 
 == TITOLARITÀ DI SEDE (solo determinati) ==
-Ogni medico determinato (36h o 24h) può avere un contratto di titolarità per Maniago, Spilimbergo, o nessuna.
+Ogni medico determinato (36h, 24h, 12h ASAP o 12h) può avere un contratto di titolarità per Maniago, Spilimbergo, o nessuna.
 Tra due determinati in conflitto per la sede di cui uno è titolare, il titolare vince SEMPRE quella sede,
 sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu), prima ancora del confronto di
-categoria 36h/24h: titolarità sede → categoria → debito → graduatoria, in entrambi i casi.
+categoria: titolarità sede → categoria → debito → graduatoria, in entrambi i casi.
 La titolarità non ha alcun effetto se uno dei due contendenti non è determinato (es. contro un INDET o un senza incarico).
 
 == FRAMEWORK DEBITO ORARIO ==
 Conteggio mensile in ore effettive (NON settimanale, NON in numero di turni).
-Monte ore mensile: INDET → 96 ore | Determinato 36h/sett → ~156 ore | Determinato 24h/sett → ~104 ore.
+Monte ore mensile: INDET → 96 ore | Determinato 36h/sett → ~156 ore | Determinato 24h/sett → ~104 ore | Determinato 12h/sett (ASAP o no) → 52 ore.
 Risoluzione conflitto turno per turno in ordine cronologico:
 - Debito diverso → vince chi ha debito residuo MAGGIORE
 - Debito identico → vince chi è PIÙ ALTO in graduatoria (numero più basso = posizione migliore)
@@ -1613,7 +1627,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       <td style={{ padding: "6px 8px" }}>
                         {isDeterminato(m.id) ? (
                           <select value={m.sedeContratto || ""} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value || null })}
-                            title="Sede di titolarità: vince sempre quella sede tra determinati, prima della categoria 36h/24h"
+                            title="Sede di titolarità: vince sempre quella sede tra determinati, prima della categoria"
                             style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }}>
                             <option value="">Nessuna</option>
                             {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
