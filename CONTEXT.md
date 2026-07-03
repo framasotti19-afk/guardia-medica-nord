@@ -24,7 +24,7 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1778 righe)
+## 2. STRUTTURA DEL FILE (~1794 righe)
 
 ```
 righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
@@ -33,8 +33,8 @@ righe 189-390   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a dista
 righe 391-474   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
 righe 475-491   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
 righe 492-831   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
-righe 832-1066  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1067-1778 → COMPONENTE REACT (UI, AI, render)
+righe 832-1082  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
+righe 1083-1794 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -296,7 +296,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati (DET36/DET24/DET12ASAP/DET12) prima della categoria
 7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
 8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati
-9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore.
+9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore. Etichette dei turni adattate SOLO per l'export (`ETICHETTE_EXPORT` in `buildSheetXML`, la griglia a schermo resta invariata): il diurno feriale/weekend "semplice" perde l'orario e diventa solo "DIURNO" (prefestivo e superfestivo restano con l'orario completo); le colonne MMG mattina/pomeriggio diventano "ANTICIPO DIURNO MMG e PLS 8-14" / "...14-20", con tutte e 5 le sedi mostrate (Maniago = il medico assegnato o SCOPERTO; Spilimbergo sempre SCOPERTO rosso; Meduno/Claut/Anduins sempre "scoperto" grigio, perché il turno MMG non le copre mai).
 10. **Spaziatura temporale** — a parità di alternative valide, evita di assegnare due turni consecutivi allo stesso medico; non lascia mai sedi scoperte per questo (§3.7)
 11. **Tetto settimanale opzionale** — il medico dichiara un massimo di turni per settimana, impostabile da UI (Rapido) o AI (§3.8)
 12. **AI integrata** — conosce tutte le regole (incluse titolarità e verde/blu), può modificare disponibilità e schema tramite JSON

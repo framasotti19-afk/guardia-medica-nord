@@ -972,11 +972,19 @@ function App() {
     cols.forEach(({ g }, k) => { r2 += cell(2, k + 1, `${String(g.giorno).padStart(2, "0")}-${MESI_BREVI[m]}`, 4); });
     rows += `<row r="2" ht="15" customHeight="1">${r2}</row>`;
 
-    // R3 turni
+    // R3 turni — etichette adattate solo per l'export (la griglia a schermo usa t.label invariato):
+    // il diurno feriale/weekend "semplice" perde l'orario "8-20" (resta "DIURNO"), prefestivo e
+    // superfestivo restano con l'orario completo; le colonne MMG mattina/pomeriggio diventano
+    // "ANTICIPO DIURNO MMG e PLS 8-14" / "...14-20".
+    const ETICHETTE_EXPORT = {
+      "DIURNO 8-20": "DIURNO",
+      "MATTINA MMG 8-14": "ANTICIPO DIURNO MMG e PLS 8-14",
+      "POMERIGGIO MMG 14-20": "ANTICIPO DIURNO MMG e PLS 14-20",
+    };
     let r3 = cellV(3, 0, 12);
     cols.forEach(({ t }, k) => {
       const st = t.extra ? 7 : (t.label.includes("SUPER") || t.label.includes("PREFESTIVO")) ? 6 : 5;
-      r3 += cell(3, k + 1, t.label, st);
+      r3 += cell(3, k + 1, ETICHETTE_EXPORT[t.label] || t.label, st);
     });
     rows += `<row r="3" ht="34" customHeight="1">${r3}</row>`;
 
@@ -989,7 +997,15 @@ function App() {
       cols.forEach(({ t }, k) => {
         let testo = "", stile = 9;
         if (t.extra) {
-          if (sede === "MANIAGO" && t.slots[0]) testo = `${byId[t.slots[0]].nome} (MMG)`;
+          // Turno MMG: un solo medico assegnato, sempre associato a Maniago (nessun concetto di
+          // sede per gli extra). Le altre 4 sedi non sono mai coperte da un MMG: stesse regole
+          // di scopertura delle colonne normali (SCOPERTO rosso per la CDC Spilimbergo, scoperto
+          // grigio per le sedi minori), così la colonna mostra sempre tutte e 5 le sedi.
+          if (sede === "MANIAGO") {
+            if (t.slots[0]) testo = `${byId[t.slots[0]].nome} (MMG)`;
+            else { testo = "SCOPERTO"; stile = 11; }
+          } else if (sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
+          else { testo = "scoperto"; stile = 13; }
         } else if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
           else { testo = "scoperto"; stile = 13; } // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
