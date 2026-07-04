@@ -24,18 +24,16 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1960 righe)
+## 2. STRUTTURA DEL FILE (~2500 righe)
 
 ```
 righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
 righe 114-182   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
-righe 184-215   → MOTORE: turnoPrefDi, candidatiOrdinati (preferenza turno §3.9 + estrazione candidati condivisa)
-righe 217-416   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
-righe 418-538   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto, poi preferenza turno §3.9)
-righe 539-555   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
-righe 557-905   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
-righe 906-1156  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1157-1960 → COMPONENTE REACT (UI, AI, render)
+righe 184-217   → MOTORE: turnoPrefDi, candidatiOrdinati (preferenza turno §3.9 + turni extra §3.10 + estrazione candidati condivisa)
+righe 219-427   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale + turni extra §3.10)
+righe 429-563   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto, poi preferenza turno §3.9)
+righe 564-580   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
+righe 581-... (nota: numeri di riga oltre questo punto non aggiornati a ogni modifica UI — usa grep per i marker esatti) → COMPONENTE REACT (state, event handlers, EXPORT XLSX, UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -209,6 +207,17 @@ Il medico può dichiarare, per un giorno che ha SIA il diurno (G) SIA il notturn
 - **Perché serve, non basta la spaziatura temporale**: nella spaziatura ordinaria, tra i due turni dello stesso giorno viene sempre considerato "a rischio" quello elaborato per SECONDO — normalmente il notturno, dato che il diurno è sempre elaborato prima (§5). Ma un ★ preferito marcato sul notturno lo sposta nella fase conPref, facendolo elaborare PRIMA del diurno (§3.4) — invertendo quale dei due la spaziatura considera "a rischio": senza una preferenza di turno esplicita, il medico finirebbe per mantenere il notturno e perdere il diurno che invece preferiva (il caso reale che ha motivato la funzionalità). La preferenza di turno **prevale sempre** su questo effetto collaterale dell'ordine conPref/resto: se il medico ha dichiarato di voler mantenere PROPRIO il turno che la spaziatura vorrebbe cedere, la spaziatura non lo tocca; il turno non preferito (se ancora assegnato a lui dopo tutta l'elaborazione del mese) viene liberato a favore della stessa identica gerarchia usata per la spaziatura (categoria → debito → graduatoria, tramite `candidatiOrdinati`, condivisa con `elaboraTurno`).
 - Impostabile dal popup di disponibilità (icone ☀️/🌙 accanto al toggle Disponibile/Non disponibile, visibili solo nei giorni con entrambi i turni) oppure via assistente AI (azione `turno_pref`, vedi §13).
 
+### 3.10 Turni extra volontari (oltre il monte ore)
+
+Il coordinatore può dichiarare, per ciascun medico contrattualizzato (non per i senza incarico, che non hanno un concetto di monte ore), un numero di **turni extra volontari** per il mese: `dati.turniExtra[mid] = N` (tab "3 · Medici / ore extra", campo "Turni extra", accanto alle ore extra di recupero). Ogni turno vale sempre 12 ore, quindi il budget in ore è `N × 12`.
+
+- **Pool separato dal debito ordinario**: le ore extra di recupero (`extraOre`) si sommano al monte ore contrattuale — il medico compete con **piena priorità di categoria** finché quel totale (monte + recupero) non è esaurito, esattamente come oggi. I turni extra volontari sono un budget **completamente distinto**, consumato SOLO dopo che monte ore + recupero raggiungono zero.
+- **Priorità durante i turni extra**: mentre il budget extra è disponibile (e il debito ordinario è esaurito), il medico compete con la **stessa priorità di un senza incarico** — spareggio SOLO per graduatoria, mai per categoria. Nella pratica, in `candidatiOrdinati` ed `elaboraTurno` viene inserito nello stesso bucket dei senza incarico veri, ordinato insieme a loro puramente per `grad`.
+- **Dopo aver esaurito anche il budget extra**, il medico torna esattamente al comportamento attuale di "debito esaurito" (§3.4): bucket più debole di un senza incarico, può competere solo per turni che altrimenti resterebbero completamente scoperti.
+- **Non cambia mai la gerarchia per chi ha ancora debito ordinario positivo**: un medico in bucket 0 (categoria con debito residuo) batte SEMPRE un medico che sta usando i turni extra, indipendentemente dal grad di quest'ultimo — i turni extra non sono mai una scorciatoia per superare la priorità di categoria.
+- Implementato con un secondo accumulatore parallelo a `debiti`, chiamato `debitiExtra` (mid → ore residue del budget extra, `null` per i senza incarico), inizializzato in `elaboraSchema` da `turniExtra[mid] × 12` e passato sia a `elaboraTurno` sia a `candidatiOrdinati`. Lo scalo avviene tramite l'helper `scalaDebito` in `elaboraTurno`: se `debiti[mid] > 0` scala il debito ordinario, altrimenti scala `debitiExtra[mid]` — mai entrambi per lo stesso turno. La copertura a distanza (blu) non consuma né l'uno né l'altro pool, coerentemente con la regola generale (§3.2).
+- `elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {})`: il nuovo parametro è **opzionale** (default `{}`, nessun turno extra) — tutte le chiamate esistenti restano valide senza modifiche.
+
 ---
 
 ## 4. GRADUATORIA SIMULATA (dati di test — da sostituire con la reale)
@@ -234,12 +243,16 @@ La lista è modificabile dall'interfaccia (tab "3 · Medici / ore extra": catego
 ### elaboraTurno (cuore)
 
 ```javascript
-function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
   // 1. Trova candidati con disponibilità valida (verde o blu) per questo slotKey, ESCLUSI quelli
   //    che hanno già raggiunto il tetto settimanale dichiarato per la settimana di questo turno
   //    (capSettimanale, §3.8) — se non dichiarato, nessuna esclusione (comportamento invariato)
-  // 2. Li ordina: [conDeb (cat→deb→grad), senzaInc (grad), esaur (grad)] — ordine globale,
-  //    la titolarità NON entra in questo ordinamento globale (è specifica per sede)
+  // 2. Li ordina: [conDeb (cat→deb→grad), senzaInc+turniExtra (grad), esaur (grad)] — ordine
+  //    globale, la titolarità NON entra in questo ordinamento globale (è specifica per sede).
+  //    Un contrattualizzato con debito esaurito ma con debitiExtra[mid] > 0 (turni extra
+  //    volontari residui, §3.10) rientra nel bucket "senza incarico", non in "esaur".
+  //    Scala il debito del vincitore con scalaDebito(mid, ore): se debiti[mid] > 0 scala il
+  //    debito ordinario, altrimenti scala debitiExtra[mid] — mai entrambi per lo stesso turno.
   // 3. FASE 1 — assegnazione fisica (verde):
   //    - target = sedi fisiche da puntare (dinamico per n=1, altrimenti MA[,SP[,ME[,CL]]])
   //    - provaFisica() — assegnazione con ricollocazione e scalzamento:
@@ -284,8 +297,10 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
 ### elaboraSchema (orchestratore)
 
 ```javascript
-function elaboraSchema(dispo, extraOre, anno, mese, extras) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
   // Inizializza debiti: CAT_INFO[cat].ore + (extraOre[mid] || 0)
+  // Inizializza debitiExtra: (turniExtra[mid] || 0) × 12 — budget separato, §3.10 (turniExtra è
+  // opzionale, default {}: tutte le chiamate esistenti restano valide senza modifiche)
   // Inizializza settimanaCount ({}) e ultimoFisico ({}) — stato condiviso tra tutte le chiamate
   // a elaboraTurno di questo stesso elaboraSchema (§3.7, §3.8)
   // Costruisce lista turni del mese
@@ -295,10 +310,12 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   // Chiama elaboraTurno per ogni turno nell'ordine sopra
   // PREFERENZA TURNO (§3.9): dopo che TUTTO il mese è elaborato, per ogni giorno con G e N,
   // per ogni medico che vince fisicamente ENTRAMBI e ha dichiarato una preferenza, libera il
-  // turno non preferito a favore della stessa gerarchia (candidatiOrdinati) — se un'alternativa
-  // esiste. Eseguita in un passaggio a parte, dopo l'intero ciclo conPref+resto, perché deve
-  // conoscere l'esito di entrambi i turni dello stesso giorno indipendentemente da quale dei
-  // due è stato elaborato per primo.
+  // turno non preferito a favore della stessa gerarchia (candidatiOrdinati, ora anche debitiExtra-
+  // aware) — se un'alternativa esiste. Storna/scala lo stesso pool (debiti o debitiExtra) che il
+  // turno aveva effettivamente consumato per ciascuno, in base al segno corrente di debiti[mid]
+  // (identica logica di scalaDebito). Eseguita in un passaggio a parte, dopo l'intero ciclo
+  // conPref+resto, perché deve conoscere l'esito di entrambi i turni dello stesso giorno
+  // indipendentemente da quale dei due è stato elaborato per primo.
   // Raccoglie avvisi: copertura scoperta (per sede) + preferiti non rispettati
 }
 ```
@@ -314,7 +331,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 5. **Sistema verde/blu** — verde = sede fisica (unificata, niente più piena/ripiego a due livelli), blu = disponibilità a coprire a distanza (nessuna copertura automatica, un medico copre al massimo 1 sede a distanza)
 6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati (DET36/DET24/DET12ASAP/DET12) prima della categoria
 7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
-8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati
+8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati — `dati.avvisi` continua a essere generato dal motore e inviato all'assistente AI (`stato.avvisiScenari`), ma dalla UI non è più visualizzato: la sezione "⚠ Avvisi — richieste da fare ai medici" nel tab Schema turni è stata rimossa (era troppo dispersiva)
 9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore. Questo vale anche quando un'ALTRA sede dello stesso turno è coperta (es. scenario 1 con un solo medico fisico su una sede diversa da Maniago): Maniago/Spilimbergo mostrano comunque "SCOPERTO" invece di una cella vuota (bug corretto — in precedenza il ramo `t.slots.some(Boolean)` di `buildSheetXML` gestiva l'assenza di medico solo per Meduno/Claut/Anduins, lasciando Maniago/Spilimbergo senza testo in quel caso). Etichette dei turni adattate SOLO per l'export (`ETICHETTE_EXPORT` in `buildSheetXML`, la griglia a schermo resta invariata): il diurno feriale/weekend "semplice" perde l'orario e diventa solo "DIURNO" (prefestivo e superfestivo restano con l'orario completo); le colonne MMG mattina/pomeriggio diventano "ANTICIPO DIURNO MMG e PLS 8-14" / "...14-20", con tutte e 5 le sedi mostrate (Maniago = il medico assegnato o SCOPERTO; Spilimbergo sempre SCOPERTO rosso; Meduno/Claut/Anduins sempre "scoperto" grigio, perché il turno MMG non le copre mai).
 10. **Spaziatura temporale** — a parità di alternative valide, evita di assegnare due turni consecutivi allo stesso medico; non lascia mai sedi scoperte per questo (§3.7)
 11. **Tetto settimanale opzionale** — il medico dichiara un massimo di turni per settimana, impostabile da UI (Rapido) o AI (§3.8)
@@ -326,8 +343,9 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 17. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
 18. **Categorie DET12ASAP e DET12** — determinati 12h/sett, 52h mensili; DET12ASAP a pari priorità con DET24 (spareggio diretto per titolarità → debito → graduatoria), DET12 sotto entrambi, sopra solo ai senza incarico (§3.1)
 19. **Preferenza di turno stesso giorno (☀️/🌙)** — solo nei giorni con diurno e notturno: decide quale dei due il medico mantiene se li vince entrambi, prevalendo sull'effetto collaterale dell'ordine conPref/resto sulla spaziatura temporale; impostabile dal popup di disponibilità o via assistente AI (azione `turno_pref`) (§3.9)
-20. **Colonne "Ore assegnate" / "Ore mancanti" nel tab Medici** — sola lettura, visibili solo dopo l'elaborazione dello schema del mese ("—" altrimenti). "Ore assegnate" = somma delle ore dei turni in cui il medico compare FISICAMENTE nello schema elaborato (stessa logica di scalo del debito nel motore — la copertura a distanza non consuma ore proprie, coerente con `elaboraTurno`). "Ore mancanti" = monte ore + ore extra − ore assegnate; per i medici senza incarico (nessun monte ore) mostra sempre "—", anche a schema elaborato. Calcolate interamente lato UI da `dati.schema` — nessuna modifica al motore
+20. **Colonne "Ore assegnate" / "Ore mancanti" nel tab Medici** — sola lettura, visibili solo dopo l'elaborazione dello schema del mese ("—" altrimenti). "Ore assegnate" = somma delle ore dei turni in cui il medico compare FISICAMENTE nello schema elaborato (stessa logica di scalo del debito nel motore — la copertura a distanza non consuma ore proprie, coerente con `elaboraTurno`), contato UNA SOLA VOLTA per turno anche se lo stesso medico compare in più sedi fisiche dello stesso turno (bug corretto: l'editor manuale `setSlot` nel tab Schema turni riassegna `slots` ma non aggiorna mai `fis`, quindi una correzione manuale può in teoria lasciare lo stesso medico su 2 sedi fisiche dello stesso turno — `oreAssegnateDi` deduplica con un `Set` per evitare di contare le sue ore due volte). "Ore mancanti" = monte ore + ore extra − ore assegnate; per i medici senza incarico (nessun monte ore) mostra sempre "—", anche a schema elaborato. Calcolate interamente lato UI da `dati.schema` — nessuna modifica al motore
 21. **Pulsante "Nuova conversazione" nel pannello AI** — azzera chat, proposta in sospeso e registro anti-loop `azioniEseguite` (§13) senza dover ricaricare la pagina
+22. **Turni extra volontari** — campo "Turni extra" nel tab Medici (accanto alle ore extra di recupero): budget separato dal debito ordinario, consumato SOLO dopo aver esaurito monte ore + recupero, con priorità da senza incarico (solo graduatoria) (§3.10)
 
 ---
 
@@ -364,6 +382,7 @@ node test_nuove_funzioni.mjs   # 16 test livelli verde, titolarità e medici mod
 node test_spaziatura_settimana.mjs  # 13 test spaziatura temporale (§3.7) e tetto settimanale (§3.8)
 node test_categorie_12h.mjs    # 11 test DET12ASAP e DET12 (§3.1)
 node test_preferenza_turno.mjs # 13 test preferenza di turno stesso giorno G/N (§3.9)
+node test_turni_extra.mjs      # 7 test turni extra volontari oltre il monte ore (§3.10)
 node test_simulazione_completa.mjs  # ~41600 check su scenari randomici (10 semi × 17 mesi, con titolarità)
 node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
 ```
@@ -385,9 +404,9 @@ npx tsc --jsx preserve --noEmit --allowJs check.tsx 2>&1 | grep -E "error TS(1[0
 # 2. Verifica nessuna funzione duplicata
 for fn in setSedeOpzione setNoCella setPreferitoSede setTurnoPref toggleExtra elabora azzeraMese \
   setMedici aggiornaMedico aggiungiMedico rimuoviMedico setSlot applicaRapido \
-  applicaProposta chiediAI nomeToId elaboraSchema elaboraTurno normDispo \
+  applicaProposta applicaAzioni riepilogoDi rispondiDomanda nomeToId elaboraSchema elaboraTurno normDispo \
   ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale \
-  turnoPrefDi candidatiOrdinati oreAssegnateDi; do
+  turnoPrefDi candidatiOrdinati oreAssegnateDi scalaDebito chiediAI; do
   n=$(grep -c "const $fn = \|function $fn(" turni-guardia-medica.jsx)
   [ "$n" != "1" ] && echo "DUPLICATA: $fn"
 done
@@ -397,7 +416,7 @@ python3 -c "..."  # vedi sopra
 node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
   node test_livelli_verde_blu.mjs && node test_stesso_cat2.mjs && \
   node test_nuove_funzioni.mjs && node test_spaziatura_settimana.mjs && \
-  node test_categorie_12h.mjs && node test_preferenza_turno.mjs && \
+  node test_categorie_12h.mjs && node test_preferenza_turno.mjs && node test_turni_extra.mjs && \
   node test_simulazione_completa.mjs && node test_simulazione_email.mjs
 
 # 4. Se si tocca turni-guardia-medica.jsx, rigenera anche docs/app.jsx (copia GitHub Pages) —
@@ -471,9 +490,10 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 - **Domande Sì/No dell'AI**: per le ambiguità con una scelta binaria chiara (entrambe le risposte corrispondono a un'azione concreta e ben definita — es. attivare o no un turno MMG mancante, aggiungere o no il diurno su un weekend non specificato), l'AI usa il nuovo campo opzionale `"domande"` nella risposta JSON di tipo "modifiche" (può coesistere con "azioni", o essere l'unico contenuto della risposta se non ci sono azioni dirette): `{"giorno":11,"medico":"MARZANO","citazione":"vorrei fare la mattina MMG l'11","domanda":"Vuoi attivare questo turno?","seSi":[...azioni...],"seNo":[]}`. `"citazione"` è OBBLIGATORIA: la frase esatta scritta dal medico nel testo incollato (non un riassunto), così il coordinatore vede subito il contesto originale. In `"citazione"`/`"domanda"` il prompt vieta esplicitamente abbreviazioni o codici interni (niente "g11"/"g8N"/"MA"/"SP": sempre "giorno 11"/"notturno"/"Maniago"/"Spilimbergo" per esteso). Per il caso specifico "MMG richiesto ma non attivo" la domanda è SEMPRE la formulazione standard "Vuoi attivare questo turno?" — mai un avviso testuale, senza eccezioni — con `seSi` che attiva il turno MMG e inserisce la disponibilità, `seNo` sempre vuoto (nessuna azione, non si inserisce nemmeno l'altro turno). La UI (`domande.map` nel pannello AI) renderizza ogni card come `❓ {medico} {giorno} {mese in minuscolo} ({giorno della settimana}): ha scritto "{citazione}" — {domanda}` (giorno della settimana calcolato al volo con `new Date(anno, mese, d.giorno).getDay()`, non richiede stato aggiuntivo). Per le ambiguità SENZA un'azione concreta definibile (sede non identificabile, date vaghe, condizionali, contraddizioni) l'AI continua a usare il testo "🔴 ATTENZIONE" nella spiegazione (invariato).
   - **Precedenza esplicita "notti"/"notturni" sulla domanda weekend-ambiguo**: il prompt chiarisce che la domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico non menziona affatto il turno (né diurno né notturno). Se usa esplicitamente parole come "notti"/"notturni"/"notturno"/"la notte" (sezione SOLO NOTTURNO), quella è già una scelta di turno dichiarata: si inserisce direttamente e silenziosamente solo il notturno, senza generare alcuna domanda.
   - Stato `domande` (array, accumulato — non sovrascritto — a ogni round, per non perdere domande di round precedenti non ancora risposte).
-  - UI: ogni domanda appare come una card propria (`❓ {giorno} {mese} {medico}: {situazione} — {domanda}`) con due pulsanti **Sì**/**No**, sotto l'eventuale riquadro di conferma della proposta.
+  - UI: ogni domanda appare come una card propria (formato esatto sopra) con due pulsanti **Sì**/**No**, sotto l'eventuale riquadro di conferma della proposta.
   - `rispondiDomanda(idx, risposta)`: applica `seSi` o `seNo` tramite `applicaAzioni`/`riepilogoDi` (stessa logica di `applicaProposta`), aggiunge un messaggio di conferma in chat, rimuove la domanda risposta dall'elenco.
   - Il pulsante "Continua →" e il banner "Completato ✓" ora richiedono anche `domande.length === 0` (oltre a `!proposta`): tutte le domande in sospeso vanno risolte prima di procedere al round successivo o considerare il giro concluso.
+- **Turni extra volontari (§3.10): esclusi deliberatamente dall'AI**, come già la preferenza di turno lo era prima di essere aggiunta su richiesta esplicita. Il prompt e lo stato inviato all'AI NON conoscono `dati.turniExtra` — è impostabile solo dal tab Medici. Nessuna azione JSON dedicata (es. `turni_extra`) è stata aggiunta finché non richiesta esplicitamente.
 - **Gestione risposta troncata**: se la risposta dell'API si interrompe per limite di token (`data.stop_reason === "max_tokens"`) prima di completare il JSON, `JSON.parse` fallisce e NESSUNA azione di quel round è stata applicata. In questo caso l'app non mostra il fallback generico (testo grezzo): mostra un messaggio esplicito ("risposta troncata... nessuna modifica applicata") e forza comunque `azioniRestanti:true` (stato `troncato`), così il pulsante "Continua →" appare anche se il modello non ha potuto impostare `altreAzioniRestanti` da sé. In questo caso specifico il click NON invia `"continua"` (che presupporrebbe azioni già applicate da proseguire) ma rinvia la richiesta ORIGINALE dell'utente (salvata in `ultimaDomandaRef`, non aggiornata quando si invia un `testoForzato`) preceduta da un prefisso che spiega al modello che il round precedente va rifatto da capo, non proseguito — il prompt istruisce l'AI a ripeterla con massimo 2 azioni. Come rete di sicurezza aggiuntiva, anche quando il parsing riesce, `eTroncato` forza comunque `azioniRestanti:true` indipendentemente da cosa ha impostato il modello.
 - **Cronologia mai troncata**: `chiediAI` invia SEMPRE l'intera conversazione (`aiMsgs`) all'API, non solo gli ultimi messaggi — il testo incollato dall'utente (email dei medici, disponibilità, ecc.) resta nel contesto per tutti i round successivi, anche su conversazioni lunghe con molti round.
 - `chiediAI(testoForzato)` accetta un parametro opzionale: se assente usa `aiInput` (flusso normale, Invio/Invia), altrimenti invia direttamente il testo passato (usato dal pulsante "Continua").

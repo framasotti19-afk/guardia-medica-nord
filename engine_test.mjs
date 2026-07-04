@@ -191,7 +191,7 @@ const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr
 // ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico ed esauriti in
 // coda). Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
 // alternativo con lo stesso identico criterio usato da elaboraTurno.
-function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
+function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -203,8 +203,10 @@ function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
   });
   const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
-  const senza = candidati.filter((m) => debiti[m.id] === null).sort((a, b) => a.grad - b.grad);
-  const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0).sort((a, b) => a.grad - b.grad);
+  // "senza" = veri senza incarico + contrattualizzati che hanno esaurito monte ore+recupero ma hanno
+  // ancora turni extra volontari dichiarati: competono insieme, alla pari, solo per graduatoria.
+  const senza = candidati.filter((m) => debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)).sort((a, b) => a.grad - b.grad);
+  const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0).sort((a, b) => a.grad - b.grad);
   return [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
 }
 
@@ -213,10 +215,19 @@ function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
 // settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
 // turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
-  const ordinati = candidatiOrdinati(dispo, debiti, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  // Scala il debito del vincitore per un turno fisico: finché ha monte ore+recupero residuo lo
+  // scala normalmente; una volta esaurito, scala i turni extra volontari dichiarati (stessa
+  // priorità di un senza incarico — vedi bucketOf/candidatiOrdinati). Nessun effetto sui senza
+  // incarico veri (debiti[mid] === null, ignorati).
+  const scalaDebito = (mid, ore) => {
+    if (debiti[mid] === null) return;
+    if (debiti[mid] > 0) debiti[mid] -= ore;
+    else debitiExtra[mid] = (debitiExtra[mid] || 0) - ore;
+  };
 
   let slots = [null, null, null, null, null];
   let fisiche = [];
@@ -227,19 +238,19 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     slots = [sel ? sel.id : null];
     fisiche = [0];
     if (sel) {
-      if (debiti[sel.id] !== null) debiti[sel.id] -= turno.ore;
+      scalaDebito(sel.id, turno.ore);
       settimanaCount[sel.id] = settimanaCount[sel.id] || {};
       settimanaCount[sel.id][wk] = (settimanaCount[sel.id][wk] || 0) + 1;
       ultimoFisico[sel.id] = dataStr;
     }
   } else {
-    // Bucket di priorità (conDeb > senza incarico > debito esaurito), usato sia per il confronto
-    // fisico che per quello a distanza.
+    // Bucket di priorità (conDeb > senza incarico/turni extra > debito esaurito), usato sia per il
+    // confronto fisico che per quello a distanza.
     const bucketOf = (mid) => {
       const deb = debiti[mid];
       if (deb !== null && deb > 0) return 0;
       if (deb === null) return 1;
-      return 2;
+      return (debitiExtra[mid] || 0) > 0 ? 1 : 2;
     };
     const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
@@ -357,7 +368,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
-      if (debiti[mid] !== null) debiti[mid] -= turno.ore;
+      scalaDebito(mid, turno.ore);
       settimanaCount[mid] = settimanaCount[mid] || {};
       settimanaCount[mid][wk] = (settimanaCount[mid][wk] || 0) + 1;
       ultimoFisico[mid] = dataStr;
@@ -414,11 +425,17 @@ function slotHaPreferiti(dispo, slotKey) {
   return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
 }
 
-function elaboraSchema(dispo, extraOre, anno, mese, extras) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
   const debiti = {};
+  // Turni extra volontari (CONTEXT.md §3.10): budget SEPARATO dal debito ordinario, in ore
+  // (turniExtra[mid] × 12). Si consuma SOLO dopo che monte ore+recupero è esaurito, e in quel
+  // momento il medico compete con priorità "senza incarico" (solo graduatoria) — mai priorità di
+  // categoria. Null per i senza incarico veri, coerentemente con "debiti".
+  const debitiExtra = {};
   MEDICI.forEach((m) => {
     const base = CAT_INFO[m.cat].ore;
     debiti[m.id] = base === null ? null : base + (extraOre[m.id] || 0);
+    debitiExtra[m.id] = base === null ? null : (turniExtra[m.id] || 0) * 12;
   });
   const settimanaCount = {}; // mid -> { weekKey: numero di turni già assegnati quella settimana }
   const ultimoFisico = {};   // mid -> data "YYYY-MM-DD" dell'ultimo turno fisico assegnato
@@ -442,7 +459,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   const avvisiRaw = []; // {d, testo}
 
   [...conPref, ...resto].forEach(({ d, turno, slotKey }) => {
-    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico);
+    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico);
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
@@ -471,12 +488,20 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
       const si = target.fis.find((i) => target.slots[i] === mid);
       if (si === undefined) return; // già liberato da un giro precedente in questo stesso ciclo
       const sede = SEDI5[si];
-      const alternativa = candidatiOrdinati(dispo, debiti, settimanaCount, targetSlotKey)
+      const alternativa = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, targetSlotKey)
         .find((o) => o.id !== mid && !target.slots.includes(o.id) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
       if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
       target.slots[si] = alternativa.id;
-      if (debiti[mid] !== null) debiti[mid] += target.ore;
-      if (debiti[alternativa.id] !== null) debiti[alternativa.id] -= target.ore;
+      // Storna/scala lo stesso pool (debito ordinario o extra) che il turno aveva effettivamente
+      // consumato per ciascuno, in base al segno corrente — coerente con scalaDebito in elaboraTurno.
+      if (debiti[mid] !== null) {
+        if (debiti[mid] > 0) debiti[mid] += target.ore;
+        else debitiExtra[mid] = (debitiExtra[mid] || 0) + target.ore;
+      }
+      if (debiti[alternativa.id] !== null) {
+        if (debiti[alternativa.id] > 0) debiti[alternativa.id] -= target.ore;
+        else debitiExtra[alternativa.id] = (debitiExtra[alternativa.id] || 0) - target.ore;
+      }
       const wk = settimanaDi(dataStr);
       if (settimanaCount[mid]) settimanaCount[mid][wk] = Math.max(0, (settimanaCount[mid][wk] || 0) - 1);
       settimanaCount[alternativa.id] = settimanaCount[alternativa.id] || {};

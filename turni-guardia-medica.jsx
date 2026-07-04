@@ -192,7 +192,7 @@ const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr
 // ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico ed esauriti in
 // coda). Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
 // alternativo con lo stesso identico criterio usato da elaboraTurno.
-function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
+function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -204,8 +204,10 @@ function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
   });
   const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
-  const senza = candidati.filter((m) => debiti[m.id] === null).sort((a, b) => a.grad - b.grad);
-  const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0).sort((a, b) => a.grad - b.grad);
+  // "senza" = veri senza incarico + contrattualizzati che hanno esaurito monte ore+recupero ma hanno
+  // ancora turni extra volontari dichiarati: competono insieme, alla pari, solo per graduatoria.
+  const senza = candidati.filter((m) => debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)).sort((a, b) => a.grad - b.grad);
+  const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0).sort((a, b) => a.grad - b.grad);
   return [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
 }
 
@@ -214,10 +216,19 @@ function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
 // settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
 // turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
-  const ordinati = candidatiOrdinati(dispo, debiti, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  // Scala il debito del vincitore per un turno fisico: finché ha monte ore+recupero residuo lo
+  // scala normalmente; una volta esaurito, scala i turni extra volontari dichiarati (stessa
+  // priorità di un senza incarico — vedi bucketOf/candidatiOrdinati). Nessun effetto sui senza
+  // incarico veri (debiti[mid] === null, ignorati).
+  const scalaDebito = (mid, ore) => {
+    if (debiti[mid] === null) return;
+    if (debiti[mid] > 0) debiti[mid] -= ore;
+    else debitiExtra[mid] = (debitiExtra[mid] || 0) - ore;
+  };
 
   let slots = [null, null, null, null, null];
   let fisiche = [];
@@ -228,19 +239,19 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     slots = [sel ? sel.id : null];
     fisiche = [0];
     if (sel) {
-      if (debiti[sel.id] !== null) debiti[sel.id] -= turno.ore;
+      scalaDebito(sel.id, turno.ore);
       settimanaCount[sel.id] = settimanaCount[sel.id] || {};
       settimanaCount[sel.id][wk] = (settimanaCount[sel.id][wk] || 0) + 1;
       ultimoFisico[sel.id] = dataStr;
     }
   } else {
-    // Bucket di priorità (conDeb > senza incarico > debito esaurito), usato sia per il confronto
-    // fisico che per quello a distanza.
+    // Bucket di priorità (conDeb > senza incarico/turni extra > debito esaurito), usato sia per il
+    // confronto fisico che per quello a distanza.
     const bucketOf = (mid) => {
       const deb = debiti[mid];
       if (deb !== null && deb > 0) return 0;
       if (deb === null) return 1;
-      return 2;
+      return (debitiExtra[mid] || 0) > 0 ? 1 : 2;
     };
     const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
@@ -358,7 +369,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
-      if (debiti[mid] !== null) debiti[mid] -= turno.ore;
+      scalaDebito(mid, turno.ore);
       settimanaCount[mid] = settimanaCount[mid] || {};
       settimanaCount[mid][wk] = (settimanaCount[mid][wk] || 0) + 1;
       ultimoFisico[mid] = dataStr;
@@ -415,11 +426,17 @@ function slotHaPreferiti(dispo, slotKey) {
   return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
 }
 
-function elaboraSchema(dispo, extraOre, anno, mese, extras) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
   const debiti = {};
+  // Turni extra volontari (CONTEXT.md §3.10): budget SEPARATO dal debito ordinario, in ore
+  // (turniExtra[mid] × 12). Si consuma SOLO dopo che monte ore+recupero è esaurito, e in quel
+  // momento il medico compete con priorità "senza incarico" (solo graduatoria) — mai priorità di
+  // categoria. Null per i senza incarico veri, coerentemente con "debiti".
+  const debitiExtra = {};
   MEDICI.forEach((m) => {
     const base = CAT_INFO[m.cat].ore;
     debiti[m.id] = base === null ? null : base + (extraOre[m.id] || 0);
+    debitiExtra[m.id] = base === null ? null : (turniExtra[m.id] || 0) * 12;
   });
   const settimanaCount = {}; // mid -> { weekKey: numero di turni già assegnati quella settimana }
   const ultimoFisico = {};   // mid -> data "YYYY-MM-DD" dell'ultimo turno fisico assegnato
@@ -443,7 +460,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   const avvisiRaw = []; // {d, testo}
 
   [...conPref, ...resto].forEach(({ d, turno, slotKey }) => {
-    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico);
+    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico);
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
@@ -472,12 +489,20 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
       const si = target.fis.find((i) => target.slots[i] === mid);
       if (si === undefined) return; // già liberato da un giro precedente in questo stesso ciclo
       const sede = SEDI5[si];
-      const alternativa = candidatiOrdinati(dispo, debiti, settimanaCount, targetSlotKey)
+      const alternativa = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, targetSlotKey)
         .find((o) => o.id !== mid && !target.slots.includes(o.id) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
       if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
       target.slots[si] = alternativa.id;
-      if (debiti[mid] !== null) debiti[mid] += target.ore;
-      if (debiti[alternativa.id] !== null) debiti[alternativa.id] -= target.ore;
+      // Storna/scala lo stesso pool (debito ordinario o extra) che il turno aveva effettivamente
+      // consumato per ciascuno, in base al segno corrente — coerente con scalaDebito in elaboraTurno.
+      if (debiti[mid] !== null) {
+        if (debiti[mid] > 0) debiti[mid] += target.ore;
+        else debitiExtra[mid] = (debitiExtra[mid] || 0) + target.ore;
+      }
+      if (debiti[alternativa.id] !== null) {
+        if (debiti[alternativa.id] > 0) debiti[alternativa.id] -= target.ore;
+        else debitiExtra[alternativa.id] = (debitiExtra[alternativa.id] || 0) - target.ore;
+      }
       const wk = settimanaDi(dataStr);
       if (settimanaCount[mid]) settimanaCount[mid][wk] = Math.max(0, (settimanaCount[mid][wk] || 0) - 1);
       settimanaCount[alternativa.id] = settimanaCount[alternativa.id] || {};
@@ -611,7 +636,7 @@ export default function App() {
 
   const { anno, mese } = MESI_DISPONIBILI[meseIdx];
   const key = mk(anno, mese);
-  const vuotoMese = { dispo: {}, extras: {}, extraOre: {}, schema: null, avvisi: [] };
+  const vuotoMese = { dispo: {}, extras: {}, extraOre: {}, turniExtra: {}, schema: null, avvisi: [] };
   const dati = store[key] || vuotoMese;
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
 
@@ -716,7 +741,7 @@ export default function App() {
     setDati({ extras: { ...dati.extras, [dateKey]: ex }, schema: null });
   };
   const elabora = () => {
-    const r = elaboraSchema(dati.dispo, dati.extraOre, anno, mese, dati.extras);
+    const r = elaboraSchema(dati.dispo, dati.extraOre, anno, mese, dati.extras, dati.turniExtra || {});
     setDati({ schema: r.schema, avvisi: r.avvisi });
   };
 
@@ -1874,7 +1899,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     });
 
     let avvisiNuovi = dati.avvisi;
-    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras); schema = r.schema; avvisiNuovi = r.avvisi; }
+    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, dati.turniExtra || {}); schema = r.schema; avvisiNuovi = r.avvisi; }
     setDati({ dispo, extras, extraOre, schema, avvisi: avvisiNuovi });
     return { errori, dispoModificata, daElaborare };
   };
@@ -1953,9 +1978,17 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     dati.schema.forEach((g) => {
       g.turni.forEach((t) => {
         if (!t) return;
+        // Conta ogni medico una sola volta per turno: l'editor manuale dello schema (setSlot) non
+        // aggiorna "fis" quando si riassegna una cella, quindi lo stesso medico può in teoria comparire
+        // in più sedi fisiche dello stesso turno dopo una correzione manuale — senza questo Set le sue
+        // ore verrebbero sommate una volta per ciascuna sede invece che una volta sola per il turno.
+        const contati = new Set();
         t.fis.forEach((si) => {
           const mid = t.slots[si];
-          if (mid !== null && mid !== undefined) out[mid] = (out[mid] || 0) + t.ore;
+          if (mid !== null && mid !== undefined && !contati.has(mid)) {
+            contati.add(mid);
+            out[mid] = (out[mid] || 0) + t.ore;
+          }
         });
       });
     });
@@ -2254,14 +2287,15 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
           {tab === "medici" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e5e0", padding: 16, maxWidth: 860, overflow: "auto" }}>
               <p style={{ fontSize: 12, color: "#5b5f59", marginTop: 0 }}>
-                Le <b>ore extra</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
+                Le <b>ore extra</b> (recupero, su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
+                I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore extra, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
                 Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d6dad3" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore extra, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => (
@@ -2294,6 +2328,13 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                           <input type="number" min={0} step={6} value={dati.extraOre[m.id] || 0}
                             onChange={(e) => setDati({ extraOre: { ...dati.extraOre, [m.id]: Number(e.target.value) }, schema: null })}
                             style={{ width: 64, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                        ) : "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px" }}>
+                        {CAT_INFO[m.cat].ore !== null ? (
+                          <input type="number" min={0} step={1} value={(dati.turniExtra || {})[m.id] || 0}
+                            onChange={(e) => setDati({ turniExtra: { ...(dati.turniExtra || {}), [m.id]: Math.max(0, Number(e.target.value) || 0) }, schema: null })}
+                            style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
                         ) : "—"}
                       </td>
                       <td style={{ padding: "6px 8px", color: "#5b5f59" }}>
@@ -2343,14 +2384,6 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
               <div style={{ background: "#fff", border: "1px dashed #c8ccc6", borderRadius: 10, padding: 36, textAlign: "center", color: "#7a7f78" }}>Inserisci le disponibilità e premi <b>Elabora schema</b>.</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                {dati.avvisi && dati.avvisi.length > 0 && (
-                  <div style={{ background: "#fdf3dd", border: "2px solid #d9a53f", borderRadius: 10, padding: "10px 14px" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#8a5a00" }}>⚠ Avvisi — richieste da fare ai medici ({dati.avvisi.length})</div>
-                    {dati.avvisi.map((a, i) => (
-                      <div key={i} style={{ fontSize: 12, padding: "4px 0", borderTop: i > 0 ? "1px solid #efe0c0" : "none" }}>{a}</div>
-                    ))}
-                  </div>
-                )}
                 <p style={{ fontSize: 12, color: "#5b5f59", margin: "0 0 4px" }}>
                   Tutte le 5 sedi sono modificabili. <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export diventa "*coperto da …"). Ogni modifica è annullabile con ↶.
                 </p>
