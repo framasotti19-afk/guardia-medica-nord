@@ -1526,6 +1526,28 @@ WEEKEND AMBIGUO — medico NON specifica G o N (SOLO per weekend/festivi/prefest
 ⚠️ IMPORTANTE — questa regola e questo avviso NON si applicano MAI ai giorni feriali (lunedì-venerdì non festivi): i feriali hanno SOLO il turno notturno, il diurno non esiste in quei giorni, quindi non c'è alcuna ambiguità da segnalare. Se il medico scrive "il 5 sono disponibile" e il 5 è un feriale semplice, inserisci il notturno (unico turno possibile quel giorno) SENZA alcun avviso "ATTENZIONE" — non ha senso chiedere se intendeva anche il diurno quando il diurno quel giorno non esiste.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MMG E PLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+I turni MMG/PLS sono SEPARATI dai turni ordinari (verde/blu/notturno) e i medici li specificano sempre esplicitamente — non vanno mai confusi con una disponibilità ordinaria.
+
+MATTINA (turno M):
+• MMG mattina / mattutino MMG / MMG 8-14 / copertura mattina MMG / PLS mattina
+
+POMERIGGIO (turno P):
+• MMG pomeriggio / pomeriggio MMG / MMG 14-20 / copertura pomeriggio MMG / PLS pomeriggio
+
+ENTRAMBI SENZA SPECIFICARE MATTINA/POMERIGGIO:
+• "faccio il diurno MMG" / "disponibile per il diurno" (nel contesto MMG, senza dire mattina o pomeriggio)
+→ inserisci sia M che P se entrambi i turni MMG sono attivi quel giorno, altrimenti solo quello effettivamente attivo
+
+NESSUNA MENZIONE DI MMG/PLS:
+• "copro il [giorno]" (senza menzionare MMG o PLS) → è il turno notturno ORDINARIO, non un MMG — non confondere le due cose
+
+MATTINA/POMERIGGIO/DIURNO SENZA DIRE MMG O PLS:
+• "mattina del X" / "pomeriggio del X" / "diurno del X" (senza menzionare MMG o PLS)
+→ controlla SEMPRE "mmgAttivi" nello STATO ATTUALE (elenca i giorni con turni MMG/PLS attivi, es. "g15:M", "g15:P", "g15:MP"): se il giorno X ha un turno MMG attivo corrispondente (mattina→M, pomeriggio→P, diurno generico→quello/i attivo/i), inserisci quel turno M/P; se il giorno X NON ha nessun turno MMG attivo in "mmgAttivi", ignora la frase — nei feriali il diurno ordinario non esiste, quindi non c'è nulla da inserire.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECUPERO ORE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • ho X ore da recuperare dal mese scorso / recupero X ore da [mese]
@@ -1908,7 +1930,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       </div>
 
       <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #dde0dc", padding: "0 16px", flexWrap: "wrap", alignItems: "center" }}>
-        {[["dispo", "1 · Disponibilità"], ["mmg", "2 · Coperture MMG"], ["medici", "3 · Medici / ore extra"], ["schema", "4 · Schema turni"]].map(([k, l]) => (
+        {[["dispo", "1 · Disponibilità"], ["mmg", "2 · Coperture MMG e PLS"], ["medici", "3 · Medici / ore extra"], ["schema", "4 · Schema turni"]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ padding: "12px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: tab === k ? 600 : 400, color: tab === k ? "#12312a" : "#7a7f78", borderBottom: tab === k ? "3px solid #12312a" : "3px solid transparent" }}>{l}</button>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, padding: "8px 0", flexWrap: "wrap" }}>
