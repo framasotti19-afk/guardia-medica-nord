@@ -570,6 +570,11 @@ function App() {
   const [troncato, setTroncato] = useState(false); // true se l'ultima risposta è stata tagliata per limite di token (JSON incompleto)
   const [completato, setCompletato] = useState(false); // true dopo aver applicato l'ultimo round quando non ce ne sono altri (banner "Completato ✓")
   const ultimaDomandaRef = useRef(""); // richiesta originale dell'utente, per poterla ripetere se una risposta viene troncata
+  // Registro temporaneo (solo React state, MAI salvato su storage permanente) delle azioni già
+  // confermate nella conversazione AI corrente, in formato compatto "MEDICO g{giorno}{turno}".
+  // Inviato all'AI ad ogni round come ulteriore fonte di verità anti-loop (oltre a disponibilitaPresenti
+  // e alla cronologia della chat) e azzerato con "Nuova conversazione".
+  const [azioniEseguite, setAzioniEseguite] = useState([]);
   const [caricato, setCaricato] = useState(false);
   const [rapidoOpen, setRapidoOpen] = useState(false);
   const [rapMedico, setRapMedico] = useState(MEDICI[0].id);
@@ -1190,6 +1195,10 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         // Serve a confrontare direttamente cosa manca rispetto a una richiesta/email, invece di
         // doverlo dedurre dalla cronologia dei round precedenti (causa di loop, vedi sotto).
         disponibilitaPresenti: Object.fromEntries(MEDICI.map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:")).map((sk) => { const [dt, tu] = sk.split("|"); return `g${Number(dt.slice(8, 10))}${tu}`; })])),
+        // Registro (solo in memoria, mai persistito) delle azioni già confermate in QUESTA
+        // conversazione, in formato compatto "MEDICO g{giorno}{turno}" — ulteriore rete di sicurezza
+        // anti-loop, azzerato con "Nuova conversazione".
+        azioniGiaEseguite: azioniEseguite,
         tettiSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETT:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETT:")).map(([sk, v]) => `settimana del ${sk.slice(5)}: max ${v.maxTurni} turni`)])),
         preferenzeTurno: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("TURNOPREF:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("TURNOPREF:")).map(([sk, v]) => `giorno ${Number(sk.slice(-2))}: preferisce il ${v === "G" ? "diurno" : "notturno"} se li vince entrambi`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
@@ -1588,10 +1597,11 @@ INFORMAZIONI INSUFFICIENTI:
 - Gli errori del coordinatore si correggono sempre retroattivamente, in qualsiasi fase
 
 == STILE DI RISPOSTA E LIMITI ==
+- Scrivi SEMPRE in italiano semplice e diretto, come parlerebbe un collega — MAI gergo tecnico ("round", "azioni", "az", "slot", "array", "state", "JSON", ecc.) nei testi rivolti all'utente ("spiegazione", "testo"). Descrivi solo il risultato pratico e concreto (disponibilità, turni, medici, giorni), non i meccanismi interni. Es.: invece di "Fatte 8 di 10 azioni" scrivi "Ho inserito 8 disponibilità su 10, continua per le restanti" (adatta la parola concreta — disponibilità, turni, modifiche, preferenze... — al contenuto reale della richiesta, mai la parola "azioni").
 - Fai al MASSIMO 8 azioni per risposta, MAI di più, anche se il testo incollato dall'utente è molto lungo (es. un'email con la disponibilità di 20 medici): questo limite serve a restare sempre ampiamente dentro il budget di token e non farsi mai troncare la risposta a metà.
 - "spiegazione" deve essere UNA sola frase breve (max ~20 parole). Non elencare in prosa i dettagli di ogni singola azione (l'utente li vede già elencati nell'interfaccia di conferma) e non citare, ripetere o riassumere MAI per esteso il testo incollato dall'utente: riferisciti solo ai nomi e ai giorni coinvolti. UNICA ECCEZIONE al limite di lunghezza: gli avvisi "⚠️ ATTENZIONE" (turni ambigui, casi da segnalare al coordinatore — vedi INTERPRETAZIONE EMAIL DISPONIBILITÀ) vanno sempre scritti per intero, anche se allungano la "spiegazione" oltre le ~20 parole.
-- Se l'utente chiede molte modifiche insieme (più di 8 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 8 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio (es. "Fatte 8 di 11 richieste."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
-- PRIMA di proporre qualunque azione, controlla SEMPRE la cronologia della conversazione per capire cosa è già stato fatto: ogni tua proposta precedente ("PROPOSTA: ...") seguita da un messaggio che NON è "Proposta annullata, nessuna modifica applicata" (es. "Modifiche applicate ✓" o "Applicata con avvisi: ...") significa che QUELLE azioni sono già state applicate con successo — non riproporle mai più, nemmeno riformulate o "corrette", nemmeno se l'utente scrive di nuovo "continua". Solo se era seguita ESATTAMENTE da "Proposta annullata, nessuna modifica applicata" quelle azioni NON sono state applicate e possono essere riproposte se ancora pertinenti alla richiesta originale.
+- Se l'utente chiede molte modifiche insieme (più di 8 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 8 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio in italiano semplice (es. "Ho inserito 8 disponibilità su 11, continua per le restanti."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
+- PRIMA di proporre qualunque azione, controlla SEMPRE sia la cronologia della conversazione SIA "azioniGiaEseguite" nello STATO ATTUALE (vedi sotto) per capire cosa è già stato fatto: ogni tua proposta precedente ("PROPOSTA: ...") seguita da un messaggio che NON è "Proposta annullata, nessuna modifica applicata" (es. "Modifiche applicate ✓" o "Applicata con avvisi: ...") significa che QUELLE azioni sono già state applicate con successo — non riproporle mai più, nemmeno riformulate o "corrette", nemmeno se l'utente scrive di nuovo "continua". "azioniGiaEseguite" è la fonte di verità più affidabile perché aggiornata direttamente a ogni conferma reale (non dedotta dalla chat): qualunque combinazione medico+giorno+turno lì presente è definitivamente già fatta e NON va mai riproposta. Solo se una proposta era seguita ESATTAMENTE da "Proposta annullata, nessuna modifica applicata" quelle azioni NON sono state applicate (infatti non compaiono in "azioniGiaEseguite") e possono essere riproposte se ancora pertinenti alla richiesta originale.
 - Se ricevi "continua" come richiesta: NON ripetere le azioni già confermate nei round precedenti (vedi punto sopra). Per le richieste di disponibilità, non fidarti solo della cronologia: confronta la richiesta originale (email o elenco incollato) con "disponibilitaPresenti" nello STATO ATTUALE, che riflette esattamente cosa è già stato salvato — è la fonte di verità più affidabile su cosa manca, perché aggiornata ad ogni round in base a quanto realmente applicato. Prosegui SEMPRE con le prossime 8 azioni NUOVE (quelle per cui "disponibilitaPresenti" non mostra ancora nulla). Se non riesci a determinare con certezza cosa manca, chiedi conferma invece di riproporre qualcosa di già fatto: non entrare mai in un loop che ripropone le stesse modifiche.
 - Se ricevi una richiesta che inizia con "[la tua risposta precedente è stata troncata...]": vuol dire che la risposta precedente non è arrivata a completamento e NESSUNA azione di quel round è stata applicata (non è un round già fatto da proseguire: vanno rifatte da capo). Ripeti la stessa richiesta riportata subito dopo, ma con MASSIMO 2 azioni e una spiegazione ancora più corta, per stare sicuramente dentro il limite di token questa volta.
 
@@ -1610,7 +1620,7 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"turno_pref","medico":"WANG","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
-Nello STATO ATTUALE sotto: "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat.
+Nello STATO ATTUALE sotto: "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
       // Timeout lato client: se la risposta è molto lunga, l'ambiente artifact può bloccare la
       // fetch senza mai risolverla né rifiutarla (nessun errore, nessuna risposta: silenzio totale
@@ -1810,6 +1820,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       }
     });
     const riepilogo = Object.entries(riepilogoPerMedico).map(([m, gs]) => `${m}: ${gs.join(" ")}`).join(" · ");
+    // Stesse voci, ma appiattite nel registro anti-loop inviato all'AI (vedi azioniGiaEseguite sopra).
+    const nuoveVociRegistro = [];
+    Object.entries(riepilogoPerMedico).forEach(([m, gs]) => gs.forEach((g) => nuoveVociRegistro.push(`${m} ${g}`)));
+    if (nuoveVociRegistro.length) setAzioniEseguite((prev) => [...prev, ...nuoveVociRegistro]);
     let msg = errori.length ? `Applicata con avvisi: ${errori.join("; ")}. ` : `Modifiche applicate ✓${riepilogo ? " — " + riepilogo : ""} (annullabile con ↶). `;
     if (dispoModificata && schema && !daElaborare) msg += "Disponibilità cambiate con schema già elaborato: valuta se rielaborarlo o correggerlo a mano.";
     setAiMsgs((p) => [...p, { role: "assistant", content: msg.trim() }]);
@@ -1819,6 +1833,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   const rifiutaProposta = () => {
     setAiMsgs((p) => [...p, { role: "assistant", content: "Proposta annullata, nessuna modifica applicata." }]);
     setProposta(null);
+  };
+  // Azzera la chat e il registro anti-loop per ripartire da zero senza ricaricare la pagina.
+  const nuovaConversazione = () => {
+    setAiMsgs([]);
+    setAzioniEseguite([]);
+    setProposta(null);
+    setAzioniRestanti(false);
+    setTroncato(false);
+    setCompletato(false);
+    setAiInput("");
   };
 
   const mediciOrd = useMemo(() => [...mediciList].sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || a.grad - b.grad), [mediciList]);
@@ -2273,7 +2297,10 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
 
         {aiOpen && (
           <div style={{ width: 480, borderLeft: "1px solid #dde0dc", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef0ec", fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: "#8a8f88" }}>— risponde solo se interpellata</span></div>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef0ec", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: "#8a8f88" }}>— risponde solo se interpellata</span></div>
+              <button onClick={nuovaConversazione} disabled={aiBusy} title="Svuota la chat e il registro delle azioni già eseguite" style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>Nuova conversazione</button>
+            </div>
             <div style={{ flex: 1, overflow: "auto", padding: 12, display: "grid", gap: 8, alignContent: "start" }}>
               {aiMsgs.length === 0 && <div style={{ fontSize: 12, color: "#8a8f88" }}>Chiedimi es.: "ci sono turni scoperti?", "chi lavora a Ferragosto?", "riassumi lo schema".</div>}
               {aiMsgs.map((m, i) => (
