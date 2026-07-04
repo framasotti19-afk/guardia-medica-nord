@@ -1212,6 +1212,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         mese: `${MESI_IT[mese]} ${anno}`,
         medici: MEDICI.map((m) => ({
           nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0,
+          turniExtra: (dati.turniExtra || {})[m.id] || 0,
           oreAssegnate: dati.schema ? (oreAssegnateDi[m.id] || 0) : null,
           oreMancanti: dati.schema && CAT_INFO[m.cat].ore !== null ? (CAT_INFO[m.cat].ore + (dati.extraOre[m.id] || 0)) - (oreAssegnateDi[m.id] || 0) : null,
         })),
@@ -1596,6 +1597,92 @@ RECUPERO ORE
 → usa az: ore_extra con il valore numerico dichiarato
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TURNI EXTRA VOLONTARI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Frasi che indicano disponibilità per turni oltre il monte ore contrattuale.
+Estrarre sempre il numero X di turni dichiarati. Se non specificato → segnalare ATTENZIONE.
+
+DICHIARAZIONE DIRETTA CON NUMERO:
+• sono disponibile per X turni extra
+• faccio anche X turni in più
+• aggiungo X turni volontari
+• mi offro per X turni extra
+• disponibile per X turni aggiuntivi
+• faccio X guardie in più
+• sono disponibile per X guardie extra
+• posso fare X turni oltre il mio monte ore
+• aggiungo X turni al mio monte ore
+• metto a disposizione X turni in più
+• sono disposto a fare X turni extra
+• dichiaro disponibilità per X turni aggiuntivi
+• X turni extra, sono disponibile
+• aggiungo X turni volontari al mio impegno mensile
+• sono disponibile anche per X turni oltre contratto
+• offro X turni aggiuntivi
+• metto X turni in più a disposizione del distretto
+• X turni extra se serve
+• posso aggiungere X turni al mio calendario
+• sono disponibile per X turni supplementari
+
+DISPONIBILITÀ CONDIZIONALE CON NUMERO:
+• se serve faccio altri X turni
+• in caso di necessità faccio X turni extra
+• se avete bisogno faccio anche X turni in più
+• se manca copertura aggiungo X turni
+• se siete a corto posso fare X turni extra
+• disponibile per X turni aggiuntivi se necessario
+• X turni extra se non trovate nessuno
+• se c'è bisogno mi rendo disponibile per X turni in più
+• sono disposto a coprire X turni extra in caso di scoperto
+• posso aggiungere X turni se serve per la copertura
+• X guardie extra se manca personale
+• disponibile per X turni oltre il monte ore in caso di emergenza
+• se il distretto ne ha bisogno faccio X turni in più
+• posso fare X turni extra se il coordinatore lo ritiene necessario
+→ per tutte queste frasi (dirette o condizionali, con numero esplicito): usa az: turni_extra con il valore numerico dichiarato
+
+RIFIUTO ESPLICITO DI TURNI EXTRA (non inserire turni extra):
+• non sono disponibile per turni extra
+• faccio solo il mio monte ore
+• non voglio turni aggiuntivi
+• mi fermo al mio contratto
+• solo i turni previsti dal contratto
+• non aggiungo turni extra questo mese
+• questo mese solo il monte ore obbligatorio
+• non posso fare turni extra
+• mi limito al monte ore contrattuale
+• niente turni in più questo mese
+→ per queste frasi: usa az: turni_extra con turni:0 (azzera eventuali turni extra già dichiarati in mesi precedenti), nessun avviso necessario
+
+GENERICA SENZA NUMERO (→ segnalare ATTENZIONE, chiedere quanti):
+• sono disponibile per turni extra
+• faccio anche qualche turno in più
+• disponibile per guardie aggiuntive
+• se serve sono disponibile oltre il monte ore
+• posso fare qualche turno extra
+• sono disposto a fare turni aggiuntivi
+• mi rendo disponibile per turni extra
+• sono disponibile per turni supplementari
+• faccio anche turni extra se serve
+• disponibile per qualche guardia in più
+• posso aggiungere qualche turno
+• sono disponibile per lavoro aggiuntivo
+• se avete bisogno ci sono anche per turni extra
+• sono flessibile sul numero di turni
+• disponibile per turni oltre contratto
+• posso fare più del mio monte ore se serve
+• sono aperto a fare turni aggiuntivi
+• mi rendo disponibile per guardie extra
+→ per tutte queste frasi: NON inserire alcuna azione turni_extra, aggiungi nella spiegazione "🔴 ATTENZIONE: [nome] è disponibile per turni extra ma non ha specificato quanti — chiedere conferma prima di inserire."
+
+FRASI AMBIGUE DA CHIARIRE:
+• faccio quello che serve (non chiaro se intende turni extra o solo il monte ore)
+• sono a disposizione (generico, non implica turni extra)
+• ci sono quando serve (non implica turni extra automaticamente)
+• disponibile (troppo generico, non inserire turni extra)
+→ per queste: non inserire turni extra, interpretare come disponibilità normale ai turni ordinari
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CASI DA SEGNALARE AL COORDINATORE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 NON inserire nulla, solo avviso nella spiegazione:
@@ -1680,12 +1767,13 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"WANG","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
-- {"az":"ore_extra","medico":"PRESSACCO","ore":24} → imposta le ore extra del mese (0 per azzerare; solo medici con contratto)
+- {"az":"ore_extra","medico":"PRESSACCO","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
+- {"az":"turni_extra","medico":"PRESSACCO","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
 - {"az":"tetto_settimana","medico":"WANG","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
 - {"az":"turno_pref","medico":"WANG","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
-Nello STATO ATTUALE sotto: "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
+Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
       // Timeout lato client: se la risposta è molto lunga, l'ambiente artifact può bloccare la
       // fetch senza mai risolverla né rifiutarla (nessun errore, nessuna risposta: silenzio totale
@@ -1809,6 +1897,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let dispo = { ...dati.dispo };
     let extras = { ...dati.extras };
     let extraOre = { ...dati.extraOre };
+    let turniExtra = { ...(dati.turniExtra || {}) };
     let schema = dati.schema;
     let daElaborare = false;
     let dispoModificata = false;
@@ -1826,8 +1915,15 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       if (a.az === "ore_extra") {
         const mid = nomeToId(a.medico);
         if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
-        if (CAT_INFO[byId[mid].cat].ore === null) { errori.push(`${a.medico} è senza incarico, niente ore extra`); return; }
+        if (CAT_INFO[byId[mid].cat].ore === null) { errori.push(`${a.medico} è senza incarico, niente ore da recuperare`); return; }
         extraOre = { ...extraOre, [mid]: Math.max(0, Number(a.ore) || 0) };
+        return;
+      }
+      if (a.az === "turni_extra") {
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (CAT_INFO[byId[mid].cat].ore === null) { errori.push(`${a.medico} è senza incarico, niente turni extra volontari`); return; }
+        turniExtra = { ...turniExtra, [mid]: Math.max(0, Number(a.turni) || 0) };
         return;
       }
       if (a.az === "tetto_settimana") {
@@ -1899,8 +1995,8 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     });
 
     let avvisiNuovi = dati.avvisi;
-    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, dati.turniExtra || {}); schema = r.schema; avvisiNuovi = r.avvisi; }
-    setDati({ dispo, extras, extraOre, schema, avvisi: avvisiNuovi });
+    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra); schema = r.schema; avvisiNuovi = r.avvisi; }
+    setDati({ dispo, extras, extraOre, turniExtra, schema, avvisi: avvisiNuovi });
     return { errori, dispoModificata, daElaborare };
   };
   // Riepilogo compatto (medico: giorno+turno) per le azioni che li identificano — solo un promemoria
@@ -2014,7 +2110,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       </div>
 
       <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #dde0dc", padding: "0 16px", flexWrap: "wrap", alignItems: "center" }}>
-        {[["dispo", "1 · Disponibilità"], ["mmg", "2 · Coperture MMG e PLS"], ["medici", "3 · Medici / ore extra"], ["schema", "4 · Schema turni"]].map(([k, l]) => (
+        {[["dispo", "1 · Disponibilità"], ["mmg", "2 · Coperture MMG e PLS"], ["medici", "3 · Medici / ore da recuperare"], ["schema", "4 · Schema turni"]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ padding: "12px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: tab === k ? 600 : 400, color: tab === k ? "#12312a" : "#7a7f78", borderBottom: tab === k ? "3px solid #12312a" : "3px solid transparent" }}>{l}</button>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, padding: "8px 0", flexWrap: "wrap" }}>
@@ -2287,15 +2383,15 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
           {tab === "medici" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e5e0", padding: 16, maxWidth: 860, overflow: "auto" }}>
               <p style={{ fontSize: 12, color: "#5b5f59", marginTop: 0 }}>
-                Le <b>ore extra</b> (recupero, su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
-                I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore extra, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
+                Le <b>ore da recuperare</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
+                I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore da recuperare, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
                 Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d6dad3" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore extra, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => (
@@ -2450,7 +2546,8 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;
-                      else if (a.az === "ore_extra") d = `Ore extra: ${a.medico} → ${a.ore}h`;
+                      else if (a.az === "ore_extra") d = `Ore da recuperare: ${a.medico} → ${a.ore}h`;
+                      else if (a.az === "turni_extra") d = `Turni extra volontari: ${a.medico} → ${a.turni} turn${a.turni === 1 ? "o" : "i"} (${(a.turni || 0) * 12}h)`;
                       else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;
                       else if (a.az === "turno_pref") d = `Preferenza turno: ${a.medico} · giorno ${a.giorno} → ${(a.turno === "G" || a.turno === "N") ? `preferisce il ${a.turno === "G" ? "diurno" : "notturno"} se vince entrambi` : "rimuovi preferenza"}`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";

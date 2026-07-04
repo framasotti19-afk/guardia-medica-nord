@@ -92,7 +92,7 @@ titolarità sede (per la sede contesa) → categoria → debito → graduatoria
 
 La titolarità **non ha mai effetto** se uno dei due contendenti non è determinato (un INDET batte sempre un determinato titolare o no; un senza incarico perde sempre contro un determinato con debito, titolare o no) e non ha effetto se il contendente è titolare di una sede **diversa** da quella contesa.
 
-I dati simulati (§4) hanno tutti `sedeContratto: null` — va assegnata manualmente dal coordinatore tramite la colonna "Titolarità" nel tab "3 · Medici / ore extra" quando si hanno i dati reali.
+I dati simulati (§4) hanno tutti `sedeContratto: null` — va assegnata manualmente dal coordinatore tramite la colonna "Titolarità" nel tab "3 · Medici / ore da recuperare" quando si hanno i dati reali.
 
 ### 3.2 Sedi e scenari di copertura — sistema dichiarativo verde/blu
 
@@ -209,7 +209,7 @@ Il medico può dichiarare, per un giorno che ha SIA il diurno (G) SIA il notturn
 
 ### 3.10 Turni extra volontari (oltre il monte ore)
 
-Il coordinatore può dichiarare, per ciascun medico contrattualizzato (non per i senza incarico, che non hanno un concetto di monte ore), un numero di **turni extra volontari** per il mese: `dati.turniExtra[mid] = N` (tab "3 · Medici / ore extra", campo "Turni extra", accanto alle ore extra di recupero). Ogni turno vale sempre 12 ore, quindi il budget in ore è `N × 12`.
+Il coordinatore può dichiarare, per ciascun medico contrattualizzato (non per i senza incarico, che non hanno un concetto di monte ore), un numero di **turni extra volontari** per il mese: `dati.turniExtra[mid] = N` (tab "3 · Medici / ore da recuperare", campo "Turni extra", accanto alle ore extra di recupero). Ogni turno vale sempre 12 ore, quindi il budget in ore è `N × 12`.
 
 - **Pool separato dal debito ordinario**: le ore extra di recupero (`extraOre`) si sommano al monte ore contrattuale — il medico compete con **piena priorità di categoria** finché quel totale (monte + recupero) non è esaurito, esattamente come oggi. I turni extra volontari sono un budget **completamente distinto**, consumato SOLO dopo che monte ore + recupero raggiungono zero.
 - **Priorità durante i turni extra**: mentre il budget extra è disponibile (e il debito ordinario è esaurito), il medico compete con la **stessa priorità di un senza incarico** — spareggio SOLO per graduatoria, mai per categoria. Nella pratica, in `candidatiOrdinati` ed `elaboraTurno` viene inserito nello stesso bucket dei senza incarico veri, ordinato insieme a loro puramente per `grad`.
@@ -234,7 +234,7 @@ SENZA:  ZURLO(id13, grad2), GRANDO(id14, grad13), PITAU(id15, grad14), DE CECCO-
 
 Tutti i determinati (DET36/DET24/DET12ASAP/DET12) hanno `sedeContratto: null` nei dati simulati — nessuna titolarità nota, va assegnata quando si hanno i dati reali. Nessun medico di default è DET12ASAP o DET12 (categorie disponibili ma non usate nei dati simulati).
 
-La lista è modificabile dall'interfaccia (tab "3 · Medici / ore extra": categoria, graduatoria, titolarità di sede per i determinati) e salvata nello store persistente. In `store.medici` se presente, altrimenti `MEDICI_DEFAULT`.
+La lista è modificabile dall'interfaccia (tab "3 · Medici / ore da recuperare": categoria, graduatoria, titolarità di sede per i determinati) e salvata nello store persistente. In `store.medici` se presente, altrimenti `MEDICI_DEFAULT`.
 
 ---
 
@@ -493,7 +493,7 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
   - UI: ogni domanda appare come una card propria (formato esatto sopra) con due pulsanti **Sì**/**No**, sotto l'eventuale riquadro di conferma della proposta.
   - `rispondiDomanda(idx, risposta)`: applica `seSi` o `seNo` tramite `applicaAzioni`/`riepilogoDi` (stessa logica di `applicaProposta`), aggiunge un messaggio di conferma in chat, rimuove la domanda risposta dall'elenco.
   - Il pulsante "Continua →" e il banner "Completato ✓" ora richiedono anche `domande.length === 0` (oltre a `!proposta`): tutte le domande in sospeso vanno risolte prima di procedere al round successivo o considerare il giro concluso.
-- **Turni extra volontari (§3.10): esclusi deliberatamente dall'AI**, come già la preferenza di turno lo era prima di essere aggiunta su richiesta esplicita. Il prompt e lo stato inviato all'AI NON conoscono `dati.turniExtra` — è impostabile solo dal tab Medici. Nessuna azione JSON dedicata (es. `turni_extra`) è stata aggiunta finché non richiesta esplicitamente.
+- **Turni extra volontari (§3.10) — integrazione AI completa**: `stato.medici` include ora `turniExtra` (valore già dichiarato per il mese, 0 se non impostato — l'AI lo controlla prima di sovrascriverlo con una nuova azione, stessa nota già esistente per `oreExtra`). Nuova azione `{"az":"turni_extra","medico":"...","turni":N}` (12h ciascuno, 0 per azzerare, solo medici con contratto), gestita in `applicaAzioni` con lo stesso schema di `ore_extra`. Nuova sottosezione `TURNI EXTRA VOLONTARI` in `INTERPRETAZIONE EMAIL DISPONIBILITÀ` (contenuto fornito dall'utente): dichiarazione diretta o condizionale con numero esplicito → azione `turni_extra`; rifiuto esplicito → azione `turni_extra` con `turni:0`; dichiarazione generica SENZA numero → nessuna azione, avviso "🔴 ATTENZIONE: [nome] è disponibile per turni extra ma non ha specificato quanti — chiedere conferma prima di inserire."; frasi ambigue (es. "sono a disposizione") → ignorate, interpretate come disponibilità ordinaria.
 - **Gestione risposta troncata**: se la risposta dell'API si interrompe per limite di token (`data.stop_reason === "max_tokens"`) prima di completare il JSON, `JSON.parse` fallisce e NESSUNA azione di quel round è stata applicata. In questo caso l'app non mostra il fallback generico (testo grezzo): mostra un messaggio esplicito ("risposta troncata... nessuna modifica applicata") e forza comunque `azioniRestanti:true` (stato `troncato`), così il pulsante "Continua →" appare anche se il modello non ha potuto impostare `altreAzioniRestanti` da sé. In questo caso specifico il click NON invia `"continua"` (che presupporrebbe azioni già applicate da proseguire) ma rinvia la richiesta ORIGINALE dell'utente (salvata in `ultimaDomandaRef`, non aggiornata quando si invia un `testoForzato`) preceduta da un prefisso che spiega al modello che il round precedente va rifatto da capo, non proseguito — il prompt istruisce l'AI a ripeterla con massimo 2 azioni. Come rete di sicurezza aggiuntiva, anche quando il parsing riesce, `eTroncato` forza comunque `azioniRestanti:true` indipendentemente da cosa ha impostato il modello.
 - **Cronologia mai troncata**: `chiediAI` invia SEMPRE l'intera conversazione (`aiMsgs`) all'API, non solo gli ultimi messaggi — il testo incollato dall'utente (email dei medici, disponibilità, ecc.) resta nel contesto per tutti i round successivi, anche su conversazioni lunghe con molti round.
 - `chiediAI(testoForzato)` accetta un parametro opzionale: se assente usa `aiInput` (flusso normale, Invio/Invia), altrimenti invia direttamente il testo passato (usato dal pulsante "Continua").
