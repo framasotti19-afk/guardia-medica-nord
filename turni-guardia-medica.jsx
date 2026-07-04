@@ -1800,7 +1800,17 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let avvisiNuovi = dati.avvisi;
     if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras); schema = r.schema; avvisiNuovi = r.avvisi; }
     setDati({ dispo, extras, extraOre, schema, avvisi: avvisiNuovi });
-    let msg = errori.length ? `Applicata con avvisi: ${errori.join("; ")}. ` : "Modifiche applicate ✓ (annullabile con ↶). ";
+    // Riepilogo compatto (medico: giorno+turno) per le azioni che li identificano — solo un promemoria
+    // visivo di una riga, non un resoconto dettagliato (quello resta nell'elenco della proposta sopra).
+    const riepilogoPerMedico = {};
+    proposta.azioni.forEach((a) => {
+      if (a.medico && a.giorno !== undefined && a.giorno !== null && a.turno) {
+        riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
+        riepilogoPerMedico[a.medico].push(`g${a.giorno}${a.turno}`);
+      }
+    });
+    const riepilogo = Object.entries(riepilogoPerMedico).map(([m, gs]) => `${m}: ${gs.join(" ")}`).join(" · ");
+    let msg = errori.length ? `Applicata con avvisi: ${errori.join("; ")}. ` : `Modifiche applicate ✓${riepilogo ? " — " + riepilogo : ""} (annullabile con ↶). `;
     if (dispoModificata && schema && !daElaborare) msg += "Disponibilità cambiate con schema già elaborato: valuta se rielaborarlo o correggerlo a mano.";
     setAiMsgs((p) => [...p, { role: "assistant", content: msg.trim() }]);
     setProposta(null);
