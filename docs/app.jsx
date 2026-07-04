@@ -1517,12 +1517,13 @@ SOLO DIURNO (inserisci solo G):
 • la notte non riesco, solo il giorno
 • ho problemi con i notturni, solo diurni
 
-WEEKEND AMBIGUO — medico NON specifica G o N:
+WEEKEND AMBIGUO — medico NON specifica G o N (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
 • il 2 agosto sono disponibile / disponibile il 9 / ci sono il 16
 • il 2 a Maniago / sabato 8 a Spilimbergo / domenica 22 ci sono
 • faccio il 2 / il 9 lo faccio / mettimi il 16
 → inserisci SOLO il notturno (N) E aggiungi nella spiegazione:
 "⚠️ ATTENZIONE: [nome] giorno [X] non ha specificato diurno o notturno — inserito solo notturno. Verificare con il medico se intendeva anche il diurno."
+⚠️ IMPORTANTE — questa regola e questo avviso NON si applicano MAI ai giorni feriali (lunedì-venerdì non festivi): i feriali hanno SOLO il turno notturno, il diurno non esiste in quei giorni, quindi non c'è alcuna ambiguità da segnalare. Se il medico scrive "il 5 sono disponibile" e il 5 è un feriale semplice, inserisci il notturno (unico turno possibile quel giorno) SENZA alcun avviso "ATTENZIONE" — non ha senso chiedere se intendeva anche il diurno quando il diurno quel giorno non esiste.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECUPERO ORE
