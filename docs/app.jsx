@@ -566,6 +566,7 @@ function App() {
   const [aiInput, setAiInput] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [proposta, setProposta] = useState(null); // {azioni, spiegazione}
+  const [azioniRestanti, setAzioniRestanti] = useState(false); // true se l'AI ha altre azioni per un round successivo
   const [caricato, setCaricato] = useState(false);
   const [rapidoOpen, setRapidoOpen] = useState(false);
   const [rapMedico, setRapMedico] = useState(MEDICI[0].id);
@@ -1154,21 +1155,30 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
   };
 
   // ============ AI ============
-  const chiediAI = async () => {
-    if (!aiInput.trim() || aiBusy) return;
-    const domanda = aiInput.trim();
+  // testoForzato: se passato (es. dal pulsante "Continua"), viene inviato al posto del
+  // contenuto di aiInput — permette di inviare "continua" senza passare dal campo di testo.
+  const chiediAI = async (testoForzato) => {
+    const testo = (testoForzato !== undefined ? testoForzato : aiInput).trim();
+    if (!testo || aiBusy) return;
+    const domanda = testo;
     setAiInput("");
+    setAzioniRestanti(false); // si aggiorna in base alla risposta di QUESTO round, appena arriva
     const msgs = [...aiMsgs, { role: "user", content: domanda }];
     setAiMsgs(msgs);
     setAiBusy(true);
     try {
       const stato = {
         mese: `${MESI_IT[mese]} ${anno}`,
-        medici: MEDICI.map((m) => ({ nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0 })),
+        medici: MEDICI.map((m) => ({
+          nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0,
+          oreAssegnate: dati.schema ? (oreAssegnateDi[m.id] || 0) : null,
+          oreMancanti: dati.schema && CAT_INFO[m.cat].ore !== null ? (CAT_INFO[m.cat].ore + (dati.extraOre[m.id] || 0)) - (oreAssegnateDi[m.id] || 0) : null,
+        })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
         disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
         tettiSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETT:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETT:")).map(([sk, v]) => `settimana del ${sk.slice(5)}: max ${v.maxTurni} turni`)])),
+        preferenzeTurno: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("TURNOPREF:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("TURNOPREF:")).map(([sk, v]) => `giorno ${Number(sk.slice(-2))}: preferisce il ${v === "G" ? "diurno" : "notturno"} se li vince entrambi`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
           turni: g.turni.map((t) => ({ turno: t.label, sedi: t.extra ? { copertura: t.slots[0] ? byId[t.slots[0]].nome : "SCOPERTO" } : Object.fromEntries(SEDI5.map((s, i) => [s, t.slots[i] ? byId[t.slots[i]].nome : "—"])) })),
@@ -1243,6 +1253,12 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - Il motore preferisce SEMPRE, per ogni medico, il turno più distante dall'ultimo turno fisico già assegnato: se un vincitore ha lavorato il giorno prima (o lo stesso giorno su un altro turno) ED esiste un altro candidato che ha dichiarato verde la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa a quest'ultimo. Non cambia MAI chi vince un conflitto tra medici diversi (tra eventuali alternative decide sempre la gerarchia normale) e non lascia MAI una sede scoperta per questo motivo: se non esiste un'alternativa valida, il medico più recente resta dov'è. Automatico, non richiede dichiarazioni.
 - Il medico può inoltre dichiarare esplicitamente un tetto massimo di turni per settimana (lun-dom): una volta raggiunto, non è più considerato candidato quella settimana, su nessuna sede. Nessuna copertura automatica di ripiego: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile.
 
+== PREFERENZA DI TURNO STESSO GIORNO (solo giorni con diurno E notturno) ==
+- Weekend, festivi e prefestivi hanno SIA il diurno (G) SIA il notturno (N). Un medico può dichiarare quale dei due preferisce mantenere SE li vince entrambi fisicamente lo stesso giorno (es. "il 15 preferisce il notturno" o "☀️ il diurno se vince tutti e due").
+- Decide SOLO quale dei due il medico mantiene se li vince entrambi: non cambia mai CHI vince un conflitto, non anticipa l'elaborazione, non decide quale sede riceve. Se vince solo uno dei due, la preferenza è un no-op.
+- Non lascia MAI una sede scoperta per questo: se non esiste un'alternativa valida per il turno non preferito, il medico resta assegnato a entrambi.
+- Non applicabile ai giorni feriali semplici (nessun diurno quel giorno): se richiesta lì, segnala che non è applicabile invece di impostarla.
+
 == COMPORTAMENTO ==
 - Segnala sempre ogni conflitto risolto e il criterio usato
 - Per ogni medico contrattualizzato indica il debito orario residuo aggiornato dopo ogni assegnazione
@@ -1252,12 +1268,13 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 
 == STILE DI RISPOSTA E LIMITI ==
 - Fai al massimo 3-4 azioni per risposta. Sii conciso, evita ripetizioni e non superare 2000 token di output.
-- Se l'utente chiede molte modifiche insieme (più di 3-4 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 3-4 in questo round (nella "spiegazione" e in "azioni"), poi indica chiaramente alla fine della "spiegazione" quante azioni restano ancora da fare e di cosa si tratta (es. "Ho preparato le prime 4 modifiche su 11 richieste. Ne restano 7 (elenco). Conferma queste, poi chiedimi di continuare per le successive."). L'utente proseguirà con round successivi finché non restano azioni.
+- Se l'utente chiede molte modifiche insieme (più di 3-4 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 3-4 in questo round (nella "spiegazione" e in "azioni"), imposta "altreAzioniRestanti":true nella risposta, e indica chiaramente alla fine della "spiegazione" quante azioni restano ancora da fare e di cosa si tratta (es. "Ho preparato le prime 4 modifiche su 11 richieste. Ne restano 7 (elenco)."). Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
+- Se ricevi "continua" come richiesta, prosegui con le prossime 3-4 azioni rimaste dal round precedente (le trovi ancora nel contesto della conversazione, che non viene mai troncato).
 
 RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati:
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
-3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ]}
+3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ],"altreAzioniRestanti":true} — "altreAzioniRestanti" è booleano e opzionale (default false): vedi sopra
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"WANG"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
@@ -1266,15 +1283,19 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
 - {"az":"ore_extra","medico":"PRESSACCO","ore":24} → imposta le ore extra del mese (0 per azzerare; solo medici con contratto)
 - {"az":"tetto_settimana","medico":"WANG","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
+- {"az":"turno_pref","medico":"WANG","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
+Nello STATO ATTUALE sotto: "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6", max_tokens: 16000,
-          messages: [...msgs.slice(-6).map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
+          // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
+          // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
+          messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
         }),
       });
       const data = await resp.json();
@@ -1307,6 +1328,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           return { az: "schema", ...a };
         });
         setProposta({ azioni, spiegazione: obj.spiegazione || "Modifica proposta" });
+        setAzioniRestanti(!!obj.altreAzioniRestanti);
         setAiMsgs((p) => [...p, { role: "assistant", content: `PROPOSTA: ${obj.spiegazione || "modifica"} — conferma o annulla qui sotto.` }]);
       } else if (obj?.tipo === "risposta") {
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.testo }]);
@@ -1360,6 +1382,19 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.maxTurni === null || a.maxTurni === undefined) delete nd["SETT:" + wk];
         else nd["SETT:" + wk] = { maxTurni: Math.max(0, Number(a.maxTurni) || 0) };
+        dispo = { ...dispo, [mid]: nd };
+        dispoModificata = true;
+        return;
+      }
+      if (a.az === "turno_pref") {
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        const info = turniDelGiorno(anno, mese, a.giorno, extras);
+        if (!info.turni.some((t) => t.id === "G")) { errori.push(`giorno ${a.giorno} non ha sia diurno che notturno: preferenza di turno non applicabile`); return; }
+        const dataStr = dk(anno, mese, a.giorno);
+        const nd = { ...(dispo[mid] || {}) };
+        const key = "TURNOPREF:" + dataStr;
+        if (a.turno === "G" || a.turno === "N") nd[key] = a.turno; else delete nd[key];
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
         return;
@@ -1894,6 +1929,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;
                       else if (a.az === "ore_extra") d = `Ore extra: ${a.medico} → ${a.ore}h`;
                       else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;
+                      else if (a.az === "turno_pref") d = `Preferenza turno: ${a.medico} · giorno ${a.giorno} → ${(a.turno === "G" || a.turno === "N") ? `preferisce il ${a.turno === "G" ? "diurno" : "notturno"} se vince entrambi` : "rimuovi preferenza"}`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";
                       else d = JSON.stringify(a);
                       return <li key={i}>{d}</li>;
@@ -1905,10 +1941,16 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                   </div>
                 </div>
               )}
+              {!proposta && azioniRestanti && (
+                <button onClick={() => chiediAI("continua")} disabled={aiBusy}
+                  style={{ padding: "8px 10px", borderRadius: 8, border: "2px solid #1a5c4a", background: "#f0f7f4", color: "#1a5c4a", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
+                  Continua →
+                </button>
+              )}
             </div>
             <div style={{ padding: 10, borderTop: "1px solid #eef0ec", display: "flex", gap: 6 }}>
               <input value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && chiediAI()} placeholder="Scrivi qui…" style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "1px solid #c8ccc6", fontSize: 12 }} />
-              <button onClick={chiediAI} disabled={aiBusy} style={{ ...btn, background: "#1a5c4a", color: "#fff", border: "none", fontWeight: 600 }}>Invia</button>
+              <button onClick={() => chiediAI()} disabled={aiBusy} style={{ ...btn, background: "#1a5c4a", color: "#fff", border: "none", fontWeight: 600 }}>Invia</button>
             </div>
           </div>
         )}

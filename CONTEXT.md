@@ -24,7 +24,7 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1918 righe)
+## 2. STRUTTURA DEL FILE (~1960 righe)
 
 ```
 righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
@@ -33,9 +33,9 @@ righe 184-215   → MOTORE: turnoPrefDi, candidatiOrdinati (preferenza turno §3
 righe 217-416   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
 righe 418-538   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto, poi preferenza turno §3.9)
 righe 539-555   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
-righe 557-904   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
-righe 905-1155  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1156-1918 → COMPONENTE REACT (UI, AI, render)
+righe 557-905   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
+righe 906-1156  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
+righe 1157-1960 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -207,7 +207,7 @@ Il medico può dichiarare, per un giorno che ha SIA il diurno (G) SIA il notturn
 - **Decide SOLO quale dei due turni il medico mantiene se li vince entrambi** — non cambia mai CHI vince un conflitto, non anticipa l'elaborazione, e non decide quale sede riceve. Se il medico vince solo uno dei due turni, la preferenza è un no-op.
 - **Non lascia MAI una sede scoperta per questo motivo**: se non esiste un'alternativa valida per il turno NON preferito (nessun altro medico ha dichiarato verde la stessa sede su quel turno), il medico resta assegnato a entrambi — la copertura vince sempre, esattamente come per la spaziatura temporale (§3.7).
 - **Perché serve, non basta la spaziatura temporale**: nella spaziatura ordinaria, tra i due turni dello stesso giorno viene sempre considerato "a rischio" quello elaborato per SECONDO — normalmente il notturno, dato che il diurno è sempre elaborato prima (§5). Ma un ★ preferito marcato sul notturno lo sposta nella fase conPref, facendolo elaborare PRIMA del diurno (§3.4) — invertendo quale dei due la spaziatura considera "a rischio": senza una preferenza di turno esplicita, il medico finirebbe per mantenere il notturno e perdere il diurno che invece preferiva (il caso reale che ha motivato la funzionalità). La preferenza di turno **prevale sempre** su questo effetto collaterale dell'ordine conPref/resto: se il medico ha dichiarato di voler mantenere PROPRIO il turno che la spaziatura vorrebbe cedere, la spaziatura non lo tocca; il turno non preferito (se ancora assegnato a lui dopo tutta l'elaborazione del mese) viene liberato a favore della stessa identica gerarchia usata per la spaziatura (categoria → debito → graduatoria, tramite `candidatiOrdinati`, condivisa con `elaboraTurno`).
-- Impostabile solo dal popup di disponibilità (icone ☀️/🌙 accanto al toggle Disponibile/Non disponibile, visibili solo nei giorni con entrambi i turni); non gestibile via assistente AI.
+- Impostabile dal popup di disponibilità (icone ☀️/🌙 accanto al toggle Disponibile/Non disponibile, visibili solo nei giorni con entrambi i turni) oppure via assistente AI (azione `turno_pref`, vedi §13).
 
 ---
 
@@ -325,7 +325,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 16. **Storage persistente** — `window.storage` (API Claude.ai), chiave `gm-turni-store-v3`
 17. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
 18. **Categorie DET12ASAP e DET12** — determinati 12h/sett, 52h mensili; DET12ASAP a pari priorità con DET24 (spareggio diretto per titolarità → debito → graduatoria), DET12 sotto entrambi, sopra solo ai senza incarico (§3.1)
-19. **Preferenza di turno stesso giorno (☀️/🌙)** — solo nei giorni con diurno e notturno: decide quale dei due il medico mantiene se li vince entrambi, prevalendo sull'effetto collaterale dell'ordine conPref/resto sulla spaziatura temporale; impostabile solo dal popup di disponibilità, non gestibile via AI (§3.9)
+19. **Preferenza di turno stesso giorno (☀️/🌙)** — solo nei giorni con diurno e notturno: decide quale dei due il medico mantiene se li vince entrambi, prevalendo sull'effetto collaterale dell'ordine conPref/resto sulla spaziatura temporale; impostabile dal popup di disponibilità o via assistente AI (azione `turno_pref`) (§3.9)
 20. **Colonne "Ore assegnate" / "Ore mancanti" nel tab Medici** — sola lettura, visibili solo dopo l'elaborazione dello schema del mese ("—" altrimenti). "Ore assegnate" = somma delle ore dei turni in cui il medico compare FISICAMENTE nello schema elaborato (stessa logica di scalo del debito nel motore — la copertura a distanza non consuma ore proprie, coerente con `elaboraTurno`). "Ore mancanti" = monte ore + ore extra − ore assegnate; per i medici senza incarico (nessun monte ore) mostra sempre "—", anche a schema elaborato. Calcolate interamente lato UI da `dati.schema` — nessuna modifica al motore
 
 ---
@@ -457,9 +457,14 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 
 **Assistente AI nell'app** — usa il system prompt in `chiediAI`. Conosce tutte le regole di business (gerarchia, titolarità, debito), il formato JSON per modificare disponibilità (verde/blu) e schema. Il prompt è nel codice e può essere aggiornato.
 - Modello `claude-sonnet-4-6`, `max_tokens: 16000`.
-- Sezione `STILE DI RISPOSTA E LIMITI` nel prompt: massimo 3-4 azioni per risposta, output entro 2000 token. Se l'utente chiede più modifiche di quante ne stiano in un round, l'AI ne esegue solo le prime 3-4 e indica nella "spiegazione" quante azioni restano — l'utente prosegue con round successivi finché non ne restano.
+- Sezione `STILE DI RISPOSTA E LIMITI` nel prompt: massimo 3-4 azioni per risposta, output entro 2000 token. Se l'utente chiede più modifiche di quante ne stiano in un round, l'AI ne esegue solo le prime 3-4, indica nella "spiegazione" quante azioni restano, e imposta il campo strutturato opzionale `"altreAzioniRestanti":true` nella risposta JSON di tipo "modifiche" (default false/omesso).
+- **Pulsante "Continua →"**: quando l'ultima risposta ha `altreAzioniRestanti:true`, appare automaticamente un pulsante nella chat (visibile solo a proposta risolta, cioè dopo Conferma o Annulla — mai insieme al riquadro di conferma azioni, per evitare di passare al round successivo prima che quello corrente sia stato applicato). Un click invia `"continua"` come messaggio successivo senza bisogno di digitarlo. Stato `azioniRestanti` (booleano), azzerato a ogni nuovo invio e ricalcolato dalla risposta che arriva.
+- **Cronologia mai troncata**: `chiediAI` invia SEMPRE l'intera conversazione (`aiMsgs`) all'API, non solo gli ultimi messaggi — il testo incollato dall'utente (email dei medici, disponibilità, ecc.) resta nel contesto per tutti i round successivi, anche su conversazioni lunghe con molti round.
+- `chiediAI(testoForzato)` accetta un parametro opzionale: se assente usa `aiInput` (flusso normale, Invio/Invia), altrimenti invia direttamente il testo passato (usato dal pulsante "Continua").
 - Errori HTTP dalla chiamata a `api.anthropic.com` (`!resp.ok`): mostrato in chat il messaggio completo restituito da Anthropic (`error.type` + `error.message`, più `request_id` se presente), non più un messaggio generico fisso.
-- Le chiavi ortogonali `"SETT:"` e `"TURNOPREF:"` (§3.8, §3.9) sono escluse dallo stato `disponibilita` serializzato per l'AI — non è a conoscenza della preferenza di turno né può impostarla (nessuna azione JSON dedicata, solo impostabile dal popup).
+- Le chiavi ortogonali `"SETT:"` e `"TURNOPREF:"` (§3.8, §3.9) sono escluse dallo stato `disponibilita` serializzato per l'AI (non hanno il formato di uno slotKey).
+- `stato.medici` include anche `oreAssegnate`/`oreMancanti` per medico (stessi valori mostrati nel tab Medici — §6 punto 20): `null` se lo schema non è ancora elaborato; `oreMancanti` è `null` anche per i senza incarico (nessun monte ore).
+- `stato.preferenzeTurno` elenca le preferenze di turno stesso giorno già dichiarate (§3.9), leggibile e impostabile dall'AI tramite l'azione `turno_pref` (valida solo sui giorni con sia diurno che notturno — l'AI segnala se richiesta su un giorno feriale semplice invece di impostarla).
 
 **Progetto Claude separato** — esiste un prompt di sistema separato (fuori da questa app) per processare email di disponibilità e produrre un file Excel. Non è nel file `.jsx`.
 
