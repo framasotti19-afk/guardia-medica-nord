@@ -24,7 +24,7 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1892 righe)
+## 2. STRUTTURA DEL FILE (~1918 righe)
 
 ```
 righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
@@ -35,7 +35,7 @@ righe 418-538   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima,
 righe 539-555   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
 righe 557-904   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
 righe 905-1155  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1156-1892 → COMPONENTE REACT (UI, AI, render)
+righe 1156-1918 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -326,6 +326,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 17. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
 18. **Categorie DET12ASAP e DET12** — determinati 12h/sett, 52h mensili; DET12ASAP a pari priorità con DET24 (spareggio diretto per titolarità → debito → graduatoria), DET12 sotto entrambi, sopra solo ai senza incarico (§3.1)
 19. **Preferenza di turno stesso giorno (☀️/🌙)** — solo nei giorni con diurno e notturno: decide quale dei due il medico mantiene se li vince entrambi, prevalendo sull'effetto collaterale dell'ordine conPref/resto sulla spaziatura temporale; impostabile solo dal popup di disponibilità, non gestibile via AI (§3.9)
+20. **Colonne "Ore assegnate" / "Ore mancanti" nel tab Medici** — sola lettura, visibili solo dopo l'elaborazione dello schema del mese ("—" altrimenti). "Ore assegnate" = somma delle ore dei turni in cui il medico compare FISICAMENTE nello schema elaborato (stessa logica di scalo del debito nel motore — la copertura a distanza non consuma ore proprie, coerente con `elaboraTurno`). "Ore mancanti" = monte ore + ore extra − ore assegnate; per i medici senza incarico (nessun monte ore) mostra sempre "—", anche a schema elaborato. Calcolate interamente lato UI da `dati.schema` — nessuna modifica al motore
 
 ---
 
@@ -385,7 +386,7 @@ for fn in setSedeOpzione setNoCella setPreferitoSede setTurnoPref toggleExtra el
   setMedici aggiornaMedico aggiungiMedico rimuoviMedico setSlot applicaRapido \
   applicaProposta chiediAI nomeToId elaboraSchema elaboraTurno normDispo \
   ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale \
-  turnoPrefDi candidatiOrdinati; do
+  turnoPrefDi candidatiOrdinati oreAssegnateDi; do
   n=$(grep -c "const $fn = \|function $fn(" turni-guardia-medica.jsx)
   [ "$n" != "1" ] && echo "DUPLICATA: $fn"
 done

@@ -1422,6 +1422,23 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   };
 
   const mediciOrd = useMemo(() => [...mediciList].sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || a.grad - b.grad), [mediciList]);
+  // Ore già assegnate nel mese elaborato, per medico: somma le ore dei turni in cui il medico
+  // compare FISICAMENTE (stessa identica logica di scalo del debito nel motore — non conta la
+  // copertura a distanza, che non consuma ore proprie). Sola lettura, tab "Medici".
+  const oreAssegnateDi = useMemo(() => {
+    const out = {};
+    if (!dati.schema) return out;
+    dati.schema.forEach((g) => {
+      g.turni.forEach((t) => {
+        if (!t) return;
+        t.fis.forEach((si) => {
+          const mid = t.slots[si];
+          if (mid !== null && mid !== undefined) out[mid] = (out[mid] || 0) + t.ore;
+        });
+      });
+    });
+    return out;
+  }, [dati.schema]);
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
   const btn = { padding: "8px 12px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
@@ -1718,10 +1735,11 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                 Le <b>ore extra</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
                 Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
+                <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d6dad3" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore extra</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => (
@@ -1755,6 +1773,14 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                             onChange={(e) => setDati({ extraOre: { ...dati.extraOre, [m.id]: Number(e.target.value) }, schema: null })}
                             style={{ width: 64, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
                         ) : "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px", color: "#5b5f59" }}>
+                        {dati.schema ? `${oreAssegnateDi[m.id] || 0}h` : "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px", color: "#5b5f59" }}>
+                        {dati.schema && CAT_INFO[m.cat].ore !== null
+                          ? `${(CAT_INFO[m.cat].ore + (dati.extraOre[m.id] || 0)) - (oreAssegnateDi[m.id] || 0)}h`
+                          : "—"}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <button onClick={() => rimuoviMedico(m.id)} title="Rimuovi medico dall'elenco"
