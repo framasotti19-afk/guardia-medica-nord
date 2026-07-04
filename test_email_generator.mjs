@@ -245,14 +245,18 @@ times(32, () => {
 });
 
 // ============ 13. MMG/PLS — TURNO ATTIVO (mattina/pomeriggio) ============
+// La sede è sempre indicata esplicitamente: un'email MMG senza sede aveva rivelato un bug reale
+// del prompt (l'AI produceva "sedi":[] per il turno MMG, che il motore scarta silenziosamente
+// perché richiede almeno una sede dichiarata anche per i turni extra — corretto nel prompt,
+// sezione MMG E PLS). L'atteso verifica ora esplicitamente che "sedi" non sia mai vuoto.
 times(65, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const fascia = i % 2 === 0 ? "M" : "P";
   const parola = fascia === "M" ? "mattina" : "pomeriggio";
-  const email = `Per il ${giorno} sono disponibile per la ${parola} MMG.`;
+  const email = `Per il ${giorno} sono disponibile per la ${parola} MMG a Maniago.`;
   aggiungi("mmg_attivo", m, giorno, email, {
-    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: fascia } }],
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: fascia, sedi: ["Maniago"] } }],
     azioniVietate: [], nessunaAzione: false,
   }, { mmgAttivi: [`g${giorno}:${fascia}`], oreExtraPre: {}, turniExtraPre: {} });
 });
@@ -269,6 +273,24 @@ times(65, (i) => {
     nessunaAzione: false,
     domandaRichiesta: { medico: m.nome, giorno, testoContiene: ["attivare"] },
   }, statoBase());
+});
+
+// ============ 14bis. MMG/PLS — TURNO ATTIVO MA SEDE NON SPECIFICATA (avviso, nessuna azione) ============
+// Regressione del bug trovato nella prima run reale: prima della regola dedicata, l'AI produceva
+// "sedi":[] per queste email (turno attivo, ma nessuna sede indicata) — un'azione apparentemente
+// valida ma che il motore scarta silenziosamente (nessuna sede verde/blu dichiarata). Ora deve
+// astenersi e segnalare l'ambiguità invece di inserire una disponibilità inerte.
+times(20, (i) => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(MEDICI_DEFAULT);
+  const fascia = i % 2 === 0 ? "M" : "P";
+  const parola = fascia === "M" ? "mattina" : "pomeriggio";
+  const email = `Per il ${giorno} sono disponibile per la ${parola} MMG.`; // nessuna sede indicata
+  aggiungi("mmg_sede_non_specificata", m, giorno, email, {
+    azioniRichieste: [], azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: fascia } }],
+    nessunaAzione: false,
+    avvisoRichiesto: { contiene: ["ATTENZIONE", "sede MMG", m.nome] },
+  }, { mmgAttivi: [`g${giorno}:${fascia}`], oreExtraPre: {}, turniExtraPre: {} });
 });
 
 // ============ 15. WEEKEND AMBIGUO (nessuna precisazione diurno/notturno → domanda) ============
