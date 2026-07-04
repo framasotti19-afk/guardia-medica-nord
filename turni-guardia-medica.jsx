@@ -1534,6 +1534,8 @@ MMG E PLS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 I turni MMG/PLS sono SEPARATI dai turni ordinari (verde/blu/notturno) e i medici li specificano sempre esplicitamente — non vanno mai confusi con una disponibilità ordinaria.
 
+⚠️ REGOLA GENERALE, SEMPRE PRIMA DI QUALSIASI INSERIMENTO MMG: prima di inserire un turno MMG (M o P, con "dispo_aggiungi") per un giorno specifico, controlla SEMPRE "mmgAttivi" nello STATO ATTUALE per verificare se quel turno è attivo proprio quel giorno. Questo vale per OGNI regola di questa sezione, comprese quelle sotto che sembrano una mappatura diretta frase→turno (es. "MMG mattina" → M): la mappatura indica QUALE turno (M o P), ma prima di inserirlo va sempre controllato che sia attivo per quel giorno. Se NON è attivo, NON inserirlo silenziosamente: genera sempre una "domanda" Sì/No (vedi il caso "MMG RICHIESTO MA NON ATTIVO" più sotto per il formato esatto).
+
 MATTINA (turno M):
 • MMG mattina / mattutino MMG / MMG 8-14 / copertura mattina MMG / PLS mattina
 
