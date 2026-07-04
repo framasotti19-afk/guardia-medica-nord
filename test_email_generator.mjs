@@ -101,14 +101,19 @@ times(54, (i) => {
   });
 });
 
-// ============ 3. SEDI FISICHE CON PREFERENZA (★) ============
+// ============ 3. SEDI FISICHE "PREFERIBILMENTE X, ALTRIMENTI Y" (livelli 1/2, NON il campo "preferito") ============
+// Nota: il prompt (sezione dispo_aggiungi) mappa ESPLICITAMENTE questa formulazione su sedi_liv
+// (es. Maniago:1, Spilimbergo:2), non sul campo "preferito" (★) — quello è un concetto diverso e
+// più forte (§3.5, CONTEXT.md), che sposta l'elaborazione del turno in testa al mese. Il primo
+// corpus generato per questa categoria testava (erroneamente) "preferito": la run reale ha
+// confermato che l'AI risponde correttamente con i livelli, come da prompt — corretto qui l'atteso.
 times(54, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const [preferita, ripiego] = i % 2 === 0 ? ["Maniago", "Spilimbergo"] : ["Spilimbergo", "Maniago"];
   const email = `Il ${giorno} preferirei ${preferita} per la notte, ma se serve va bene anche ${ripiego}.`;
   aggiungi("sedi_preferita", m, giorno, email, {
-    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago", "Spilimbergo"], preferito: preferita } }],
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago", "Spilimbergo"], preferenzaLivelli: [preferita, ripiego] } }],
     azioniVietate: [], nessunaAzione: false,
   });
 });

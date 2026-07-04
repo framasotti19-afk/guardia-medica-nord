@@ -10,6 +10,16 @@
 
 import fs from "node:fs";
 
+function caricaEnvLocale() {
+  const path = ".env";
+  if (!fs.existsSync(path)) return;
+  for (const riga of fs.readFileSync(path, "utf8").split("\n")) {
+    const m = riga.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+}
+caricaEnvLocale();
+
 function parseArgs(argv) {
   const args = { in: "test_email_results.json", out: "test_email_report.md", aiSuggestions: false };
   for (let i = 0; i < argv.length; i++) {
@@ -39,6 +49,12 @@ function azioneCorrisponde(spec, azione, medicoCaso) {
       if (atteso && new Set(valori).size > 1) return false;
     } else if (chiave === "preferito") {
       if ((azione.preferito || null) !== atteso) return false;
+    } else if (chiave === "preferenzaLivelli") {
+      // "preferibilmente X, altrimenti Y": livello di X deve essere più basso (preferito) di Y.
+      const liv = azione.sedi_liv || {};
+      const [primo, secondo] = atteso;
+      const l1 = liv[primo] ?? 1, l2 = liv[secondo] ?? 1;
+      if (!(l1 < l2)) return false;
     } else {
       if (azione[chiave] !== atteso) return false;
     }
@@ -226,7 +242,10 @@ async function main() {
   righe.push(`|---|---:|`);
   patternOrdinati.forEach(([chiave, n]) => righe.push(`| ${chiave} | ${n} |`));
   righe.push(`\n## Suggerimenti per migliorare il prompt\n`);
-  const categorieFallite = [...new Set(fallimenti.map((f) => f.categoria))];
+  // Suggerimenti solo per categorie con almeno un fallimento SEMANTICO reale — una categoria i
+  // cui unici "fallimenti" sono errori di rete/credito esaurito non dice nulla sulla qualità del
+  // prompt, quindi non merita un suggerimento (sarebbe fuorviante: il prompt non è mai stato testato).
+  const categorieFallite = [...new Set(fallimenti.filter((f) => f.tipoErrore !== "errore_rete").map((f) => f.categoria))];
   categorieFallite.forEach((cat) => {
     righe.push(`**${cat}**: ${SUGGERIMENTI[cat] || SUGGERIMENTO_GENERICO}\n`);
   });

@@ -2,3 +2,4 @@
 test_email_corpus.json
 test_email_results*.json
 test_email_report*.md
+test_email_batch_state*.json
