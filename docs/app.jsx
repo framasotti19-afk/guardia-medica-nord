@@ -567,6 +567,9 @@ function App() {
   const [aiBusy, setAiBusy] = useState(false);
   const [proposta, setProposta] = useState(null); // {azioni, spiegazione}
   const [azioniRestanti, setAzioniRestanti] = useState(false); // true se l'AI ha altre azioni per un round successivo
+  const [troncato, setTroncato] = useState(false); // true se l'ultima risposta è stata tagliata per limite di token (JSON incompleto)
+  const [completato, setCompletato] = useState(false); // true dopo aver applicato l'ultimo round quando non ce ne sono altri (banner "Completato ✓")
+  const ultimaDomandaRef = useRef(""); // richiesta originale dell'utente, per poterla ripetere se una risposta viene troncata
   const [caricato, setCaricato] = useState(false);
   const [rapidoOpen, setRapidoOpen] = useState(false);
   const [rapMedico, setRapMedico] = useState(MEDICI[0].id);
@@ -1081,6 +1084,8 @@ function App() {
             const nota = notaSlot(t.slots, si, t.fis);
             if (nota.tipo === "copertura") { testo = nota.testo; stile = 10; }
             else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
+          } else if (sede === "MANIAGO" || sede === "SPILIMBERGO") {
+            testo = "SCOPERTO"; stile = 11; // anche se un'altra sede del turno è coperta, Maniago/Spilimbergo scoperte vanno sempre segnalate in rosso
           } else if (sede === "MEDUNO" || sede === "CLAUT" || sede === "ANDUINS") {
             testo = "scoperto"; stile = 13; // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
           }
@@ -1161,8 +1166,11 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
     const testo = (testoForzato !== undefined ? testoForzato : aiInput).trim();
     if (!testo || aiBusy) return;
     const domanda = testo;
+    if (!testoForzato) ultimaDomandaRef.current = domanda; // ricordata per poterla ripetere se la risposta viene troncata
     setAiInput("");
     setAzioniRestanti(false); // si aggiorna in base alla risposta di QUESTO round, appena arriva
+    setTroncato(false);
+    setCompletato(false);
     const msgs = [...aiMsgs, { role: "user", content: domanda }];
     setAiMsgs(msgs);
     setAiBusy(true);
@@ -1267,9 +1275,11 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - Gli errori del coordinatore si correggono sempre retroattivamente, in qualsiasi fase
 
 == STILE DI RISPOSTA E LIMITI ==
-- Fai al massimo 3-4 azioni per risposta. Sii conciso, evita ripetizioni e non superare 2000 token di output.
-- Se l'utente chiede molte modifiche insieme (più di 3-4 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 3-4 in questo round (nella "spiegazione" e in "azioni"), imposta "altreAzioniRestanti":true nella risposta, e indica chiaramente alla fine della "spiegazione" quante azioni restano ancora da fare e di cosa si tratta (es. "Ho preparato le prime 4 modifiche su 11 richieste. Ne restano 7 (elenco)."). Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
-- Se ricevi "continua" come richiesta, prosegui con le prossime 3-4 azioni rimaste dal round precedente (le trovi ancora nel contesto della conversazione, che non viene mai troncato).
+- Fai al MASSIMO 3 azioni per risposta, MAI di più, anche se il testo incollato dall'utente è molto lungo (es. un'email con la disponibilità di 20 medici): questo limite serve a restare sempre ampiamente dentro il budget di token e non farsi mai troncare la risposta a metà.
+- "spiegazione" deve essere UNA sola frase breve (max ~20 parole). Non elencare in prosa i dettagli di ogni singola azione (l'utente li vede già elencati nell'interfaccia di conferma) e non citare, ripetere o riassumere MAI per esteso il testo incollato dall'utente: riferisciti solo ai nomi e ai giorni coinvolti.
+- Se l'utente chiede molte modifiche insieme (più di 3 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 3 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio (es. "Fatte 3 di 11 richieste."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
+- Se ricevi "continua" come richiesta, prosegui con le prossime 3 azioni rimaste dal round precedente (le trovi ancora nel contesto della conversazione, che non viene mai troncato).
+- Se ricevi una richiesta che inizia con "[la tua risposta precedente è stata troncata...]": vuol dire che la risposta precedente non è arrivata a completamento e NESSUNA azione di quel round è stata applicata (non è un round già fatto da proseguire: vanno rifatte da capo). Ripeti la stessa richiesta riportata subito dopo, ma con MASSIMO 2 azioni e una spiegazione ancora più corta, per stare sicuramente dentro il limite di token questa volta.
 
 RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati:
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
@@ -1292,7 +1302,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 16000,
+          model: "claude-sonnet-5", max_tokens: 16000,
           // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
           // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
           messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
@@ -1312,6 +1322,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       testo = testo.replace(/```json|```/g, "").trim();
       let obj = null;
       try { obj = JSON.parse(testo); } catch (e) { obj = null; }
+      const eTroncato = data.stop_reason === "max_tokens";
+      if (eTroncato && !obj) {
+        // Risposta tagliata prima di completare il JSON: nessuna azione è stata applicata.
+        // Offriamo comunque un modo per proseguire, ripetendo la richiesta originale più in breve.
+        setTroncato(true);
+        setAzioniRestanti(true);
+        setAiMsgs((p) => [...p, { role: "assistant", content: "La risposta è stata troncata perché troppo lunga (limite di token raggiunto) — nessuna modifica è stata applicata. Premi \"Continua →\" per far ripetere la richiesta in modo più sintetico." }]);
+        setAiBusy(false);
+        return;
+      }
       if (obj?.tipo === "vai_mese") {
         const mi = MESI_DISPONIBILI.findIndex((x) => MESI_IT[x.mese].toLowerCase() === String(obj.mese || "").toLowerCase() && x.anno === Number(obj.anno));
         if (mi >= 0) {
@@ -1328,7 +1348,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           return { az: "schema", ...a };
         });
         setProposta({ azioni, spiegazione: obj.spiegazione || "Modifica proposta" });
-        setAzioniRestanti(!!obj.altreAzioniRestanti);
+        setAzioniRestanti(!!obj.altreAzioniRestanti || eTroncato); // eTroncato = rete di sicurezza se il modello non ha impostato il campo
         setAiMsgs((p) => [...p, { role: "assistant", content: `PROPOSTA: ${obj.spiegazione || "modifica"} — conferma o annulla qui sotto.` }]);
       } else if (obj?.tipo === "risposta") {
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.testo }]);
@@ -1450,6 +1470,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     if (dispoModificata && schema && !daElaborare) msg += "Disponibilità cambiate con schema già elaborato: valuta se rielaborarlo o correggerlo a mano.";
     setAiMsgs((p) => [...p, { role: "assistant", content: msg.trim() }]);
     setProposta(null);
+    if (!azioniRestanti) setCompletato(true); // nessun altro round in sospeso: mostra il banner "Completato ✓"
   };
   const rifiutaProposta = () => {
     setAiMsgs((p) => [...p, { role: "assistant", content: "Proposta annullata, nessuna modifica applicata." }]);
@@ -1942,10 +1963,15 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                 </div>
               )}
               {!proposta && azioniRestanti && (
-                <button onClick={() => chiediAI("continua")} disabled={aiBusy}
+                <button onClick={() => chiediAI(troncato ? `[la tua risposta precedente è stata troncata per lunghezza, non è stata applicata alcuna modifica] ${ultimaDomandaRef.current}` : "continua")} disabled={aiBusy}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "2px solid #1a5c4a", background: "#f0f7f4", color: "#1a5c4a", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
                   Continua →
                 </button>
+              )}
+              {!proposta && completato && (
+                <div style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #1a5c4a", background: "#eaf5ef", color: "#1a5c4a", fontWeight: 700, fontSize: 12, textAlign: "center" }}>
+                  Completato ✓
+                </div>
               )}
             </div>
             <div style={{ padding: 10, borderTop: "1px solid #eef0ec", display: "flex", gap: 6 }}>
