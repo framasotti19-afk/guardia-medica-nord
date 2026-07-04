@@ -60,19 +60,38 @@ const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL"
 const CDC = ["Maniago", "Spilimbergo"]; // le 2 sedi fisiche sempre prioritarie
 
 // ============ CALENDARIO ============
-const FESTIVI_MAP = {
-  "2026-08-15": "FERRAGOSTO", "2026-11-01": "OGNISSANTI", "2026-12-08": "IMMACOLATA",
-  "2026-12-25": "NATALE", "2026-12-26": "S.STEFANO", "2026-12-31": "31 DICEMBRE",
-  "2027-01-01": "CAPODANNO", "2027-01-06": "EPIFANIA", "2027-03-28": "PASQUA",
-  "2027-03-29": "PASQUETTA", "2027-04-25": "25 APRILE", "2027-05-01": "1 MAGGIO",
-  "2027-06-02": "2 GIUGNO", "2027-08-15": "FERRAGOSTO", "2027-11-01": "OGNISSANTI",
-  "2027-12-08": "IMMACOLATA", "2027-12-25": "NATALE", "2027-12-26": "S.STEFANO", "2027-12-31": "31 DICEMBRE",
-};
-const PREFESTIVI = new Set([
-  "2026-08-14","2026-10-31","2026-12-07","2026-12-24","2026-12-30",
-  "2027-01-05","2027-03-27","2027-04-24","2027-04-30","2027-06-01",
-  "2027-08-14","2027-10-31","2027-12-07","2027-12-24","2027-12-30",
-]);
+const dk = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const mk = (y, m) => `${y}-${m}`;
+
+// Pasqua (algoritmo di Gauss, calendario gregoriano) — valido per qualsiasi anno.
+// Restituisce { mese, giorno } con mese 0-indicizzato (2=marzo, 3=aprile), coerente col resto del file.
+function pasquaDi(anno) {
+  const a = anno % 19, b = Math.floor(anno / 100), c = anno % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const meseUno = Math.floor((h + l - 7 * m + 114) / 31); // 1-indicizzato: 3=marzo, 4=aprile
+  const giorno = ((h + l - 7 * m + 114) % 31) + 1;
+  return { mese: meseUno - 1, giorno };
+}
+// Festivi nazionali italiani fissi + Pasqua/Pasquetta (calcolata) per un singolo anno.
+function festiviFissiDi(anno) {
+  const map = {};
+  const add = (m, d, label) => { map[dk(anno, m, d)] = label; };
+  add(0, 1, "CAPODANNO"); add(0, 6, "EPIFANIA");
+  const pasqua = pasquaDi(anno);
+  map[dk(anno, pasqua.mese, pasqua.giorno)] = "PASQUA";
+  const pasquetta = new Date(anno, pasqua.mese, pasqua.giorno + 1);
+  map[dk(pasquetta.getFullYear(), pasquetta.getMonth(), pasquetta.getDate())] = "PASQUETTA";
+  add(3, 25, "25 APRILE"); add(4, 1, "1 MAGGIO"); add(5, 2, "2 GIUGNO");
+  add(7, 15, "FERRAGOSTO"); add(10, 1, "OGNISSANTI"); add(11, 8, "IMMACOLATA");
+  add(11, 25, "NATALE"); add(11, 26, "S.STEFANO");
+  add(11, 31, "31 DICEMBRE"); // festivo a sé per ASFO (non un festivo nazionale italiano): il suo
+  // prefestivo è il 30 dicembre, non va confuso con l'essere semplicemente il giorno prima di Capodanno.
+  return map;
+}
 const MESI_IT = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const GIORNI_IT = ["DOMENICA","LUNEDI'","MARTEDI'","MERCOLEDI'","GIOVEDI'","VENERDI'","SABATO"];
@@ -80,13 +99,22 @@ const GIORNI_BREVI = ["DO","LU","MA","ME","GI","VE","SA"];
 
 const MESI_DISPONIBILI = [];
 { let y = 2026, m = 7;
-  while (y < 2027 || (y === 2027 && m <= 11)) {
+  while (y < 2036 || (y === 2036 && m <= 11)) {
     MESI_DISPONIBILI.push({ anno: y, mese: m });
     m++; if (m > 11) { m = 0; y++; }
   }
 }
-const dk = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-const mk = (y, m) => `${y}-${m}`;
+// FESTIVI_MAP/PREFESTIVI generati per l'intero intervallo coperto da MESI_DISPONIBILI (2026-2036),
+// più un anno extra (2037) solo per calcolare correttamente il prefestivo del 31 dicembre 2036
+// (giorno precedente al Capodanno 2037). Nessun limite di anni: festiviFissiDi funziona per
+// qualsiasi anno tramite l'algoritmo di Gauss per Pasqua.
+const FESTIVI_MAP = {};
+for (let anno = 2026; anno <= 2037; anno++) Object.assign(FESTIVI_MAP, festiviFissiDi(anno));
+const PREFESTIVI = new Set(Object.keys(FESTIVI_MAP).map((key) => {
+  const [y, m, d] = key.split("-").map(Number);
+  const prec = new Date(y, m - 1, d - 1); // giorno precedente a ogni festivo
+  return dk(prec.getFullYear(), prec.getMonth(), prec.getDate());
+}));
 
 function turniDelGiorno(y, m, d, extras) {
   const key = dk(y, m, d);
@@ -1250,6 +1278,17 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
 Le regole ordinarie di assegnazione (categoria, debito, graduatoria) si applicano SOLO alle disponibilità ricevute entro le 23:59 del giorno 3. Tutto ciò che arriva dopo — incluse le modifiche dal 10 al 14 — segue esclusivamente "first come, first served": vince chi arriva prima, indipendentemente da categoria o graduatoria.
 UNICA ECCEZIONE: gli errori del coordinatore vanno sempre corretti retroattivamente, in qualsiasi fase.
 
+== CALENDARIO PERPETUO — GIORNO DELLA SETTIMANA E FESTIVITÀ (NON affidarti alla memoria) ==
+Per stabilire se un giorno del mese corrente (indicato in STATO ATTUALE come "mese") è un feriale semplice, un weekend, un festivo o un prefestivo — informazione necessaria per le regole su turni diurno/notturno e weekend ambiguo più sotto — NON fidarti della tua memoria approssimativa del calendario: calcola sempre esplicitamente, passo per passo, usando le regole seguenti.
+1) GIORNO DELLA SETTIMANA — congruenza di Zeller (calendario gregoriano): per la data giorno=q, mese=m, anno=y, se m è gennaio o febbraio trattalo come mese 13 o 14 dell'anno PRECEDENTE (cioè m+12, y-1). Poi calcola:
+   h = ( q + floor(13×(m+1)/5) + K + floor(K/4) + floor(J/4) − 2×J ) mod 7
+   dove K = y mod 100 (ultime due cifre dell'anno), J = floor(y/100) (secolo). Il risultato h corrisponde a: 0=sabato, 1=domenica, 2=lunedì, 3=martedì, 4=mercoledì, 5=giovedì, 6=venerdì. Esegui SEMPRE questo calcolo esplicitamente, mostrando i passaggi a te stesso nel ragionamento, prima di concludere che giorno della settimana è.
+2) FESTIVITÀ FISSE (ogni anno, senza eccezioni): 1 gennaio (Capodanno), 6 gennaio (Epifania), 25 aprile, 1 maggio, 2 giugno, 15 agosto (Ferragosto), 1 novembre (Ognissanti), 8 dicembre (Immacolata), 25 dicembre (Natale), 26 dicembre (Santo Stefano).
+3) PASQUA E PASQUETTA (data variabile, algoritmo di Gauss): per l'anno y calcola a = y mod 19; b = floor(y/100); c = y mod 100; d = floor(b/4); e = b mod 4; f = floor((b+8)/25); g = floor((b−f+1)/3); h = (19a + b − d − g + 15) mod 30; i = floor(c/4); k = c mod 4; l = (32 + 2e + 2i − h − k) mod 7; m = floor((a + 11h + 22l)/451); mese = floor((h + l − 7m + 114)/31) (3=marzo, 4=aprile); giorno = ((h + l − 7m + 114) mod 31) + 1. Questa è la domenica di Pasqua; Pasquetta è il giorno immediatamente successivo.
+4) PREFESTIVO = il giorno immediatamente precedente a una qualsiasi delle date di cui sopra (festività fissa, Pasqua o Pasquetta).
+5) WEEKEND = sabato o domenica (dal calcolo del punto 1), indipendentemente da festività/prefestivi.
+Un giorno ha SIA il turno diurno (G) SIA quello notturno (N) se e solo se è weekend, festivo o prefestivo (punti 3-5); un feriale semplice (lunedì-venerdì non festivo né prefestivo) ha SOLO il turno notturno — il diurno non esiste in quel giorno. Questo calcolo è valido per QUALSIASI anno, senza limiti temporali: applicalo sempre, anche per date lontane nel tempo.
+
 == SEDI E SCENARI DI COPERTURA ==
 Maniago e Spilimbergo (le 2 CDC) devono sempre essere coperte PRIMA delle altre sedi.
 Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dichiarano (verde/blu, vedi sotto).
@@ -1549,13 +1588,14 @@ SOLO DIURNO (inserisci solo G):
 • ho problemi con i notturni, solo diurni
 
 WEEKEND AMBIGUO — medico NON specifica NÉ diurno NÉ notturno (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
-🔴 ATTENZIONE ALLA DIFFERENZA: questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti" né "giorno/diurno"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità. La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno.
-• il 2 agosto sono disponibile / disponibile il 9 / ci sono il 16
-• il 2 a Maniago / sabato 8 a Spilimbergo / domenica 22 ci sono
-• faccio il 2 / il 9 lo faccio / mettimi il 16
+🔒 CONTROLLO OBBLIGATORIO, PRIMA DI TUTTO IL RESTO DI QUESTA SEZIONE: verifica sempre, per il giorno esatto in questione, se è un lunedì/martedì/mercoledì/giovedì/venerdì NON festivo (feriale semplice). Se lo è, questa intera sezione NON SI APPLICA: niente domanda, niente ambiguità, il diurno in quel giorno non esiste affatto — inserisci solo il notturno (N) e basta, senza generare alcuna "domanda". La domanda sul diurno esiste SOLO per sabato, domenica, festivi e prefestivi (giorni che hanno realmente sia G che N). Esempio concreto dell'errore da NON fare: giovedì 7 agosto è un feriale semplice — "sono disponibile il 7" va inserito come solo notturno, SENZA nessuna domanda "vuoi aggiungere anche il diurno?", perché il 7 agosto non ha alcun turno diurno da poter aggiungere.
+🔴 ATTENZIONE ALLA DIFFERENZA (per i soli weekend/festivi/prefestivi): questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti" né "giorno/diurno"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità. La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno, E SOLO se quel giorno è un weekend/festivo/prefestivo vero (vedi controllo obbligatorio sopra).
+• sabato 8 sono disponibile / disponibile domenica 9 / ci sono il 22 (domenica)
+• il 2 a Maniago (sabato) / sabato 8 a Spilimbergo / domenica 22 ci sono
+• faccio il 2 (weekend) / il 9 lo faccio (domenica) / mettimi il 16 (sabato)
 → inserisci SOLO il notturno (N) nelle "azioni" del round, E aggiungi una "domanda" (vedi formato JSON "domande" più sotto):
 citazione: la frase esatta scritta dal medico (es. "sono disponibile il 2"); domanda in italiano completo, senza abbreviazioni (es. "non ha specificato diurno o notturno — vuoi aggiungere anche il diurno?"); seSi: [dispo_aggiungi con turno G, stesse sedi/livelli dichiarati per la notte]; seNo: [] (resta solo il notturno già inserito).
-⚠️ IMPORTANTE — questa regola NON si applica MAI ai giorni feriali (lunedì-venerdì non festivi): i feriali hanno SOLO il turno notturno, il diurno non esiste in quei giorni, quindi non c'è alcuna ambiguità da segnalare. Se il medico scrive "il 5 sono disponibile" e il 5 è un feriale semplice, inserisci il notturno (unico turno possibile quel giorno) SENZA alcuna domanda — non ha senso chiedere se intendeva anche il diurno quando il diurno quel giorno non esiste.
+⚠️ RIPETUTO PERCHÉ CRITICO — questa regola NON si applica MAI ai giorni feriali (lunedì-venerdì non festivi): i feriali hanno SOLO il turno notturno, il diurno non esiste in quei giorni, quindi non c'è alcuna ambiguità da segnalare. Se il medico scrive "il 5 sono disponibile" e il 5 è un feriale semplice, inserisci il notturno (unico turno possibile quel giorno) SENZA alcuna domanda — non ha senso chiedere se intendeva anche il diurno quando il diurno quel giorno non esiste. Prima di generare QUALSIASI "domanda" di questo tipo, ricontrolla il giorno della settimana: se hai il minimo dubbio che possa essere un feriale, non generare la domanda.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MMG E PLS
@@ -1772,6 +1812,7 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ],"domande":[ ...opzionale, vedi sotto... ],"altreAzioniRestanti":true} — "altreAzioniRestanti" è booleano e opzionale (default false): vedi sopra. "azioni" può essere vuoto/omesso se la risposta è fatta SOLO di "domande".
 "domande" (array opzionale) — SOLO per ambiguità con una scelta binaria chiara, dove sia il Sì che il No corrispondono a un'azione concreta e ben definita da applicare (es. attivare o no un turno MMG mancante, aggiungere o no il diurno quando un weekend non è stato specificato): {"giorno":11,"medico":"MARZANO","citazione":"vorrei fare la mattina MMG l'11","domanda":"la mattina non è attiva, solo il pomeriggio — vuoi attivare anche la mattina?","seSi":[ ...azioni da applicare se l'utente risponde Sì... ],"seNo":[ ...azioni da applicare se risponde No... ]}. "citazione" è OBBLIGATORIA: riporta tra virgolette la frase ESATTA scritta dal medico nel testo incollato (non un riassunto), così il coordinatore vede subito il contesto originale senza doverlo ricordare a memoria. In "citazione" e "domanda" scrivi SEMPRE in italiano completo, MAI abbreviazioni o codici interni (niente "g11", "g8N", "MA", "SP": scrivi "giorno 11", "agosto", "notturno", "Maniago", "Spilimbergo"). L'utente vede ogni domanda come una card con due pulsanti Sì/No: NON scrivere questi casi come testo "🔴 ATTENZIONE" nella spiegazione, usa SEMPRE "domande" quando la scelta è binaria e concreta. Per le ambiguità SENZA un'azione concreta definibile per entrambe le risposte (sede non identificabile, date vaghe, condizionali, contraddizioni — vedi CASI DA SEGNALARE AL COORDINATORE) continua a usare il testo "🔴 ATTENZIONE" nella spiegazione: lì non c'è nulla di binario da proporre, serve solo un avviso.
+⚠️ REGOLA GENERALE — AMBITO DI "seSi"/"seNo": le azioni in "seSi" e "seNo" di una domanda devono riguardare ESCLUSIVAMENTE il giorno e il medico di QUELLA specifica domanda, mai nient'altro. Rispondere Sì o No a una domanda non deve MAI avere l'effetto di inserire disponibilità per altri giorni, anche se quei giorni compaiono altrove nella stessa email originale, anche se sembrano casi analoghi o dello stesso tipo di ambiguità. Ogni domanda è un'unità indipendente e isolata: la risposta a una domanda specifica non estende, conferma o anticipa nulla su nessun'altra domanda o giorno non esplicitamente menzionato in quella singola domanda.
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"WANG"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".

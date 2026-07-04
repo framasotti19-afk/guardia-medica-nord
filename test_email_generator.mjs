@@ -318,6 +318,22 @@ times(43, () => {
   });
 });
 
+// ============ 16bis. FERIALE CON FRASE AMBIGUA (nessuna domanda sul diurno: il diurno non esiste) ============
+// Regressione di un bug segnalato: l'AI aveva generato la domanda "vuoi aggiungere anche il
+// diurno?" per FOSCHIANI il 7 agosto (giovedì, feriale semplice) — nei feriali esiste SOLO il
+// notturno, quindi la stessa identica frase che su un weekend genera correttamente una domanda
+// (categoria weekend_ambiguo) non deve MAI generarne una su un feriale.
+times(30, () => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(MEDICI_DEFAULT);
+  const email = `Per il ${giorno} sono disponibile a Maniago.`;
+  aggiungi("feriale_no_domanda_diurno", m, giorno, email, {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
+    azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "G" } }],
+    nessunaAzione: false, domandaVietata: true,
+  });
+});
+
 // ============ 17. CONDIZIONALI AMBIGUE (nessuna azione turni extra, nessun errore) ============
 times(34, () => {
   const m = pick(contrattualizzati);

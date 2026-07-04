@@ -15,8 +15,8 @@ function mulberry32(seed) {
 }
 
 const SEMI = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-// tutti i mesi disponibili (agosto 2026 - novembre 2027): copre ogni combinazione di
-// weekend/festivi/prefestivi presente nel calendario dell'app.
+// tutti i mesi disponibili (agosto 2026 - dicembre 2036): copre ogni combinazione di
+// weekend/festivi/prefestivi presente nel calendario dell'app (festivi/Pasqua calcolati, §3.6).
 const IDX_MESI = MESI_DISPONIBILI.map((_, i) => i);
 
 let checkCount = 0;

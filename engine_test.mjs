@@ -59,19 +59,38 @@ const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL"
 const CDC = ["Maniago", "Spilimbergo"]; // le 2 sedi fisiche sempre prioritarie
 
 // ============ CALENDARIO ============
-const FESTIVI_MAP = {
-  "2026-08-15": "FERRAGOSTO", "2026-11-01": "OGNISSANTI", "2026-12-08": "IMMACOLATA",
-  "2026-12-25": "NATALE", "2026-12-26": "S.STEFANO", "2026-12-31": "31 DICEMBRE",
-  "2027-01-01": "CAPODANNO", "2027-01-06": "EPIFANIA", "2027-03-28": "PASQUA",
-  "2027-03-29": "PASQUETTA", "2027-04-25": "25 APRILE", "2027-05-01": "1 MAGGIO",
-  "2027-06-02": "2 GIUGNO", "2027-08-15": "FERRAGOSTO", "2027-11-01": "OGNISSANTI",
-  "2027-12-08": "IMMACOLATA", "2027-12-25": "NATALE", "2027-12-26": "S.STEFANO", "2027-12-31": "31 DICEMBRE",
-};
-const PREFESTIVI = new Set([
-  "2026-08-14","2026-10-31","2026-12-07","2026-12-24","2026-12-30",
-  "2027-01-05","2027-03-27","2027-04-24","2027-04-30","2027-06-01",
-  "2027-08-14","2027-10-31","2027-12-07","2027-12-24","2027-12-30",
-]);
+const dk = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const mk = (y, m) => `${y}-${m}`;
+
+// Pasqua (algoritmo di Gauss, calendario gregoriano) — valido per qualsiasi anno.
+// Restituisce { mese, giorno } con mese 0-indicizzato (2=marzo, 3=aprile), coerente col resto del file.
+function pasquaDi(anno) {
+  const a = anno % 19, b = Math.floor(anno / 100), c = anno % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const meseUno = Math.floor((h + l - 7 * m + 114) / 31); // 1-indicizzato: 3=marzo, 4=aprile
+  const giorno = ((h + l - 7 * m + 114) % 31) + 1;
+  return { mese: meseUno - 1, giorno };
+}
+// Festivi nazionali italiani fissi + Pasqua/Pasquetta (calcolata) per un singolo anno.
+function festiviFissiDi(anno) {
+  const map = {};
+  const add = (m, d, label) => { map[dk(anno, m, d)] = label; };
+  add(0, 1, "CAPODANNO"); add(0, 6, "EPIFANIA");
+  const pasqua = pasquaDi(anno);
+  map[dk(anno, pasqua.mese, pasqua.giorno)] = "PASQUA";
+  const pasquetta = new Date(anno, pasqua.mese, pasqua.giorno + 1);
+  map[dk(pasquetta.getFullYear(), pasquetta.getMonth(), pasquetta.getDate())] = "PASQUETTA";
+  add(3, 25, "25 APRILE"); add(4, 1, "1 MAGGIO"); add(5, 2, "2 GIUGNO");
+  add(7, 15, "FERRAGOSTO"); add(10, 1, "OGNISSANTI"); add(11, 8, "IMMACOLATA");
+  add(11, 25, "NATALE"); add(11, 26, "S.STEFANO");
+  add(11, 31, "31 DICEMBRE"); // festivo a sé per ASFO (non un festivo nazionale italiano): il suo
+  // prefestivo è il 30 dicembre, non va confuso con l'essere semplicemente il giorno prima di Capodanno.
+  return map;
+}
 const MESI_IT = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const GIORNI_IT = ["DOMENICA","LUNEDI'","MARTEDI'","MERCOLEDI'","GIOVEDI'","VENERDI'","SABATO"];
@@ -79,13 +98,22 @@ const GIORNI_BREVI = ["DO","LU","MA","ME","GI","VE","SA"];
 
 const MESI_DISPONIBILI = [];
 { let y = 2026, m = 7;
-  while (y < 2027 || (y === 2027 && m <= 11)) {
+  while (y < 2036 || (y === 2036 && m <= 11)) {
     MESI_DISPONIBILI.push({ anno: y, mese: m });
     m++; if (m > 11) { m = 0; y++; }
   }
 }
-const dk = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-const mk = (y, m) => `${y}-${m}`;
+// FESTIVI_MAP/PREFESTIVI generati per l'intero intervallo coperto da MESI_DISPONIBILI (2026-2036),
+// più un anno extra (2037) solo per calcolare correttamente il prefestivo del 31 dicembre 2036
+// (giorno precedente al Capodanno 2037). Nessun limite di anni: festiviFissiDi funziona per
+// qualsiasi anno tramite l'algoritmo di Gauss per Pasqua.
+const FESTIVI_MAP = {};
+for (let anno = 2026; anno <= 2037; anno++) Object.assign(FESTIVI_MAP, festiviFissiDi(anno));
+const PREFESTIVI = new Set(Object.keys(FESTIVI_MAP).map((key) => {
+  const [y, m, d] = key.split("-").map(Number);
+  const prec = new Date(y, m - 1, d - 1); // giorno precedente a ogni festivo
+  return dk(prec.getFullYear(), prec.getMonth(), prec.getDate());
+}));
 
 function turniDelGiorno(y, m, d, extras) {
   const key = dk(y, m, d);
