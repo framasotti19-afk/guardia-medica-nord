@@ -1314,7 +1314,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         setAiMsgs((p) => [...p, { role: "assistant", content: testo || "Nessuna risposta." }]);
       }
     } catch (e) {
-      setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${(e as any)?.message || String(e)}. Verifica di star usando l'app all'interno di claude.ai come artifact attivo (non come file scaricato).` }]);
+      setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${e?.message || String(e)}. Verifica di star usando l'app all'interno di claude.ai come artifact attivo (non come file scaricato).` }]);
     }
     setAiBusy(false);
   };

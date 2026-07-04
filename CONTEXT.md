@@ -400,7 +400,7 @@ node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
   node test_simulazione_completa.mjs && node test_simulazione_email.mjs
 
 # 4. Se si tocca turni-guardia-medica.jsx, rigenera anche docs/app.jsx (copia GitHub Pages) —
-#    vedi §14 per le 3 modifiche minime da riapplicare dopo la copia.
+#    vedi §14 per le 2 modifiche minime da riapplicare dopo la copia.
 ```
 
 ---
@@ -469,10 +469,11 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 
 `docs/` contiene una copia pubblicabile su GitHub Pages, poiché il progetto non usa bundler:
 - `docs/index.html` — carica React 18, ReactDOM 18 e Babel standalone da `docs/vendor/` (vendorizzati localmente, nessuna dipendenza da CDN esterni), trasforma `docs/app.jsx` nel browser al volo
-- `docs/app.jsx` — copia di `turni-guardia-medica.jsx` con 3 modifiche minime, non comportamentali, da riapplicare dopo ogni copia dal file root:
+- `docs/app.jsx` — copia di `turni-guardia-medica.jsx` con 2 modifiche minime, non comportamentali, da riapplicare dopo ogni copia dal file root:
   1. `import { useState, ... } from "react"` → `const { useState, ... } = React;` (nessun bundler, React è un global)
   2. `export default function App()` → `function App()`, con `ReactDOM.createRoot(document.getElementById("root")).render(<App />);` aggiunto in fondo al file
-  3. Rimozione di un cast TypeScript orfano `(e as any)` → `e` (era un no-op a runtime, ma Babel standalone senza preset TypeScript non riesce a parsarlo)
+
+  (Il file root non contiene più cast TypeScript orfani come `(e as any)` — rimosso anche lì dopo che un artifact fresco su claude.ai ha mostrato che poteva bloccare il rendering pure lì, non solo su Babel standalone.)
 
 **Limiti su GitHub Pages** (non modificabili, solo da tenere presenti): l'assistente AI e lo storage persistente (`window.storage`) sono pensati per l'ambiente artifact di Claude.ai — su Pages falliscono silenziosamente (try/catch), quindi l'app funziona ma senza quelle due funzionalità.
 
