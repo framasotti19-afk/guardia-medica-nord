@@ -1598,11 +1598,11 @@ INFORMAZIONI INSUFFICIENTI:
 
 == STILE DI RISPOSTA E LIMITI ==
 - Scrivi SEMPRE in italiano semplice e diretto, come parlerebbe un collega — MAI gergo tecnico ("round", "azioni", "az", "slot", "array", "state", "JSON", ecc.) nei testi rivolti all'utente ("spiegazione", "testo"). Descrivi solo il risultato pratico e concreto (disponibilità, turni, medici, giorni), non i meccanismi interni. Es.: invece di "Fatte 8 di 10 azioni" scrivi "Ho inserito 8 disponibilità su 10, continua per le restanti" (adatta la parola concreta — disponibilità, turni, modifiche, preferenze... — al contenuto reale della richiesta, mai la parola "azioni").
-- Fai al MASSIMO 8 azioni per risposta, MAI di più, anche se il testo incollato dall'utente è molto lungo (es. un'email con la disponibilità di 20 medici): questo limite serve a restare sempre ampiamente dentro il budget di token e non farsi mai troncare la risposta a metà.
+- Fai al MASSIMO 15 azioni per risposta, MAI di più, anche se il testo incollato dall'utente è molto lungo (es. un'email con la disponibilità di 20 medici): questo limite serve a restare sempre ampiamente dentro il budget di token e non farsi mai troncare la risposta a metà.
 - "spiegazione" deve essere UNA sola frase breve (max ~20 parole). Non elencare in prosa i dettagli di ogni singola azione (l'utente li vede già elencati nell'interfaccia di conferma) e non citare, ripetere o riassumere MAI per esteso il testo incollato dall'utente: riferisciti solo ai nomi e ai giorni coinvolti. UNICA ECCEZIONE al limite di lunghezza: gli avvisi "⚠️ ATTENZIONE" (turni ambigui, casi da segnalare al coordinatore — vedi INTERPRETAZIONE EMAIL DISPONIBILITÀ) vanno sempre scritti per intero, anche se allungano la "spiegazione" oltre le ~20 parole.
-- Se l'utente chiede molte modifiche insieme (più di 8 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 8 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio in italiano semplice (es. "Ho inserito 8 disponibilità su 11, continua per le restanti."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
+- Se l'utente chiede molte modifiche insieme (più di 15 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 15 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio in italiano semplice (es. "Ho inserito 15 disponibilità su 20, continua per le restanti."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
 - PRIMA di proporre qualunque azione, controlla SEMPRE sia la cronologia della conversazione SIA "azioniGiaEseguite" nello STATO ATTUALE (vedi sotto) per capire cosa è già stato fatto: ogni tua proposta precedente ("PROPOSTA: ...") seguita da un messaggio che NON è "Proposta annullata, nessuna modifica applicata" (es. "Modifiche applicate ✓" o "Applicata con avvisi: ...") significa che QUELLE azioni sono già state applicate con successo — non riproporle mai più, nemmeno riformulate o "corrette", nemmeno se l'utente scrive di nuovo "continua". "azioniGiaEseguite" è la fonte di verità più affidabile perché aggiornata direttamente a ogni conferma reale (non dedotta dalla chat): qualunque combinazione medico+giorno+turno lì presente è definitivamente già fatta e NON va mai riproposta. Solo se una proposta era seguita ESATTAMENTE da "Proposta annullata, nessuna modifica applicata" quelle azioni NON sono state applicate (infatti non compaiono in "azioniGiaEseguite") e possono essere riproposte se ancora pertinenti alla richiesta originale.
-- Se ricevi "continua" come richiesta: NON ripetere le azioni già confermate nei round precedenti (vedi punto sopra). Per le richieste di disponibilità, non fidarti solo della cronologia: confronta la richiesta originale (email o elenco incollato) con "disponibilitaPresenti" nello STATO ATTUALE, che riflette esattamente cosa è già stato salvato — è la fonte di verità più affidabile su cosa manca, perché aggiornata ad ogni round in base a quanto realmente applicato. Prosegui SEMPRE con le prossime 8 azioni NUOVE (quelle per cui "disponibilitaPresenti" non mostra ancora nulla). Se non riesci a determinare con certezza cosa manca, chiedi conferma invece di riproporre qualcosa di già fatto: non entrare mai in un loop che ripropone le stesse modifiche.
+- Se ricevi "continua" come richiesta: NON ripetere le azioni già confermate nei round precedenti (vedi punto sopra). Per le richieste di disponibilità, non fidarti solo della cronologia: confronta la richiesta originale (email o elenco incollato) con "disponibilitaPresenti" nello STATO ATTUALE, che riflette esattamente cosa è già stato salvato — è la fonte di verità più affidabile su cosa manca, perché aggiornata ad ogni round in base a quanto realmente applicato. Prosegui SEMPRE con le prossime 15 azioni NUOVE (quelle per cui "disponibilitaPresenti" non mostra ancora nulla). Se non riesci a determinare con certezza cosa manca, chiedi conferma invece di riproporre qualcosa di già fatto: non entrare mai in un loop che ripropone le stesse modifiche.
 - Se ricevi una richiesta che inizia con "[la tua risposta precedente è stata troncata...]": vuol dire che la risposta precedente non è arrivata a completamento e NESSUNA azione di quel round è stata applicata (non è un round già fatto da proseguire: vanno rifatte da capo). Ripeti la stessa richiesta riportata subito dopo, ma con MASSIMO 2 azioni e una spiegazione ancora più corta, per stare sicuramente dentro il limite di token questa volta.
 
 RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati:
@@ -1657,6 +1657,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       testo = testo.replace(/```json|```/g, "").trim();
       let obj = null;
       try { obj = JSON.parse(testo); } catch (e) { obj = null; }
+      if (!obj) {
+        // Il modello potrebbe aver anteposto del testo introduttivo al JSON, in violazione delle
+        // istruzioni ("RISPONDI SOLO con un oggetto JSON valido"): proviamo a estrarre il blocco
+        // {...} più esterno prima di arrenderci, per non rischiare di mostrare testo misto a JSON.
+        const inizioJson = testo.indexOf("{");
+        const fineJson = testo.lastIndexOf("}");
+        if (inizioJson >= 0 && fineJson > inizioJson) {
+          try { obj = JSON.parse(testo.slice(inizioJson, fineJson + 1)); } catch (e) { obj = null; }
+        }
+      }
       const eTroncato = data.stop_reason === "max_tokens";
       if (eTroncato && !obj) {
         // Risposta tagliata prima di completare il JSON: nessuna azione è stata applicata.
@@ -1687,8 +1697,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         setAiMsgs((p) => [...p, { role: "assistant", content: `PROPOSTA: ${obj.spiegazione || "modifica"} — conferma o annulla qui sotto.` }]);
       } else if (obj?.tipo === "risposta") {
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.testo }]);
+      } else if (obj) {
+        // JSON valido ma di struttura non riconosciuta (es. "modifiche" con azioni vuote/mancanti):
+        // NON mostrare mai il JSON grezzo in chat. Recupera un testo leggibile se presente, altrimenti
+        // un messaggio generico.
+        setAiMsgs((p) => [...p, { role: "assistant", content: obj.spiegazione || obj.testo || "Non ho capito bene la richiesta, puoi riformulare?" }]);
       } else {
-        setAiMsgs((p) => [...p, { role: "assistant", content: testo || "Nessuna risposta." }]);
+        // Nemmeno l'estrazione del blocco JSON è riuscita: se il testo residuo sembra comunque
+        // JSON grezzo (inizia con { e finisce con }), non mostrarlo mai in chat così com'è.
+        const sembraJson = /^\{[\s\S]*\}$/.test(testo.trim());
+        setAiMsgs((p) => [...p, { role: "assistant", content: sembraJson ? "Non sono riuscito a interpretare la risposta, riprova." : (testo || "Nessuna risposta.") }]);
       }
     } catch (e) {
       if (e?.name === "AbortError") {
