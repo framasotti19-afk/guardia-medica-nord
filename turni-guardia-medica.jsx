@@ -2189,7 +2189,15 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => setMeseIdx((i) => Math.max(0, i - 1))} disabled={meseIdx === 0} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>‹</button>
-          <div style={{ fontSize: 15, fontWeight: 700, minWidth: 140, textAlign: "center" }}>{MESI_IT[mese]} {anno}</div>
+          {/* Selettore diretto mese/anno: salta a qualunque mese disponibile (Agosto 2026 – Dicembre
+              2036) senza dover cliccare le frecce decine di volte. Le frecce restano per il caso
+              d'uso "mese successivo/precedente" più comune. */}
+          <select value={meseIdx} onChange={(e) => setMeseIdx(Number(e.target.value))}
+            style={{ fontSize: 15, fontWeight: 700, minWidth: 150, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 6px", cursor: "pointer" }}>
+            {MESI_DISPONIBILI.map((m, i) => (
+              <option key={i} value={i} style={{ color: "#22252a", background: "#fff" }}>{MESI_IT[m.mese]} {m.anno}</option>
+            ))}
+          </select>
           <button onClick={() => setMeseIdx((i) => Math.min(MESI_DISPONIBILI.length - 1, i + 1))} disabled={meseIdx === MESI_DISPONIBILI.length - 1} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>›</button>
           <button onClick={() => setAiOpen((o) => !o)} style={{ ...btn, background: aiOpen ? "#fff" : "rgba(255,255,255,.15)", color: aiOpen ? "#12312a" : "#fff", border: "none", fontWeight: 700 }}>Assistente AI</button>
         </div>
