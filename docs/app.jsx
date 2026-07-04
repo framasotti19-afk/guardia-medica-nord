@@ -1,12 +1,3 @@
-// Adattamento per GitHub Pages: nessun bundler disponibile, React è caricato
-// come script globale da index.html (vedi docs/index.html) e Babel standalone
-// (solo preset "react", niente TypeScript) trasforma questo file nel browser.
-// Copia di turni-guardia-medica.jsx con 3 modifiche minime, non comportamentali:
-// 1) questa riga sostituisce l'import ES module con la destrutturazione dal
-//    global React; 2) "export default" rimosso dalla dichiarazione di App();
-// 3) rimosso un cast TypeScript "as any" (no-op a runtime) che Babel standalone
-//    senza preset TS non riesce a parsare; 4) in fondo al file una riga di
-//    render esplicito al posto dell'export. Nessun'altra riga è stata toccata.
 const { useState, useMemo, useRef, useEffect } = React;
 
 // ============ DATI SIMULAZIONE ============
@@ -190,12 +181,18 @@ const capSettimanale = (dispo, mid, wk) => {
   return typeof n === "number" && n >= 0 ? n : null;
 };
 
-// Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
-// passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
-// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
-// settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
-// turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+// Preferenza di TURNO (diurno/notturno) per un giorno che ha entrambi (weekend/festivo/
+// prefestivo): decide SOLO quale dei due il medico mantiene se li vince entrambi lo stesso
+// giorno, non cambia mai CHI vince un conflitto né anticipa l'elaborazione (CONTEXT.md §3.9).
+// Dichiarata come dispo[mid]["TURNOPREF:" + dataStr] = "G" | "N", una chiave ortogonale ai
+// normali slotKey "YYYY-MM-DD|ID" (mai un turno vero e proprio, come "SETT:").
+const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr] || null;
+
+// Calcola l'elenco dei medici candidati per uno slot, già ordinato secondo la gerarchia
+// ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico ed esauriti in
+// coda). Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
+// alternativo con lo stesso identico criterio usato da elaboraTurno.
+function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -209,7 +206,18 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
   const senza = candidati.filter((m) => debiti[m.id] === null).sort((a, b) => a.grad - b.grad);
   const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0).sort((a, b) => a.grad - b.grad);
-  const ordinati = [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
+  return [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
+}
+
+// Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
+// passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
+// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
+// settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
+// turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
+function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+  const dataStr = slotKey.split("|")[0];
+  const wk = settimanaDi(dataStr);
+  const ordinati = candidatiOrdinati(dispo, debiti, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
 
   let slots = [null, null, null, null, null];
   let fisiche = [];
@@ -329,7 +337,17 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
       // Valore assoluto: a causa del riordino conPref/resto, "ultimo" può riferirsi a una data
       // cronologicamente SUCCESSIVA a dataStr (processata prima perché aveva un preferito) — la
       // distanza reale di calendario non ha segno.
-      if (ultimo === undefined || Math.abs(giorniTra(ultimo, dataStr)) > 1) return; // spaziatura già sufficiente
+      const distanza = ultimo === undefined ? null : Math.abs(giorniTra(ultimo, dataStr));
+      if (distanza === null || distanza > 1) return; // spaziatura già sufficiente
+      // Distanza 0 = stesso giorno: è esattamente il caso di un giorno con G e N (weekend/festivo/
+      // prefestivo) in cui il medico ha dichiarato una preferenza di turno esplicita (§3.9). Se ha
+      // dichiarato di voler mantenere PROPRIO questo turno, la spaziatura non lo tocca — la
+      // preferenza esplicita prevale sull'euristica generica di rotazione (che altrimenti
+      // scambierebbe sempre il turno elaborato per SECONDO, indipendentemente da quale dei due il
+      // medico preferisca davvero — è esattamente il comportamento che la preferenza di turno
+      // serve a correggere). La distanza 1 (giorno prima, turno diverso) resta invece sempre
+      // gestita dalla spaziatura ordinaria, indipendentemente da qualunque preferenza di turno.
+      if (distanza === 0 && turnoPrefDi(dispo, mid, dataStr) === turno.id) return;
       const sede = SEDI5[si];
       const alternativa = ordinati.find((o) => o.id !== mid && sedeDi[o.id] === undefined && normDispo(dispo[o.id]?.[slotKey]).verde.includes(sede));
       if (alternativa) { delete sedeDi[mid]; sedeDi[alternativa.id] = si; }
@@ -429,6 +447,43 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
+
+  // PREFERENZA TURNO stesso giorno (G/N) (CONTEXT.md §3.9): se un medico vince FISICAMENTE sia
+  // il diurno che il notturno dello stesso giorno (possibile solo weekend/festivi/prefestivi, gli
+  // unici con entrambi i turni) e ha dichiarato una preferenza esplicita di turno per quel
+  // giorno, il turno NON preferito viene liberato a favore di un alternativo che abbia
+  // dichiarato quella sede come verde — sempre che un'alternativa esista: la copertura vince
+  // sempre, esattamente come per la spaziatura temporale (§3.7). Non cambia mai CHI vince un
+  // conflitto, solo quale dei due turni il vincitore mantiene. Eseguita dopo che tutti i turni
+  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno
+  // indipendentemente dall'ordine conPref/resto in cui sono stati processati.
+  for (let d = 1; d <= nGiorni; d++) {
+    const dataStr = dk(anno, mese, d);
+    const outG = risultati[`${d}|G`];
+    const outN = risultati[`${d}|N`];
+    if (!outG || !outN) continue; // giorno feriale semplice: niente diurno, nessun doppio turno possibile
+    const doppiFisici = outG.fis.map((si) => outG.slots[si]).filter((mid) => mid !== null && outN.fis.some((si2) => outN.slots[si2] === mid));
+    doppiFisici.forEach((mid) => {
+      const pref = turnoPrefDi(dispo, mid, dataStr);
+      if (!pref) return;
+      const target = pref === "G" ? outN : outG;
+      const targetId = pref === "G" ? "N" : "G";
+      const targetSlotKey = `${dataStr}|${targetId}`;
+      const si = target.fis.find((i) => target.slots[i] === mid);
+      if (si === undefined) return; // già liberato da un giro precedente in questo stesso ciclo
+      const sede = SEDI5[si];
+      const alternativa = candidatiOrdinati(dispo, debiti, settimanaCount, targetSlotKey)
+        .find((o) => o.id !== mid && !target.slots.includes(o.id) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
+      if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
+      target.slots[si] = alternativa.id;
+      if (debiti[mid] !== null) debiti[mid] += target.ore;
+      if (debiti[alternativa.id] !== null) debiti[alternativa.id] -= target.ore;
+      const wk = settimanaDi(dataStr);
+      if (settimanaCount[mid]) settimanaCount[mid][wk] = Math.max(0, (settimanaCount[mid][wk] || 0) - 1);
+      settimanaCount[alternativa.id] = settimanaCount[alternativa.id] || {};
+      settimanaCount[alternativa.id][wk] = (settimanaCount[alternativa.id][wk] || 0) + 1;
+    });
+  }
 
   // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con la SEDE specifica che il
   // medico ha marcato con ★ (CONTEXT.md §3.5). Soddisfatto se e solo se ottiene fisicamente
@@ -632,6 +687,15 @@ function App() {
     const next = { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito === sede ? null : sede };
     const nd = { ...(dati.dispo[mid] || {}) };
     nd[slotKey] = next;
+    setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
+  };
+  // Preferenza di TURNO (diurno ☀️ / notturno 🌙) per un giorno con entrambi i turni: decide solo
+  // quale dei due il medico mantiene se li vince entrambi lo stesso giorno (§3.9). Un click
+  // ripetuto sulla stessa icona la toglie.
+  const setTurnoPref = (mid, dataStr, valore) => {
+    const nd = { ...(dati.dispo[mid] || {}) };
+    const key = "TURNOPREF:" + dataStr;
+    if (nd[key] === valore) delete nd[key]; else nd[key] = valore;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   const toggleExtra = (dateKey, tipo) => {
@@ -1103,7 +1167,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         medici: MEDICI.map((m) => ({ nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0 })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
-        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
+        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
         tettiSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETT:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETT:")).map(([sk, v]) => `settimana del ${sk.slice(5)}: max ${v.maxTurni} turni`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
@@ -1396,7 +1460,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: "#5b5f59", margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:"#a03030"}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:"#1a5c4a"}}>Verde 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:"#1a56c4"}}>Blu 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:"#a03030"}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:"#1a5c4a"}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:"#1a56c4"}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -1554,10 +1618,29 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
               </div>
               {editCella && (() => {
                 const sedi = normDispo(dati.dispo[editCella.mid]?.[editCella.slotKey]);
+                const dataStrCella = editCella.slotKey.split("|")[0];
+                const hasEntrambiTurni = !!giorniMese[editCella.giorno - 1]?.turni.some((t) => t.id === "G");
+                const turnoPref = turnoPrefDi(dati.dispo, editCella.mid, dataStrCella);
                 return (
                   <div style={{ position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", background: "#fff", border: "1px solid #c8ccc6", borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,.25)", padding: 14, zIndex: 50, minWidth: 290, maxWidth: "92vw" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>{byId[editCella.mid].nome}</div>
                     <div style={{ fontSize: 11, color: "#6b7068", marginBottom: 8 }}>Giorno {editCella.giorno} · {editCella.turno}</div>
+
+                    {hasEntrambiTurni && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, color: "#8a8f88" }}>Se vince sia diurno che notturno, preferisce:</span>
+                        <span onClick={() => setTurnoPref(editCella.mid, dataStrCella, "G")}
+                          title={turnoPref === "G" ? "Preferisce il diurno: tocca per togliere" : "Preferisce il diurno se vince entrambi i turni"}
+                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "G" ? "#fdf0d5" : "#f0f2ee", border: turnoPref === "G" ? "1px solid #cf9a1a" : "1px solid transparent" }}>
+                          ☀️
+                        </span>
+                        <span onClick={() => setTurnoPref(editCella.mid, dataStrCella, "N")}
+                          title={turnoPref === "N" ? "Preferisce il notturno: tocca per togliere" : "Preferisce il notturno se vince entrambi i turni"}
+                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "N" ? "#e3ebfa" : "#f0f2ee", border: turnoPref === "N" ? "1px solid #3a6fd9" : "1px solid transparent" }}>
+                          🌙
+                        </span>
+                      </div>
+                    )}
 
                     <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
                       <span onClick={() => setNoCella(editCella.mid, editCella.slotKey, false)}
@@ -1576,7 +1659,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Verde 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Blu 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede verde per marcarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
+                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Sede principale 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Copertura a distanza 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
@@ -1589,8 +1672,8 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                                     background: valore.startsWith("V") ? "#e3f2ec" : valore.startsWith("B") ? "#e3ebfa" : "#fff",
                                     color: valore.startsWith("V") ? "#1a5c4a" : valore.startsWith("B") ? "#1a3d8f" : "#5b5f59" }}>
                                   <option value="">Non disponibile</option>
-                                  {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Verde {l}</option>)}
-                                  {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Blu {l}</option>)}
+                                  {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Sede principale {l}</option>)}
+                                  {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Copertura a distanza {l}</option>)}
                                 </select>
                                 {isVerde && (
                                   <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}

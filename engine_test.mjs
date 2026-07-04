@@ -180,12 +180,18 @@ const capSettimanale = (dispo, mid, wk) => {
   return typeof n === "number" && n >= 0 ? n : null;
 };
 
-// Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
-// passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
-// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
-// settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
-// turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+// Preferenza di TURNO (diurno/notturno) per un giorno che ha entrambi (weekend/festivo/
+// prefestivo): decide SOLO quale dei due il medico mantiene se li vince entrambi lo stesso
+// giorno, non cambia mai CHI vince un conflitto né anticipa l'elaborazione (CONTEXT.md §3.9).
+// Dichiarata come dispo[mid]["TURNOPREF:" + dataStr] = "G" | "N", una chiave ortogonale ai
+// normali slotKey "YYYY-MM-DD|ID" (mai un turno vero e proprio, come "SETT:").
+const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr] || null;
+
+// Calcola l'elenco dei medici candidati per uno slot, già ordinato secondo la gerarchia
+// ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico ed esauriti in
+// coda). Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
+// alternativo con lo stesso identico criterio usato da elaboraTurno.
+function candidatiOrdinati(dispo, debiti, settimanaCount, slotKey) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -199,7 +205,18 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
   const senza = candidati.filter((m) => debiti[m.id] === null).sort((a, b) => a.grad - b.grad);
   const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0).sort((a, b) => a.grad - b.grad);
-  const ordinati = [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
+  return [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
+}
+
+// Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
+// passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
+// in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
+// settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
+// turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
+function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFisico) {
+  const dataStr = slotKey.split("|")[0];
+  const wk = settimanaDi(dataStr);
+  const ordinati = candidatiOrdinati(dispo, debiti, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
 
   let slots = [null, null, null, null, null];
   let fisiche = [];
@@ -319,7 +336,17 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
       // Valore assoluto: a causa del riordino conPref/resto, "ultimo" può riferirsi a una data
       // cronologicamente SUCCESSIVA a dataStr (processata prima perché aveva un preferito) — la
       // distanza reale di calendario non ha segno.
-      if (ultimo === undefined || Math.abs(giorniTra(ultimo, dataStr)) > 1) return; // spaziatura già sufficiente
+      const distanza = ultimo === undefined ? null : Math.abs(giorniTra(ultimo, dataStr));
+      if (distanza === null || distanza > 1) return; // spaziatura già sufficiente
+      // Distanza 0 = stesso giorno: è esattamente il caso di un giorno con G e N (weekend/festivo/
+      // prefestivo) in cui il medico ha dichiarato una preferenza di turno esplicita (§3.9). Se ha
+      // dichiarato di voler mantenere PROPRIO questo turno, la spaziatura non lo tocca — la
+      // preferenza esplicita prevale sull'euristica generica di rotazione (che altrimenti
+      // scambierebbe sempre il turno elaborato per SECONDO, indipendentemente da quale dei due il
+      // medico preferisca davvero — è esattamente il comportamento che la preferenza di turno
+      // serve a correggere). La distanza 1 (giorno prima, turno diverso) resta invece sempre
+      // gestita dalla spaziatura ordinaria, indipendentemente da qualunque preferenza di turno.
+      if (distanza === 0 && turnoPrefDi(dispo, mid, dataStr) === turno.id) return;
       const sede = SEDI5[si];
       const alternativa = ordinati.find((o) => o.id !== mid && sedeDi[o.id] === undefined && normDispo(dispo[o.id]?.[slotKey]).verde.includes(sede));
       if (alternativa) { delete sedeDi[mid]; sedeDi[alternativa.id] = si; }
@@ -419,6 +446,43 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
+
+  // PREFERENZA TURNO stesso giorno (G/N) (CONTEXT.md §3.9): se un medico vince FISICAMENTE sia
+  // il diurno che il notturno dello stesso giorno (possibile solo weekend/festivi/prefestivi, gli
+  // unici con entrambi i turni) e ha dichiarato una preferenza esplicita di turno per quel
+  // giorno, il turno NON preferito viene liberato a favore di un alternativo che abbia
+  // dichiarato quella sede come verde — sempre che un'alternativa esista: la copertura vince
+  // sempre, esattamente come per la spaziatura temporale (§3.7). Non cambia mai CHI vince un
+  // conflitto, solo quale dei due turni il vincitore mantiene. Eseguita dopo che tutti i turni
+  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno
+  // indipendentemente dall'ordine conPref/resto in cui sono stati processati.
+  for (let d = 1; d <= nGiorni; d++) {
+    const dataStr = dk(anno, mese, d);
+    const outG = risultati[`${d}|G`];
+    const outN = risultati[`${d}|N`];
+    if (!outG || !outN) continue; // giorno feriale semplice: niente diurno, nessun doppio turno possibile
+    const doppiFisici = outG.fis.map((si) => outG.slots[si]).filter((mid) => mid !== null && outN.fis.some((si2) => outN.slots[si2] === mid));
+    doppiFisici.forEach((mid) => {
+      const pref = turnoPrefDi(dispo, mid, dataStr);
+      if (!pref) return;
+      const target = pref === "G" ? outN : outG;
+      const targetId = pref === "G" ? "N" : "G";
+      const targetSlotKey = `${dataStr}|${targetId}`;
+      const si = target.fis.find((i) => target.slots[i] === mid);
+      if (si === undefined) return; // già liberato da un giro precedente in questo stesso ciclo
+      const sede = SEDI5[si];
+      const alternativa = candidatiOrdinati(dispo, debiti, settimanaCount, targetSlotKey)
+        .find((o) => o.id !== mid && !target.slots.includes(o.id) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
+      if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
+      target.slots[si] = alternativa.id;
+      if (debiti[mid] !== null) debiti[mid] += target.ore;
+      if (debiti[alternativa.id] !== null) debiti[alternativa.id] -= target.ore;
+      const wk = settimanaDi(dataStr);
+      if (settimanaCount[mid]) settimanaCount[mid][wk] = Math.max(0, (settimanaCount[mid][wk] || 0) - 1);
+      settimanaCount[alternativa.id] = settimanaCount[alternativa.id] || {};
+      settimanaCount[alternativa.id][wk] = (settimanaCount[alternativa.id][wk] || 0) + 1;
+    });
+  }
 
   // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con la SEDE specifica che il
   // medico ha marcato con ★ (CONTEXT.md §3.5). Soddisfatto se e solo se ottiene fisicamente

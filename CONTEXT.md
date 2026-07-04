@@ -24,17 +24,18 @@ L'app:
 
 ---
 
-## 2. STRUTTURA DEL FILE (~1794 righe)
+## 2. STRUTTURA DEL FILE (~1892 righe)
 
 ```
 righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CAT_INFO, SEDI5, CDC, calendari)
-righe 114-188   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
-righe 189-390   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
-righe 391-474   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto)
-righe 475-491   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
-righe 492-831   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
-righe 832-1082  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
-righe 1083-1794 → COMPONENTE REACT (UI, AI, render)
+righe 114-182   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
+righe 184-215   → MOTORE: turnoPrefDi, candidatiOrdinati (preferenza turno §3.9 + estrazione candidati condivisa)
+righe 217-416   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + spaziatura + tetto settimanale)
+righe 418-538   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto, poi preferenza turno §3.9)
+righe 539-555   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
+righe 557-904   → COMPONENTE REACT (parte iniziale: state, event handlers disponibilità/medici/rapido)
+righe 905-1155  → EXPORT XLSX (costruito a mano come ZIP/OOXML)
+righe 1156-1892 → COMPONENTE REACT (UI, AI, render)
 ```
 
 **La sezione motore è pura JavaScript** (niente React hooks) — può essere estratta e testata con Node.js:
@@ -199,6 +200,15 @@ Il medico può dichiarare, per una specifica settimana (lunedì-domenica), un nu
 - Il tetto si applica anche ai turni **extra** (MMG mattina/pomeriggio): contano come "un turno" ai fini del conteggio.
 - Impostabile dall'interfaccia nel pannello "Inserimento rapido per intervallo" (campo opzionale "Tetto turni/settimana", applicato a tutte le settimane coperte dal periodo scelto) o via assistente AI (azione `tetto_settimana`).
 
+### 3.9 Preferenza di turno (diurno ☀️ / notturno 🌙), solo giorni con entrambi i turni
+
+Il medico può dichiarare, per un giorno che ha SIA il diurno (G) SIA il notturno (N) — cioè weekend, festivi e prefestivi, gli unici con entrambi — quale dei due preferisce mantenere se li vince ENTRAMBI fisicamente lo stesso giorno: `dispo[mid]["TURNOPREF:" + dataStr] = "G" | "N"` — una chiave ortogonale ai normali slotKey `"YYYY-MM-DD|ID"` (come `"SETT:"`, va sempre esclusa da qualunque iterazione sui turni di un medico, incluso lo stato serializzato per l'assistente AI).
+
+- **Decide SOLO quale dei due turni il medico mantiene se li vince entrambi** — non cambia mai CHI vince un conflitto, non anticipa l'elaborazione, e non decide quale sede riceve. Se il medico vince solo uno dei due turni, la preferenza è un no-op.
+- **Non lascia MAI una sede scoperta per questo motivo**: se non esiste un'alternativa valida per il turno NON preferito (nessun altro medico ha dichiarato verde la stessa sede su quel turno), il medico resta assegnato a entrambi — la copertura vince sempre, esattamente come per la spaziatura temporale (§3.7).
+- **Perché serve, non basta la spaziatura temporale**: nella spaziatura ordinaria, tra i due turni dello stesso giorno viene sempre considerato "a rischio" quello elaborato per SECONDO — normalmente il notturno, dato che il diurno è sempre elaborato prima (§5). Ma un ★ preferito marcato sul notturno lo sposta nella fase conPref, facendolo elaborare PRIMA del diurno (§3.4) — invertendo quale dei due la spaziatura considera "a rischio": senza una preferenza di turno esplicita, il medico finirebbe per mantenere il notturno e perdere il diurno che invece preferiva (il caso reale che ha motivato la funzionalità). La preferenza di turno **prevale sempre** su questo effetto collaterale dell'ordine conPref/resto: se il medico ha dichiarato di voler mantenere PROPRIO il turno che la spaziatura vorrebbe cedere, la spaziatura non lo tocca; il turno non preferito (se ancora assegnato a lui dopo tutta l'elaborazione del mese) viene liberato a favore della stessa identica gerarchia usata per la spaziatura (categoria → debito → graduatoria, tramite `candidatiOrdinati`, condivisa con `elaboraTurno`).
+- Impostabile solo dal popup di disponibilità (icone ☀️/🌙 accanto al toggle Disponibile/Non disponibile, visibili solo nei giorni con entrambi i turni); non gestibile via assistente AI.
+
 ---
 
 ## 4. GRADUATORIA SIMULATA (dati di test — da sostituire con la reale)
@@ -244,7 +254,10 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, settimanaCount, ultimoFi
   //      processare fuori ordine cronologico) ED esiste un'alternativa che ha dichiarato verde
   //      la STESSA sede e non ha ancora ottenuto nulla, la sede passa all'alternativa (decisa
   //      sempre dalla gerarchia normale tra gli alternativi). Mai una sede scoperta per questo:
-  //      senza alternativa valida, il medico recente resta.
+  //      senza alternativa valida, il medico recente resta. ECCEZIONE (§3.9): se la distanza è
+  //      esattamente 0 (stesso giorno: caso G/N) e il medico ha dichiarato una preferenza di
+  //      turno che combacia con questo turno, la spaziatura non lo tocca — la preferenza esplicita
+  //      prevale sull'euristica generica.
   //    - Rebuild slots da sedeDi (elimina "fantasmi" da ricollocazioni intermedie)
   //    - Scala i debiti dei fisici, incrementa settimanaCount, aggiorna ultimoFisico
   // 4. FASE 2 — copertura a distanza (blu):
@@ -280,6 +293,12 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
   //   conPref = turni dove almeno un medico ha marcato con ★ una sua sede verde (preferito != null)
   //   Questo ordine cambia i debiti progressivi — il checker di gerarchia DEVE rispettarlo
   // Chiama elaboraTurno per ogni turno nell'ordine sopra
+  // PREFERENZA TURNO (§3.9): dopo che TUTTO il mese è elaborato, per ogni giorno con G e N,
+  // per ogni medico che vince fisicamente ENTRAMBI e ha dichiarato una preferenza, libera il
+  // turno non preferito a favore della stessa gerarchia (candidatiOrdinati) — se un'alternativa
+  // esiste. Eseguita in un passaggio a parte, dopo l'intero ciclo conPref+resto, perché deve
+  // conoscere l'esito di entrambi i turni dello stesso giorno indipendentemente da quale dei
+  // due è stato elaborato per primo.
   // Raccoglie avvisi: copertura scoperta (per sede) + preferiti non rispettati
 }
 ```
@@ -291,7 +310,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 1. **Disponibilità dicotomiche** (verde disponibile / rosso non disponibile) — visivamente 2 stati, internamente 3 (no esplicito, non specificato, disponibile)
 2. **NO esplicito** — protegge l'indisponibilità dall'inserimento rapido massivo
 3. **Inserimento rapido per intervallo** — compila blocchi di disponibilità (verde e/o blu) con periodi di eccezione
-4. **Menu a tendina per sede** — sostituisce il vecchio ciclo a tocchi: per ogni sede, un `<select>` con Non disponibile / Verde 1-5 / Blu 1-4
+4. **Menu a tendina per sede** — sostituisce il vecchio ciclo a tocchi: per ogni sede, un `<select>` con Non disponibile / Sede principale 1-5 / Copertura a distanza 1-4 (etichette solo UI: `verde`/`blu` restano i nomi interni nel motore — vedi §3)
 5. **Sistema verde/blu** — verde = sede fisica (unificata, niente più piena/ripiego a due livelli), blu = disponibilità a coprire a distanza (nessuna copertura automatica, un medico copre al massimo 1 sede a distanza)
 6. **Titolarità di sede per i determinati** — campo `sedeContratto` (Maniago/Spilimbergo/nessuna), decide i conflitti fisici tra determinati (DET36/DET24/DET12ASAP/DET12) prima della categoria
 7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
@@ -306,6 +325,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras) {
 16. **Storage persistente** — `window.storage` (API Claude.ai), chiave `gm-turni-store-v3`
 17. **Pubblicazione GitHub Pages** — copia in `docs/` con React/Babel vendorizzati localmente (vedi §14)
 18. **Categorie DET12ASAP e DET12** — determinati 12h/sett, 52h mensili; DET12ASAP a pari priorità con DET24 (spareggio diretto per titolarità → debito → graduatoria), DET12 sotto entrambi, sopra solo ai senza incarico (§3.1)
+19. **Preferenza di turno stesso giorno (☀️/🌙)** — solo nei giorni con diurno e notturno: decide quale dei due il medico mantiene se li vince entrambi, prevalendo sull'effetto collaterale dell'ordine conPref/resto sulla spaziatura temporale; impostabile solo dal popup di disponibilità, non gestibile via AI (§3.9)
 
 ---
 
@@ -341,6 +361,7 @@ node test_stesso_cat2.mjs      # 8 test conflitti stessa categoria
 node test_nuove_funzioni.mjs   # 16 test livelli verde, titolarità e medici modificabili
 node test_spaziatura_settimana.mjs  # 13 test spaziatura temporale (§3.7) e tetto settimanale (§3.8)
 node test_categorie_12h.mjs    # 11 test DET12ASAP e DET12 (§3.1)
+node test_preferenza_turno.mjs # 13 test preferenza di turno stesso giorno G/N (§3.9)
 node test_simulazione_completa.mjs  # ~41600 check su scenari randomici (10 semi × 17 mesi, con titolarità)
 node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
 ```
@@ -360,10 +381,11 @@ npx tsc --jsx preserve --noEmit --allowJs check.tsx 2>&1 | grep -E "error TS(1[0
 # output vuoto = ok
 
 # 2. Verifica nessuna funzione duplicata
-for fn in setSedeOpzione setNoCella setPreferitoSede toggleExtra elabora azzeraMese \
+for fn in setSedeOpzione setNoCella setPreferitoSede setTurnoPref toggleExtra elabora azzeraMese \
   setMedici aggiornaMedico aggiungiMedico rimuoviMedico setSlot applicaRapido \
   applicaProposta chiediAI nomeToId elaboraSchema elaboraTurno normDispo \
-  ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale; do
+  ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale \
+  turnoPrefDi candidatiOrdinati; do
   n=$(grep -c "const $fn = \|function $fn(" turni-guardia-medica.jsx)
   [ "$n" != "1" ] && echo "DUPLICATA: $fn"
 done
@@ -373,7 +395,7 @@ python3 -c "..."  # vedi sopra
 node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
   node test_livelli_verde_blu.mjs && node test_stesso_cat2.mjs && \
   node test_nuove_funzioni.mjs && node test_spaziatura_settimana.mjs && \
-  node test_categorie_12h.mjs && \
+  node test_categorie_12h.mjs && node test_preferenza_turno.mjs && \
   node test_simulazione_completa.mjs && node test_simulazione_email.mjs
 
 # 4. Se si tocca turni-guardia-medica.jsx, rigenera anche docs/app.jsx (copia GitHub Pages) —
@@ -426,7 +448,7 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 // ... test case ...
 ```
 
-**Per modificare il motore:** lavora SOLO sulle funzioni tra riga 109 e 418 (vedi §2). La UI non dovrebbe mai contenere logica di assegnazione.
+**Per modificare il motore:** lavora SOLO sulle funzioni tra riga 114 e 555 (vedi §2). La UI non dovrebbe mai contenere logica di assegnazione.
 
 ---
 
@@ -436,6 +458,7 @@ const disp = (v=[], b=[]) => ({ verde:v, verdeLiv:{}, blu:b, bluLiv:{}, no:false
 - Modello `claude-sonnet-4-6`, `max_tokens: 16000`.
 - Sezione `STILE DI RISPOSTA E LIMITI` nel prompt: massimo 3-4 azioni per risposta, output entro 2000 token. Se l'utente chiede più modifiche di quante ne stiano in un round, l'AI ne esegue solo le prime 3-4 e indica nella "spiegazione" quante azioni restano — l'utente prosegue con round successivi finché non ne restano.
 - Errori HTTP dalla chiamata a `api.anthropic.com` (`!resp.ok`): mostrato in chat il messaggio completo restituito da Anthropic (`error.type` + `error.message`, più `request_id` se presente), non più un messaggio generico fisso.
+- Le chiavi ortogonali `"SETT:"` e `"TURNOPREF:"` (§3.8, §3.9) sono escluse dallo stato `disponibilita` serializzato per l'AI — non è a conoscenza della preferenza di turno né può impostarla (nessuna azione JSON dedicata, solo impostabile dal popup).
 
 **Progetto Claude separato** — esiste un prompt di sistema separato (fuori da questa app) per processare email di disponibilità e produrre un file Excel. Non è nel file `.jsx`.
 
