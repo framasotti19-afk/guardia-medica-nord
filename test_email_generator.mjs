@@ -57,16 +57,24 @@ function statoBase() {
 }
 
 const casi = [];
+// L'AI non riceve MAI un campo "mittente" separato: nell'app reale il coordinatore incolla
+// un'email che identifica il medico da sé (tipicamente con una firma in fondo, come nel caso
+// "solo la firma senza contenuto" già gestito dal prompt). Ogni email generata deve quindi
+// firmarsi esplicitamente, altrimenti l'AI chiede correttamente "di quale medico si tratta?"
+// invece di produrre l'azione attesa — bug di corpus scoperto durante la prima run reale.
+function firma(email, medico) {
+  return `${email}\n\nSaluti,\n${medico.nome}`;
+}
 function aggiungi(categoria, medico, giorni, email, atteso, statoOverride = statoBase(), note = "") {
   casi.push({
     id: nextId(categoria), categoria, medico: medico.nome, medicoId: medico.id, cat: medico.cat,
     giorni: Array.isArray(giorni) ? giorni : [giorni], mese: MESE_LABEL, anno: ANNO, meseIdx: MESE,
-    statoOverride, email, atteso, note,
+    statoOverride, email: firma(email, medico), atteso, note,
   });
 }
 
 // ============ 1. SEDI FISICHE — dichiarazione diretta di 1 o 2 sedi ============
-times(40, (i) => {
+times(86, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const sedi = i % 3 === 0 ? [pick(SEDI5.slice(0, 2))] : [...new Set([pick(SEDI5.slice(0, 2)), pick(SEDI5.slice(0, 2))])];
@@ -80,7 +88,7 @@ times(40, (i) => {
 });
 
 // ============ 2. SEDI FISICHE INDIFFERENTE (livelli pari) ============
-times(25, (i) => {
+times(54, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const varianti = [
@@ -94,7 +102,7 @@ times(25, (i) => {
 });
 
 // ============ 3. SEDI FISICHE CON PREFERENZA (★) ============
-times(25, (i) => {
+times(54, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const [preferita, ripiego] = i % 2 === 0 ? ["Maniago", "Spilimbergo"] : ["Spilimbergo", "Maniago"];
@@ -106,7 +114,7 @@ times(25, (i) => {
 });
 
 // ============ 4. COPERTURA A DISTANZA (blu) ============
-times(30, () => {
+times(65, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const sedeVerde = pick(["Maniago", "Spilimbergo"]);
@@ -119,7 +127,7 @@ times(30, () => {
 });
 
 // ============ 5. INDISPONIBILITÀ ESPLICITA ============
-times(30, () => {
+times(65, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const varianti = [
@@ -134,7 +142,7 @@ times(30, () => {
 });
 
 // ============ 6. FERIE / PERIODO ESTESO ============
-times(20, () => {
+times(43, () => {
   const da = pick(GIORNI_FERIALI.slice(0, 12));
   const a = Math.min(31, da + randInt(2, 5));
   const m = pick(MEDICI_DEFAULT);
@@ -148,7 +156,7 @@ times(20, () => {
 });
 
 // ============ 7. RECUPERO ORE — DIRETTO IN ORE ============
-times(30, () => {
+times(65, () => {
   const ore = pick([6, 12, 18, 24, 30, 36, 42, 48, 54, 60]);
   const m = pick(contrattualizzati);
   const varianti = [
@@ -164,7 +172,7 @@ times(30, () => {
 });
 
 // ============ 8. RECUPERO ORE — ESPRESSO IN TURNI (conversione ×12) ============
-times(20, () => {
+times(43, () => {
   const turni = randInt(1, 6);
   const m = pick(contrattualizzati);
   const varianti = [
@@ -179,7 +187,7 @@ times(20, () => {
 });
 
 // ============ 9. TURNI EXTRA — DICHIARAZIONE DIRETTA CON NUMERO ============
-times(30, () => {
+times(65, () => {
   const n = randInt(1, 6);
   const m = pick(contrattualizzati);
   const varianti = [
@@ -196,7 +204,7 @@ times(30, () => {
 });
 
 // ============ 10. TURNI EXTRA — CONDIZIONALE CON NUMERO ============
-times(20, () => {
+times(43, () => {
   const n = randInt(1, 5);
   const m = pick(contrattualizzati);
   const varianti = [
@@ -212,7 +220,7 @@ times(20, () => {
 });
 
 // ============ 11. TURNI EXTRA — GENERICO SENZA NUMERO (avviso, nessuna azione) ============
-times(16, () => {
+times(34, () => {
   const m = pick(contrattualizzati);
   const varianti = ["Sono disponibile per turni extra.", "Faccio anche qualche turno in più.", "Mi rendo disponibile per guardie extra.", "Sono disposto a fare turni aggiuntivi.", "Sono flessibile sul numero di turni.", "Posso aggiungere qualche turno."];
   aggiungi("turni_extra_generico", m, [], pick(varianti), {
@@ -222,7 +230,7 @@ times(16, () => {
 });
 
 // ============ 12. TURNI EXTRA — RIFIUTO ESPLICITO (turni:0) ============
-times(15, () => {
+times(32, () => {
   const m = pick(contrattualizzati);
   const varianti = ["Non sono disponibile per turni extra questo mese.", "Faccio solo il mio monte ore, niente turni aggiuntivi.", "Mi limito al monte ore contrattuale.", "Questo mese solo il monte ore obbligatorio."];
   aggiungi("turni_extra_rifiuto", m, [], pick(varianti), {
@@ -232,7 +240,7 @@ times(15, () => {
 });
 
 // ============ 13. MMG/PLS — TURNO ATTIVO (mattina/pomeriggio) ============
-times(30, (i) => {
+times(65, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const fascia = i % 2 === 0 ? "M" : "P";
@@ -245,7 +253,7 @@ times(30, (i) => {
 });
 
 // ============ 14. MMG/PLS — TURNO NON ATTIVO (domanda Sì/No obbligatoria) ============
-times(30, (i) => {
+times(65, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const fascia = i % 2 === 0 ? "M" : "P";
@@ -259,7 +267,7 @@ times(30, (i) => {
 });
 
 // ============ 15. WEEKEND AMBIGUO (nessuna precisazione diurno/notturno → domanda) ============
-times(25, () => {
+times(54, () => {
   const giorno = pick(GIORNI_WEEKEND);
   const m = pick(MEDICI_DEFAULT);
   const email = `Per il ${giorno} sono disponibile a Maniago.`;
@@ -272,7 +280,7 @@ times(25, () => {
 });
 
 // ============ 16. NOTTI ESPLICITE NEL WEEKEND (parola "notti"/"notturni" → niente domanda) ============
-times(20, () => {
+times(43, () => {
   const giorno = pick(GIORNI_WEEKEND);
   const m = pick(MEDICI_DEFAULT);
   const varianti = [`Per il ${giorno} sono disponibile a Maniago solo per le notti.`, `Il ${giorno} copro Maniago, ma solo il notturno.`];
@@ -284,7 +292,7 @@ times(20, () => {
 });
 
 // ============ 17. CONDIZIONALI AMBIGUE (nessuna azione turni extra, nessun errore) ============
-times(16, () => {
+times(34, () => {
   const m = pick(contrattualizzati);
   const varianti = ["Faccio quello che serve.", "Sono a disposizione.", "Ci sono quando serve.", "Disponibile."];
   aggiungi("condizionali_ambigue", m, [], pick(varianti), {
@@ -293,7 +301,7 @@ times(16, () => {
 });
 
 // ============ 18. CONTRADDIZIONI (stesso giorno/turno: sia disponibile che non disponibile) ============
-times(20, () => {
+times(43, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const email = `Per il ${giorno} sono disponibile a Maniago per la notte, anche se in realtà non sono disponibile quella notte.`;
@@ -304,7 +312,7 @@ times(20, () => {
 });
 
 // ============ 19. SENZA INCARICO — RECUPERO ORE IMPROPRIO ============
-times(20, () => {
+times(43, () => {
   const ore = pick([6, 12, 18, 24, 36]);
   const m = pick(senzaIncarico);
   const email = `Ho ${ore} ore da recuperare dal mese scorso.`;
@@ -315,7 +323,7 @@ times(20, () => {
 });
 
 // ============ 20. SENZA INCARICO — TURNI EXTRA IMPROPRIO ============
-times(20, () => {
+times(43, () => {
   const n = randInt(1, 4);
   const m = pick(senzaIncarico);
   const email = `Sono disponibile per ${n} turni extra oltre il mio monte ore.`;
@@ -326,7 +334,7 @@ times(20, () => {
 });
 
 // ============ 21. SEDE NON IDENTIFICABILE (avviso, nessuna azione) ============
-times(20, () => {
+times(43, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const varianti = [`Il ${giorno} sono disponibile nella sede più vicina a casa mia.`, `Per il ${giorno} vado bene per una sede comoda.`, `Il ${giorno} disponibile per la sede del distretto.`];
@@ -337,7 +345,7 @@ times(20, () => {
 });
 
 // ============ 22. DATE VAGHE (avviso, nessuna azione) ============
-times(15, () => {
+times(32, () => {
   const m = pick(MEDICI_DEFAULT);
   const varianti = ["Sono disponibile verso metà mese.", "Nella seconda parte del mese posso fare qualche notte.", "Diciamo negli ultimi giorni del mese sono libero."];
   aggiungi("date_vaghe", m, [], pick(varianti), {
@@ -347,7 +355,7 @@ times(15, () => {
 });
 
 // ============ 23. TETTO SETTIMANALE ============
-times(20, () => {
+times(43, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);
   const email = `Per la settimana del ${giorno} posso fare al massimo 1 turno.`;
@@ -358,7 +366,7 @@ times(20, () => {
 });
 
 // ============ 24. PREFERENZA TURNO STESSO GIORNO (weekend/festivo) ============
-times(20, () => {
+times(43, () => {
   const giorno = pick(GIORNI_WEEKEND_TUTTI);
   const m = pick(MEDICI_DEFAULT);
   const email = `Per il ${giorno}, se dovessi vincere sia il turno diurno che quello notturno, preferisco tenere la notte.`;

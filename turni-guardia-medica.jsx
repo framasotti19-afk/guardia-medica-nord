@@ -189,8 +189,8 @@ const capSettimanale = (dispo, mid, wk) => {
 const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr] || null;
 
 // Calcola l'elenco dei medici candidati per uno slot, già ordinato secondo la gerarchia
-// ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico ed esauriti in
-// coda). Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
+// ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico in coda).
+// Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
 // alternativo con lo stesso identico criterio usato da elaboraTurno.
 function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) {
   const dataStr = slotKey.split("|")[0];
@@ -200,15 +200,20 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
     if (v.no || !(v.verde.length || v.blu.length)) return false;
     const cap = capSettimanale(dispo, m.id, wk);
     if (cap !== null && (settimanaCount[m.id]?.[wk] || 0) >= cap) return false; // tetto settimanale raggiunto
+    // Blocco rigido oltre il monte ore (CONTEXT.md §3.4): un contrattualizzato che ha esaurito sia
+    // il debito ordinario (monte ore + recupero) sia gli eventuali turni extra volontari non è più
+    // un candidato per NESSUN turno, nemmeno se resterebbe l'unico disponibile — il turno resta
+    // SCOPERTO piuttosto che essere coperto oltre il limite dichiarato.
+    if (debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0) return false;
     return true;
   });
   const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
   // "senza" = veri senza incarico + contrattualizzati che hanno esaurito monte ore+recupero ma hanno
   // ancora turni extra volontari dichiarati: competono insieme, alla pari, solo per graduatoria.
+  // (I contrattualizzati completamente esauriti, senza turni extra residui, sono già esclusi sopra.)
   const senza = candidati.filter((m) => debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)).sort((a, b) => a.grad - b.grad);
-  const esaur = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0).sort((a, b) => a.grad - b.grad);
-  return [...conDeb, ...senza, ...esaur]; // già in ordine di gerarchia ufficiale
+  return [...conDeb, ...senza]; // già in ordine di gerarchia ufficiale
 }
 
 // Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
@@ -245,14 +250,11 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       ultimoFisico[sel.id] = dataStr;
     }
   } else {
-    // Bucket di priorità (conDeb > senza incarico/turni extra > debito esaurito), usato sia per il
-    // confronto fisico che per quello a distanza.
-    const bucketOf = (mid) => {
-      const deb = debiti[mid];
-      if (deb !== null && deb > 0) return 0;
-      if (deb === null) return 1;
-      return (debitiExtra[mid] || 0) > 0 ? 1 : 2;
-    };
+    // Bucket di priorità (conDeb > senza incarico/turni extra), usato sia per il confronto fisico
+    // che per quello a distanza. I contrattualizzati completamente esauriti (senza turni extra
+    // residui) non arrivano mai qui: sono già esclusi da "ordinati" in candidatiOrdinati (blocco
+    // rigido oltre il monte ore, CONTEXT.md §3.4).
+    const bucketOf = (mid) => (debiti[mid] !== null && debiti[mid] > 0) ? 0 : 1;
     const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
     // l'assegnazione fisica che per la copertura a distanza (CONTEXT.md §3.1a):

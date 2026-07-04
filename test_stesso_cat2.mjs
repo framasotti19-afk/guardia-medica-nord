@@ -76,12 +76,27 @@ suite.test("due senza incarico: nessun concetto di debito, decide solo il grad p
   suite.eq(t.slots[0], ZURLO);
 });
 
-suite.test("due esauriti della stessa categoria: decide solo il grad puro (il debito è pari a zero per entrambi)", () => {
+suite.test("due esauriti della stessa categoria, nessuno con turni extra: blocco rigido, il turno resta SCOPERTO (nessuno viene assegnato oltre il monte ore)", () => {
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4
-  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // grad57
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // grad4, esaurito
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // grad57, esaurito
   const t = unicoTurno(d, { [TRIGODKO]: -156, [PRESSACCO]: -156 });
-  suite.eq(t.slots[0], TRIGODKO);
+  suite.eq(t.slots[0], null, "entrambi esauriti e senza turni extra: nessuno dei due è più un candidato, Maniago resta scoperta");
+});
+
+suite.test("blocco rigido oltre il monte ore: un esaurito rimasto l'UNICO disponibile per molte notti non supera mai il proprio limite (il turno resta scoperto)", () => {
+  // Regressione del bug segnalato: prima del blocco rigido, un contrattualizzato esaurito rimasto
+  // l'unico candidato per un intero mese continuava a essere assegnato ben oltre il proprio monte
+  // ore (l'unico modo per evitare turni scoperti). Ora deve fermarsi esattamente al monte ore e
+  // lasciare scoperte le notti successive, anche se nessun altro medico è mai disponibile.
+  const d = dispoBase(MEDICI);
+  const GIORNI = GIORNI_FERIALI_SEMPLICI; // 20 giorni feriali semplici, tutti solo TRIGODKO disponibile
+  GIORNI.forEach((g) => { d[TRIGODKO][N(g)] = turnoDisp(["Maniago"]); }); // DET36, 156h monte ore = 13 notti da 12h
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
+  const vincitori = GIORNI.map((g) => schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N").slots[0]);
+  const notti = vincitori.filter((v) => v === TRIGODKO).length;
+  suite.eq(notti, 13, "TRIGODKO (156h monte ore ÷ 12h a notte = 13 notti) non deve mai superare le 13 notti assegnate, anche restando l'unico disponibile per tutte le 20");
+  suite.assert(vincitori.slice(13).every((v) => v === null), "dalla 14ª notte in poi (monte ore esaurito) il turno deve restare scoperto, non assegnato a TRIGODKO oltre il limite");
 });
 
 suite.test("stessa categoria, debiti uguali dopo un giro di conflitti → il grad torna a decidere", () => {

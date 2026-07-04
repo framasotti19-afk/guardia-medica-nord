@@ -75,8 +75,10 @@ print('motore estratto')
 
 **Debito esaurito (= 0 o negativo):** il medico esce dalla priorità di categoria. L'ordine di precedenza diventa:
 1. contrattualizzati con debito > 0 (ordinati per cat → titolarità → debito → grad)
-2. senza incarico (solo grad)
-3. contrattualizzati con debito ≤ 0 (possono solo coprire turni SCOPERTI, non in conflitto)
+2. senza incarico, oppure contrattualizzati esauriti con turni extra volontari residui (§3.10) — competono insieme, solo per grad
+3. **blocco rigido**: un contrattualizzato che ha esaurito sia il debito ordinario (monte ore + recupero) sia gli eventuali turni extra volontari **non è più un candidato per nessun turno**, nemmeno se resterebbe l'unico disponibile — il turno resta SCOPERTO piuttosto che essere coperto oltre il limite dichiarato. Le sue ore assegnate nel mese non possono mai superare monte ore + recupero + turni extra dichiarati.
+
+*(Storico: prima di questa regola un esaurito senza turni extra poteva ancora coprire un turno se restava l'unico candidato disponibile, per non lasciarlo scoperto — comportamento cambiato dopo un bug segnalato in cui un medico finiva con ore assegnate ben oltre il proprio monte ore. Vedi `candidatiOrdinati` in §5: il filtro iniziale esclude ora esplicitamente questi medici da "candidati", non solo dall'ordinamento di priorità.)*
 
 **Recupero ore da mese precedente:** dichiarato esplicitamente al coordinatore. Aumenta il debito mensile: `debito = monte_ore + ore_recupero`. Partecipa normalmente a tutti i conflitti. NON applicabile ai senza incarico (che non hanno debito).
 
@@ -213,7 +215,7 @@ Il coordinatore può dichiarare, per ciascun medico contrattualizzato (non per i
 
 - **Pool separato dal debito ordinario**: le ore extra di recupero (`extraOre`) si sommano al monte ore contrattuale — il medico compete con **piena priorità di categoria** finché quel totale (monte + recupero) non è esaurito, esattamente come oggi. I turni extra volontari sono un budget **completamente distinto**, consumato SOLO dopo che monte ore + recupero raggiungono zero.
 - **Priorità durante i turni extra**: mentre il budget extra è disponibile (e il debito ordinario è esaurito), il medico compete con la **stessa priorità di un senza incarico** — spareggio SOLO per graduatoria, mai per categoria. Nella pratica, in `candidatiOrdinati` ed `elaboraTurno` viene inserito nello stesso bucket dei senza incarico veri, ordinato insieme a loro puramente per `grad`.
-- **Dopo aver esaurito anche il budget extra**, il medico torna esattamente al comportamento attuale di "debito esaurito" (§3.4): bucket più debole di un senza incarico, può competere solo per turni che altrimenti resterebbero completamente scoperti.
+- **Dopo aver esaurito anche il budget extra**, il medico torna al comportamento di "debito esaurito" (§3.1): **blocco rigido**, non è più un candidato per nessun turno, nemmeno per coprire uno slot altrimenti completamente scoperto.
 - **Non cambia mai la gerarchia per chi ha ancora debito ordinario positivo**: un medico in bucket 0 (categoria con debito residuo) batte SEMPRE un medico che sta usando i turni extra, indipendentemente dal grad di quest'ultimo — i turni extra non sono mai una scorciatoia per superare la priorità di categoria.
 - Implementato con un secondo accumulatore parallelo a `debiti`, chiamato `debitiExtra` (mid → ore residue del budget extra, `null` per i senza incarico), inizializzato in `elaboraSchema` da `turniExtra[mid] × 12` e passato sia a `elaboraTurno` sia a `candidatiOrdinati`. Lo scalo avviene tramite l'helper `scalaDebito` in `elaboraTurno`: se `debiti[mid] > 0` scala il debito ordinario, altrimenti scala `debitiExtra[mid]` — mai entrambi per lo stesso turno. La copertura a distanza (blu) non consuma né l'uno né l'altro pool, coerentemente con la regola generale (§3.2).
 - `elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {})`: il nuovo parametro è **opzionale** (default `{}`, nessun turno extra) — tutte le chiamate esistenti restano valide senza modifiche.
@@ -246,11 +248,15 @@ La lista è modificabile dall'interfaccia (tab "3 · Medici / ore da recuperare"
 function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
   // 1. Trova candidati con disponibilità valida (verde o blu) per questo slotKey, ESCLUSI quelli
   //    che hanno già raggiunto il tetto settimanale dichiarato per la settimana di questo turno
-  //    (capSettimanale, §3.8) — se non dichiarato, nessuna esclusione (comportamento invariato)
-  // 2. Li ordina: [conDeb (cat→deb→grad), senzaInc+turniExtra (grad), esaur (grad)] — ordine
-  //    globale, la titolarità NON entra in questo ordinamento globale (è specifica per sede).
-  //    Un contrattualizzato con debito esaurito ma con debitiExtra[mid] > 0 (turni extra
-  //    volontari residui, §3.10) rientra nel bucket "senza incarico", non in "esaur".
+  //    (capSettimanale, §3.8) — se non dichiarato, nessuna esclusione (comportamento invariato) —
+  //    ED ESCLUSI i contrattualizzati con debito ordinario e turni extra ENTRAMBI esauriti
+  //    (blocco rigido oltre il monte ore, §3.1/§3.4): non sono più candidati per nessun turno,
+  //    nemmeno se resterebbero l'unico disponibile, il turno resta SCOPERTO.
+  // 2. Li ordina: [conDeb (cat→deb→grad), senzaInc+turniExtra (grad)] — ordine globale, la
+  //    titolarità NON entra in questo ordinamento globale (è specifica per sede). Un
+  //    contrattualizzato con debito esaurito ma con debitiExtra[mid] > 0 (turni extra volontari
+  //    residui, §3.10) rientra nel bucket "senza incarico" (è già filtrato fuori se anche i turni
+  //    extra sono esauriti, vedi punto 1).
   //    Scala il debito del vincitore con scalaDebito(mid, ore): se debiti[mid] > 0 scala il
   //    debito ordinario, altrimenti scala debitiExtra[mid] — mai entrambi per lo stesso turno.
   // 3. FASE 1 — assegnazione fisica (verde):
@@ -346,6 +352,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
 20. **Colonne "Ore assegnate" / "Ore mancanti" nel tab Medici** — sola lettura, visibili solo dopo l'elaborazione dello schema del mese ("—" altrimenti). "Ore assegnate" = somma delle ore dei turni in cui il medico compare FISICAMENTE nello schema elaborato (stessa logica di scalo del debito nel motore — la copertura a distanza non consuma ore proprie, coerente con `elaboraTurno`), contato UNA SOLA VOLTA per turno anche se lo stesso medico compare in più sedi fisiche dello stesso turno (bug corretto: l'editor manuale `setSlot` nel tab Schema turni riassegna `slots` ma non aggiorna mai `fis`, quindi una correzione manuale può in teoria lasciare lo stesso medico su 2 sedi fisiche dello stesso turno — `oreAssegnateDi` deduplica con un `Set` per evitare di contare le sue ore due volte). "Ore mancanti" = monte ore + ore extra − ore assegnate; per i medici senza incarico (nessun monte ore) mostra sempre "—", anche a schema elaborato. Calcolate interamente lato UI da `dati.schema` — nessuna modifica al motore
 21. **Pulsante "Nuova conversazione" nel pannello AI** — azzera chat, proposta in sospeso e registro anti-loop `azioniEseguite` (§13) senza dover ricaricare la pagina
 22. **Turni extra volontari** — campo "Turni extra" nel tab Medici (accanto alle ore extra di recupero): budget separato dal debito ordinario, consumato SOLO dopo aver esaurito monte ore + recupero, con priorità da senza incarico (solo graduatoria) (§3.10)
+23. **Blocco rigido oltre il monte ore (fix bug)** — un contrattualizzato con debito ordinario e turni extra ENTRAMBI esauriti non è più un candidato per nessun turno, nemmeno se resterebbe l'unico disponibile: il turno resta SCOPERTO invece di essere assegnato oltre il limite dichiarato (§3.1). Prima di questo fix un medico rimasto l'unico candidato disponibile per molte notti consecutive continuava a essere assegnato ben oltre il proprio monte ore (bug segnalato: 228h assegnate su un monte ore di 96h). Filtro applicato in `candidatiOrdinati`, `bucketOf` semplificato di conseguenza (§5)
 
 ---
 
@@ -397,12 +404,12 @@ node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (2
 
 A differenza della suite sopra (pura, deterministica, offline), questo harness testa il **prompt di sistema** di `chiediAI` (interpretazione email dei medici) chiamando davvero l'API Anthropic. È diviso in tre file indipendenti:
 
-- **`test_email_generator.mjs`** — genera un corpus di ~550 email simulate in italiano su 24 categorie (sedi fisiche, copertura a distanza, indisponibilità/ferie, recupero ore in ore e in turni, turni extra in tutte le varianti, MMG/PLS attivo e non attivo, weekend ambiguo, notti esplicite, condizionali, contraddizioni, senza-incarico con richieste improprie, sede non identificabile, date vaghe, tetto settimanale, preferenza turno), con un RNG seedato (mulberry32, seed fisso) per riproducibilità totale. Ogni caso ha un `atteso`: azioni che devono comparire, azioni che NON devono mai comparire (`azioniVietate`, usato per testare le regole di protezione come senza-incarico + recupero/turni-extra), domande Sì/No attese o vietate, avvisi 🔴 ATTENZIONE attesi. Girato da solo scrive `test_email_corpus.json` (non committato, vedi `.gitignore`).
+- **`test_email_generator.mjs`** — genera un corpus di 1200 email simulate in italiano su 24 categorie (sedi fisiche, copertura a distanza, indisponibilità/ferie, recupero ore in ore e in turni, turni extra in tutte le varianti, MMG/PLS attivo e non attivo, weekend ambiguo, notti esplicite, condizionali, contraddizioni, senza-incarico con richieste improprie, sede non identificabile, date vaghe, tetto settimanale, preferenza turno), con un RNG seedato (mulberry32, seed fisso) per riproducibilità totale. Ogni caso ha un `atteso`: azioni che devono comparire, azioni che NON devono mai comparire (`azioniVietate`, usato per testare le regole di protezione come senza-incarico + recupero/turni-extra), domande Sì/No attese o vietate, avvisi 🔴 ATTENZIONE attesi. Girato da solo scrive `test_email_corpus.json` (non committato, vedi `.gitignore`).
 - **`test_email_runner.mjs`** — **estrae il prompt "sys" direttamente dal sorgente** di `turni-guardia-medica.jsx` (stesso principio di sezionamento di `engine_test.mjs`, cercando il marker `const sys = \`` fino a `STATO ATTUALE: ${JSON.stringify(stato)}\`;`) e lo compila con `new Function`, così il test resta sempre sincronizzato col prompt reale senza copie manuali. Per ogni caso costruisce lo `stato` JSON esatto e chiama `api.anthropic.com/v1/messages` (richiede `ANTHROPIC_API_KEY` in env o in un `.env` locale MAI committato). Ha una **guardia di sicurezza**: oltre 20 casi richiede il flag esplicito `--yes` (altrimenti si ferma con un avviso di costo), più un flag `--dry-run` che valida solo il rendering dei prompt senza fare alcuna chiamata di rete. Supporto a `--limit N` (run di prova), `--concurrency N` (default 6), salvataggio incrementale ogni 50 casi. Scrive `test_email_results.json` (non committato).
 - **`test_email_report.mjs`** — legge i risultati e verifica ogni caso con un matcher **strutturale/parziale** (non uguaglianza esatta sull'intero JSON): un'azione attesa deve comparire con i campi discriminanti giusti, un'azione vietata non deve mai comparire, domande/avvisi attesi devono essere presenti. Produce: % di successo globale, breakdown per categoria, pattern di errore ricorrenti (categoria × tipo errore, es. "azione_vietata", "domanda_mancante", "avviso_mancante"), suggerimenti euristici precompilati per le categorie più delicate, e in coda il dettaglio di ogni fallimento. Output sia a console sia su `test_email_report.md` (non committato). Flag opzionale `--ai-suggestions` (richiede anch'esso `ANTHROPIC_API_KEY`): fa una chiamata finale in più per suggerimenti in prosa scritti dall'AI a partire dai fallimenti reali, invece della sola euristica.
 
 ```bash
-node test_email_generator.mjs                  # genera test_email_corpus.json (~550 casi)
+node test_email_generator.mjs                  # genera test_email_corpus.json (1200 casi)
 node test_email_runner.mjs --dry-run            # verifica il rendering dei prompt, ZERO chiamate API
 node test_email_runner.mjs --limit 20           # run di prova economica (sotto la soglia --yes)
 node test_email_runner.mjs --yes                # run completa sull'intero corpus (a pagamento)
