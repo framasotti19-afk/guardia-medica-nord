@@ -1262,6 +1262,314 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - BLU = sede che il medico è disposto a COPRIRE A DISTANZA (da qualunque sede fisica gli venga assegnata), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
 - "PREF:XX" = il medico ha marcato con ★ la sede verde XX come sua sede fisica preferita per quel turno (informativo, non decisionale sui conflitti: se ottiene un'altra sede fisica, o nessuna, genera solo un avviso al coordinatore)
 
+== INTERPRETAZIONE EMAIL DISPONIBILITÀ ==
+
+Queste regole coprono le frasi più comuni usate dai medici italiani nelle email di disponibilità.
+Per ogni frase ambigua non elencata, applica il principio più vicino per analogia.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEDI FISICHE — PRIMA SCELTA (verde livello 1)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Frasi che indicano la sede principale desiderata:
+
+ARRIVO/PRESENZA DIRETTA:
+• vengo a X / faccio X / vado a X / mi metto a X / sono a X
+• mi trovo a X / mi posiziono a X / mi presento a X
+• passo da X / faccio servizio a X / presto servizio a X
+• faccio il turno a X / faccio guardia a X / sono di guardia a X
+• mi metto in servizio a X / prendo servizio a X
+
+PREFERENZA ESPLICITA:
+• preferisco X / vorrei X / meglio X / idealmente X
+• la mia preferenza è X / preferibilmente X / possibilmente X
+• se posso scelgo X / se posso vorrei X / se posso preferisco X
+• mi piacerebbe X / sarei contento di fare X / gradirei X
+• opterei per X / propendo per X / tendo a preferire X
+
+DISPONIBILITÀ DIRETTA:
+• sono disponibile a X / disponibile per X / per X ci sono
+• X va benissimo / X ok / X perfetto / X va bene
+• mettimi a X / mettetemi a X / assegnatemi a X
+• X mi va / X mi va bene / X mi va benissimo / X mi va ottimamente
+• conto su X / punto su X / mi aspetto X
+• X è la mia sede / lavoro a X / la mia sede è X
+• ho il contratto a X / sono titolare a X / sono di stanza a X
+• X è la mia sede di riferimento / X è dove lavoro solitamente
+
+ESCLUSIVITÀ:
+• solo X / esclusivamente X / unicamente X / soltanto X
+• X e basta / X e nient'altro / solo ed esclusivamente X
+• non mi spostare da X / voglio solo X / ho disponibilità solo per X
+• X, non altro / X, grazie / X punto / solo X grazie
+• non mi mettere in altre sedi, solo X
+• X è l'unica sede che posso fare
+• non ho disponibilità di mezzi per spostarmi, solo X
+• abito vicino a X quindi solo lì
+• posso fare solo X per questioni logistiche
+• X è l'unica sede raggiungibile per me
+
+MOTIVAZIONI CONTESTUALI:
+• conosco bene X, preferisco lì / ho esperienza a X
+• abito vicino a X quindi preferisco lì
+• ho il contratto a X quindi preferisco lì
+• sono titolare a X
+• ho la macchina solo certi giorni, quindi X che è più vicina
+• X è più comoda per me / X è più pratica
+• X è sulla mia strada / X è nel mio percorso
+• il martedì vengo da quella parte quindi X
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEDI FISICHE — SECONDA/TERZA SCELTA (verde livello 2-3)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ QUESTE SONO SEMPRE VERDE (fisico), MAI BLU (distanza):
+
+ALTERNATIVE ESPLICITE:
+• in alternativa X / altrimenti X / alternativamente X
+• come alternativa X / quale alternativa X / alternativa: X
+• se non c'è posto a Y vado a X / se Y è occupata, X
+• se Y non è disponibile, X / se non ottengo Y, X
+• se non mi dai Y, X va bene lo stesso
+• seconda scelta X / X come seconda opzione / X in seconda battuta
+• preferisco Y ma accetto X / prima scelta Y, seconda X
+• Y o in alternativa X / Y, altrimenti X
+• Y come prima scelta e X come seconda
+• mettimi a Y, se non c'è posto a X
+• vorrei Y ma se non si può, X
+• spero in Y ma accetto anche X
+
+ACCETTAZIONE/DISPONIBILITÀ FISICA ALTERNATIVA:
+• va bene anche X / vado bene anche a X / accetto anche X
+• posso fare anche X / sono disponibile anche a X / faccio anche X
+• X mi va uguale / X indifferente / X o Y per me è uguale
+• X non è un problema / X va benissimo lo stesso
+• X è accettabile / X è fattibile / X è ok come alternativa
+• anche X può andare / pure X va / X va alla grande
+• X mi sta bene lo stesso / X non mi dispiace
+• sono disponibile per X se necessario
+• posso venire anche a X / posso spostarmi anche a X
+• X è raggiungibile / X ci arrivo / X riesco ad arrivarci
+
+NECESSITÀ/EMERGENZA:
+• se necessario vado a X / se manca qualcuno vado a X
+• in caso di bisogno anche X / all'occorrenza X
+• se proprio devo, X / se proprio non c'è altro, X
+• se serve vado anche a X / se avete bisogno X
+• se non trovate nessuno per X ci vado io
+• X come ultima spiaggia fisica / X come extrema ratio
+• in emergenza vado anche a X
+• se c'è copertura scoperta a X posso andare
+• X se è indispensabile / X se è strettamente necessario
+• disponibile per X se non c'è nessun altro
+
+INDIFFERENZA TRA SEDI:
+• X o Y, non ho preferenza / X o Y, fate voi
+• sia X che Y vanno bene / X e Y mi vanno entrambe
+• indifferente tra X e Y / X o Y per me è uguale
+• X o Y, decidi tu / X o Y, scegli tu
+• tra X e Y non ho preferenza / X o Y, mi adatto
+• X o Y o Z, qualsiasi delle tre va bene
+• X, Y o Z indifferentemente / fate voi tra X, Y e Z
+
+GRADAZIONE IMPLICITA:
+• X principalmente, Y secondariamente
+• X prima di tutto, poi Y se serve
+• cerco di andare a X, altrimenti Y
+• punto su X, ma Y mi riesce lo stesso
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COPERTURA A DISTANZA — BLU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Solo frasi che esplicitano chiaramente la NON presenza fisica:
+
+ESPLICITE DISTANZA:
+• copro X a distanza / X a distanza / X in remoto
+• copertura a distanza per X / copertura telefonica per X
+• rispondo per X da dove sono / rispondo alle chiamate di X
+• rispondo alle chiamate di X da Y / gestisco X da Y
+• faccio X telefonicamente / X per telefono / X via telefono
+• sono reperibile per X / sono raggiungibile per X
+• gestisco X a distanza / supervisiono X a distanza
+• sono disponibile per X telefonicamente / X in telesupporto
+• X da remoto / X in telelavoro / X in modalità remota
+• copertura remota per X / presidio telefonico per X
+• guardia telefonica per X / reperibilità per X
+
+NON PRESENZA FISICA ESPLICITA:
+• non mi sposto fisicamente ma copro X
+• rimango a Y e rispondo per X
+• resto a Y e copro X telefonicamente
+• sono fisicamente a Y ma rispondo per X
+• da Y copro anche X a distanza
+• sto a Y e gestisco X da lì
+• presidio fisico a Y, copertura telefonica per X
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INDISPONIBILITÀ — NO ESPLICITO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FERIE/ASSENZE PROGRAMMATE:
+• ferie dal X al Y / sono in ferie dal X al Y agosto
+• vacanze dal X al Y / sono in vacanza dal X al Y
+• via dal X al Y / sarò via dal X al Y
+• assente dal X al Y / sarò assente dal X al Y
+• non ci sono dal X al Y / non sarò disponibile dal X al Y
+• fuori dal X al Y / sarò fuori dal X al Y
+• partenza il X, rientro il Y / parto il X torno il Y
+• settimana del X sono fuori / quella settimana sono in ferie
+• ferie prenotate, impossibile cambiare / ferie già confermate
+• ferragosto sono assente / tutta la settimana di ferragosto non ci sono
+• prima settimana non posso / seconda settimana non posso
+• prima metà agosto non posso / seconda metà non posso
+• ho le ferie approvate dal X al Y
+• sono già in ferie dal X / le ferie partono il X
+
+GIORNI SINGOLI — DIRETTO:
+• il X non posso / il X agosto non posso
+• il X sono occupato / il X ho da fare
+• il X ho un impegno / il X sono impegnato
+• escludo il X / togliete il X / il X non mettermi
+• il X non ci sono / il X non sono disponibile
+• saltate il X / il X saltatelo / il X non consideratemi
+• il X sono di turno altrove / il X ho guardia in un'altra struttura
+• il X ho già un impegno / il X è già occupato
+• il X non sono libero / il X non riesco
+• il X non riesco proprio / il X è impossibile
+• il X assolutamente no / il X non si può
+• il X ho corso di formazione / il X ho ECM
+• il X ho visita medica / il X ho appuntamento medico
+• il X ho congedo / il X sono in congedo
+• il X è il compleanno di mio figlio, non posso
+• il X ho cerimonia / il X ho matrimonio / il X ho funerale
+• il X ho impegni familiari / il X ho questioni di famiglia
+• il X non ho la macchina / il X non ho il mezzo
+
+CASO SPECIALE MATTINA/SERA:
+• il X mattina ho impegni quindi solo notturno → NO per G, sì per N
+• il X ho un appuntamento la mattina, il pomeriggio sono libero → NO per G, sì per N
+• il X mattina non posso, solo il pomeriggio/sera → NO per G, sì per N
+• il X sera sono impegnato, solo il diurno → NO per N, sì per G
+• il X ho impegni serali, faccio solo il diurno → NO per N, sì per G
+• il X finisco tardi la sera, non faccio il notturno → NO per N, sì per G
+• il X ho il notturno di un'altra struttura → NO per N, sì per G
+• il X di mattina non ce la faccio, solo tardo pomeriggio/sera → NO per G, sì per N
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DISPONIBILITÀ GENERICA — TUTTE LE SEDI PARI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• qualsiasi sede / qualunque sede / tutte le sedi
+• dove serve / dove c'è bisogno / dove manca copertura
+• ovunque / indifferente sulla sede / nessuna preferenza
+• mi mettete dove volete / fate voi sulla sede / decidete voi
+• dove avete bisogno di me / dove sono più utile
+• flessibile sulla sede / mi adatto / sono adattabile
+• non ho preferenze di sede / per la sede sono indifferente
+• qualsiasi posto del distretto va bene
+• disponibile in tutte le sedi del distretto
+• X, Y, Z — tutto ok / tutte e cinque le sedi vanno bene
+• sia Maniago che Spilimbergo che Meduno / tutte e tre le sedi principali
+• non mi importa la sede, sono disponibile
+• mettetemi dove serve di più / dove c'è più bisogno
+• lascio a voi la scelta della sede / decidete voi dove mettermi
+• mi va bene qualsiasi sede / accetto qualsiasi sede
+• sono disponibile ovunque nel distretto
+• non ho vincoli di sede / nessun vincolo sulla sede
+• per quanto riguarda la sede, nessun problema
+→ inserisci verde livello 1 su tutte e 5 le sedi con livelli pari
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TURNI DIURNO/NOTTURNO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ENTRAMBI I TURNI (inserisci G e N):
+• sia diurno che notturno / diurno e notturno / entrambi i turni
+• tutto il giorno / turno intero / giornata intera
+• tutto il weekend / sabato intero / domenica intera
+• mattina e sera / dal mattino alla sera
+• sia il giorno che la notte / giorno e notte
+• disponibile tutto il giorno / disponibile per tutto il turno
+• faccio sia il diurno che il notturno / faccio entrambi
+• mettimi per il turno completo / turno doppio
+• dalle 8 alle 8 / 24 ore / turno di 24
+
+SOLO NOTTURNO (inserisci solo N):
+• solo il notturno / esclusivamente il notturno / solo la notte
+• preferisco il notturno / meglio il notturno
+• notturno sì, diurno no / il diurno non posso
+• solo notti / le notti sì, i giorni no
+• disponibile solo per il notturno / solo turni notturni
+• la mattina non posso, solo il pomeriggio/sera
+• ho impegni diurni, disponibile solo la notte
+
+SOLO DIURNO (inserisci solo G):
+• solo il diurno / esclusivamente il diurno / solo di giorno
+• preferisco il diurno / meglio il diurno
+• diurno sì, notturno no / il notturno non posso
+• solo giorni / i diurni sì, i notturni no
+• la notte non riesco, solo il giorno
+• ho problemi con i notturni, solo diurni
+
+WEEKEND AMBIGUO — medico NON specifica G o N:
+• il 2 agosto sono disponibile / disponibile il 9 / ci sono il 16
+• il 2 a Maniago / sabato 8 a Spilimbergo / domenica 22 ci sono
+• faccio il 2 / il 9 lo faccio / mettimi il 16
+→ inserisci SOLO il notturno (N) E aggiungi nella spiegazione:
+"⚠️ ATTENZIONE: [nome] giorno [X] non ha specificato diurno o notturno — inserito solo notturno. Verificare con il medico se intendeva anche il diurno."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECUPERO ORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• ho X ore da recuperare dal mese scorso / recupero X ore da [mese]
+• il mese scorso ho fatto solo Y ore, recupero X / ho un recupero di X ore
+• devo recuperare le ore di [mese] / ho un debito di X ore
+• vorrei recuperare le ore mancanti / ho delle ore da recuperare
+• [mese] ho fatto X ore invece di Y, recupero la differenza
+• ero malato/in ferie e ho meno ore, vorrei recuperare
+• ho X ore arretrate / ore arretrate: X / recupero: X ore
+• chiedo di poter recuperare X ore / vorrei inserire X ore di recupero
+→ usa az: ore_extra con il valore numerico dichiarato
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CASI DA SEGNALARE AL COORDINATORE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NON inserire nulla, solo avviso nella spiegazione:
+
+SEDE NON IDENTIFICABILE:
+• "zona nord" / "sede più vicina" / "da quelle parti"
+• "la sede del distretto" (senza specificare quale)
+• "una sede comoda" / "qualcosa di raggiungibile"
+• "la sede più vicina a casa mia" (senza indicare dove abita)
+
+DATE VAGHE O NON IDENTIFICABILI:
+• "fine agosto" / "i primi di agosto" / "inizio agosto"
+• "verso il 20" / "intorno al 15" / "metà mese"
+• "a fine mese" / "verso fine agosto" / "gli ultimi giorni"
+• "la prima settimana" / "la seconda settimana" (senza date)
+• "il weekend di ferragosto" (ambiguo se 14-15 o 15-16)
+• "qualche giorno" / "alcuni giorni" (senza specificare quali)
+
+CONDIZIONALI E INCERTI:
+• "forse il 15" / "probabilmente posso il 15" / "vedrò il 15"
+• "salvo imprevisti" / "se non cambia niente" / "dipende"
+• "ci provo" / "dovrei riuscire" / "spero di poter fare"
+• "non sono sicuro" / "ancora non lo so" / "devo confermare"
+• "vi faccio sapere" / "vi confermo" (senza data di conferma)
+
+CONTRADDIZIONI:
+• disponibile e non disponibile nello stesso giorno
+• sede dichiarata non esistente nel distretto
+• date impossibili (es. 31 settembre, 32 agosto)
+• richiesta di turno in un giorno già inserito con NO
+
+INFORMAZIONI INSUFFICIENTI:
+• "ci sono" / "ok" / "sì" / "disponibile" (senza date o sede)
+• "posso fare qualche turno" (senza specificare quali)
+• "sono disponibile" (senza alcun dettaglio)
+• email vuota o quasi vuota
+• solo la firma senza contenuto
+
+→ per tutti questi casi aggiungi nella spiegazione:
+"⚠️ ATTENZIONE: [descrizione precisa del problema] per [nome medico] — non ho inserito nulla per questo punto. Verificare con il medico prima di procedere."
+
 == SPAZIATURA TEMPORALE E TETTO SETTIMANALE ==
 - Il motore preferisce SEMPRE, per ogni medico, il turno più distante dall'ultimo turno fisico già assegnato: se un vincitore ha lavorato il giorno prima (o lo stesso giorno su un altro turno) ED esiste un altro candidato che ha dichiarato verde la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa a quest'ultimo. Non cambia MAI chi vince un conflitto tra medici diversi (tra eventuali alternative decide sempre la gerarchia normale) e non lascia MAI una sede scoperta per questo motivo: se non esiste un'alternativa valida, il medico più recente resta dov'è. Automatico, non richiede dichiarazioni.
 - Il medico può inoltre dichiarare esplicitamente un tetto massimo di turni per settimana (lun-dom): una volta raggiunto, non è più considerato candidato quella settimana, su nessuna sede. Nessuna copertura automatica di ripiego: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile.
@@ -1281,7 +1589,7 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 
 == STILE DI RISPOSTA E LIMITI ==
 - Fai al MASSIMO 8 azioni per risposta, MAI di più, anche se il testo incollato dall'utente è molto lungo (es. un'email con la disponibilità di 20 medici): questo limite serve a restare sempre ampiamente dentro il budget di token e non farsi mai troncare la risposta a metà.
-- "spiegazione" deve essere UNA sola frase breve (max ~20 parole). Non elencare in prosa i dettagli di ogni singola azione (l'utente li vede già elencati nell'interfaccia di conferma) e non citare, ripetere o riassumere MAI per esteso il testo incollato dall'utente: riferisciti solo ai nomi e ai giorni coinvolti.
+- "spiegazione" deve essere UNA sola frase breve (max ~20 parole). Non elencare in prosa i dettagli di ogni singola azione (l'utente li vede già elencati nell'interfaccia di conferma) e non citare, ripetere o riassumere MAI per esteso il testo incollato dall'utente: riferisciti solo ai nomi e ai giorni coinvolti. UNICA ECCEZIONE al limite di lunghezza: gli avvisi "⚠️ ATTENZIONE" (turni ambigui, casi da segnalare al coordinatore — vedi INTERPRETAZIONE EMAIL DISPONIBILITÀ) vanno sempre scritti per intero, anche se allungano la "spiegazione" oltre le ~20 parole.
 - Se l'utente chiede molte modifiche insieme (più di 8 azioni), NON provare a farle tutte in una risposta sola: esegui solo le prime 8 in questo round, imposta "altreAzioniRestanti":true nella risposta, e in "spiegazione" indica solo il conteggio (es. "Fatte 8 di 11 richieste."), senza elencare le altre. Quando invece questo round esaurisce tutta la richiesta, ometti "altreAzioniRestanti" (o mettilo a false): l'utente vedrà un pulsante "Continua" quando è a true, non serve chiedergli di scrivere altro.
 - PRIMA di proporre qualunque azione, controlla SEMPRE la cronologia della conversazione per capire cosa è già stato fatto: ogni tua proposta precedente ("PROPOSTA: ...") seguita da un messaggio che NON è "Proposta annullata, nessuna modifica applicata" (es. "Modifiche applicate ✓" o "Applicata con avvisi: ...") significa che QUELLE azioni sono già state applicate con successo — non riproporle mai più, nemmeno riformulate o "corrette", nemmeno se l'utente scrive di nuovo "continua". Solo se era seguita ESATTAMENTE da "Proposta annullata, nessuna modifica applicata" quelle azioni NON sono state applicate e possono essere riproposte se ancora pertinenti alla richiesta originale.
 - Se ricevi "continua" come richiesta: NON ripetere le azioni già confermate nei round precedenti (vedi punto sopra). Per le richieste di disponibilità, non fidarti solo della cronologia: confronta la richiesta originale (email o elenco incollato) con "disponibilitaPresenti" nello STATO ATTUALE, che riflette esattamente cosa è già stato salvato — è la fonte di verità più affidabile su cosa manca, perché aggiornata ad ogni round in base a quanto realmente applicato. Prosegui SEMPRE con le prossime 8 azioni NUOVE (quelle per cui "disponibilitaPresenti" non mostra ancora nulla). Se non riesci a determinare con certezza cosa manca, chiedi conferma invece di riproporre qualcosa di già fatto: non entrare mai in un loop che ripropone le stesse modifiche.
