@@ -1503,7 +1503,7 @@ ENTRAMBI I TURNI (inserisci G e N):
 • mettimi per il turno completo / turno doppio
 • dalle 8 alle 8 / 24 ore / turno di 24
 
-SOLO NOTTURNO (inserisci solo N):
+SOLO NOTTURNO (inserisci solo N, MAI una "domanda" sul diurno — l'uso esplicito di "notti"/"notturno"/"notturni" è già una scelta di turno dichiarata, non un'ambiguità):
 • solo il notturno / esclusivamente il notturno / solo la notte
 • preferisco il notturno / meglio il notturno
 • notturno sì, diurno no / il diurno non posso
@@ -1520,12 +1520,13 @@ SOLO DIURNO (inserisci solo G):
 • la notte non riesco, solo il giorno
 • ho problemi con i notturni, solo diurni
 
-WEEKEND AMBIGUO — medico NON specifica G o N (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
+WEEKEND AMBIGUO — medico NON specifica NÉ diurno NÉ notturno (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
+⚠️ ATTENZIONE ALLA DIFFERENZA: questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti" né "giorno/diurno"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità. La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno.
 • il 2 agosto sono disponibile / disponibile il 9 / ci sono il 16
 • il 2 a Maniago / sabato 8 a Spilimbergo / domenica 22 ci sono
 • faccio il 2 / il 9 lo faccio / mettimi il 16
 → inserisci SOLO il notturno (N) nelle "azioni" del round, E aggiungi una "domanda" (vedi formato JSON "domande" più sotto):
-situazione: "non ha specificato diurno o notturno per il [giorno]"; domanda: "Aggiungo anche il diurno?"; seSi: [dispo_aggiungi con turno G, stesse sedi/livelli dichiarati per la notte]; seNo: [] (resta solo il notturno già inserito).
+citazione: la frase esatta scritta dal medico (es. "sono disponibile il 2"); domanda in italiano completo, senza abbreviazioni (es. "non ha specificato diurno o notturno — vuoi aggiungere anche il diurno?"); seSi: [dispo_aggiungi con turno G, stesse sedi/livelli dichiarati per la notte]; seNo: [] (resta solo il notturno già inserito).
 ⚠️ IMPORTANTE — questa regola NON si applica MAI ai giorni feriali (lunedì-venerdì non festivi): i feriali hanno SOLO il turno notturno, il diurno non esiste in quei giorni, quindi non c'è alcuna ambiguità da segnalare. Se il medico scrive "il 5 sono disponibile" e il 5 è un feriale semplice, inserisci il notturno (unico turno possibile quel giorno) SENZA alcuna domanda — non ha senso chiedere se intendeva anche il diurno quando il diurno quel giorno non esiste.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1541,7 +1542,7 @@ POMERIGGIO (turno P):
 
 MMG RICHIESTO MA NON ATTIVO (ambiguità con scelta binaria → usa "domande", vedi formato JSON più sotto):
 • il medico chiede esplicitamente mattina O pomeriggio MMG per un giorno, ma controllando "mmgAttivi" nello STATO ATTUALE quel turno (M o P) NON risulta attivo per quel giorno
-→ NON inserire silenziosamente né ignorare: genera una "domanda" — situazione: "vuole [mattina/pomeriggio] MMG ma non è attiva — [l'altro turno, se attivo, o "nessun turno MMG"] è attivo"; domanda: "Attivo anche [la mattina/il pomeriggio]?"; seSi: [{"az":"mmg","giorno":X,"fascia":"M"|"P","attivo":true}, {"az":"dispo_aggiungi","medico":"...","giorno":X,"turno":"M"|"P",...}]; seNo: [{"az":"dispo_aggiungi",...} per l'altro turno se il medico lo ha dichiarato disponibile e risulta già attivo, altrimenti array vuoto]. Esempio: "❓ 11 agosto Marzano: vuole la mattina MMG ma non è attiva — solo il pomeriggio è attivo. Attivo anche la mattina?"
+→ NON inserire silenziosamente né ignorare: genera una "domanda" — citazione: la frase esatta scritta dal medico (es. "vorrei fare la mattina MMG l'11"); domanda in italiano completo, senza abbreviazioni (es. "la mattina non è attiva, solo il pomeriggio — vuoi attivare anche la mattina?"); seSi: [{"az":"mmg","giorno":X,"fascia":"M"|"P","attivo":true}, {"az":"dispo_aggiungi","medico":"...","giorno":X,"turno":"M"|"P",...}]; seNo: [{"az":"dispo_aggiungi",...} per l'altro turno se il medico lo ha dichiarato disponibile e risulta già attivo, altrimenti array vuoto].
 
 ENTRAMBI SENZA SPECIFICARE MATTINA/POMERIGGIO:
 • "faccio il diurno MMG" / "disponibile per il diurno" (nel contesto MMG, senza dire mattina o pomeriggio)
@@ -1645,7 +1646,7 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ],"domande":[ ...opzionale, vedi sotto... ],"altreAzioniRestanti":true} — "altreAzioniRestanti" è booleano e opzionale (default false): vedi sopra. "azioni" può essere vuoto/omesso se la risposta è fatta SOLO di "domande".
-"domande" (array opzionale) — SOLO per ambiguità con una scelta binaria chiara, dove sia il Sì che il No corrispondono a un'azione concreta e ben definita da applicare (es. attivare o no un turno MMG mancante, aggiungere o no il diurno quando un weekend non è stato specificato): {"giorno":11,"medico":"MARZANO","situazione":"vuole la mattina MMG ma non è attiva — solo il pomeriggio è attivo","domanda":"Attivo anche la mattina?","seSi":[ ...azioni da applicare se l'utente risponde Sì... ],"seNo":[ ...azioni da applicare se risponde No... ]}. L'utente vede ogni domanda come una card con due pulsanti Sì/No: NON scrivere questi casi come testo "⚠️ ATTENZIONE" nella spiegazione, usa SEMPRE "domande" quando la scelta è binaria e concreta. Per le ambiguità SENZA un'azione concreta definibile per entrambe le risposte (sede non identificabile, date vaghe, condizionali, contraddizioni — vedi CASI DA SEGNALARE AL COORDINATORE) continua a usare il testo "⚠️ ATTENZIONE" nella spiegazione: lì non c'è nulla di binario da proporre, serve solo un avviso.
+"domande" (array opzionale) — SOLO per ambiguità con una scelta binaria chiara, dove sia il Sì che il No corrispondono a un'azione concreta e ben definita da applicare (es. attivare o no un turno MMG mancante, aggiungere o no il diurno quando un weekend non è stato specificato): {"giorno":11,"medico":"MARZANO","citazione":"vorrei fare la mattina MMG l'11","domanda":"la mattina non è attiva, solo il pomeriggio — vuoi attivare anche la mattina?","seSi":[ ...azioni da applicare se l'utente risponde Sì... ],"seNo":[ ...azioni da applicare se risponde No... ]}. "citazione" è OBBLIGATORIA: riporta tra virgolette la frase ESATTA scritta dal medico nel testo incollato (non un riassunto), così il coordinatore vede subito il contesto originale senza doverlo ricordare a memoria. In "citazione" e "domanda" scrivi SEMPRE in italiano completo, MAI abbreviazioni o codici interni (niente "g11", "g8N", "MA", "SP": scrivi "giorno 11", "agosto", "notturno", "Maniago", "Spilimbergo"). L'utente vede ogni domanda come una card con due pulsanti Sì/No: NON scrivere questi casi come testo "⚠️ ATTENZIONE" nella spiegazione, usa SEMPRE "domande" quando la scelta è binaria e concreta. Per le ambiguità SENZA un'azione concreta definibile per entrambe le risposte (sede non identificabile, date vaghe, condizionali, contraddizioni — vedi CASI DA SEGNALARE AL COORDINATORE) continua a usare il testo "⚠️ ATTENZIONE" nella spiegazione: lì non c'è nulla di binario da proporre, serve solo un avviso.
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"WANG"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
@@ -2428,17 +2429,21 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                   </div>
                 </div>
               )}
-              {domande.map((d, i) => (
-                <div key={i} style={{ border: "2px solid #1a5c4a", background: "#eaf5ef", borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 12, marginBottom: 6 }}>
-                    ❓ {d.giorno ? `${d.giorno} ${MESI_IT[mese]} ` : ""}{d.medico ? `${d.medico}: ` : ""}{d.situazione}{d.situazione && d.domanda ? " — " : ""}{d.domanda}
+              {domande.map((d, i) => {
+                const giornoSett = d.giorno ? ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"][new Date(anno, mese, d.giorno).getDay()] : "";
+                const contesto = d.citazione ? `ha scritto "${d.citazione}"` : (d.situazione || "");
+                return (
+                  <div key={i} style={{ border: "2px solid #1a5c4a", background: "#eaf5ef", borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 12, marginBottom: 6 }}>
+                      ❓ {d.medico ? `${d.medico} ` : ""}{d.giorno ? `${d.giorno} ${MESI_IT[mese].toLowerCase()}${giornoSett ? ` (${giornoSett})` : ""}` : ""}{(d.medico || d.giorno) ? ": " : ""}{contesto}{contesto && d.domanda ? " — " : ""}{d.domanda}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => rispondiDomanda(i, "si")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button>
+                      <button onClick={() => rispondiDomanda(i, "no")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>No</button>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => rispondiDomanda(i, "si")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button>
-                    <button onClick={() => rispondiDomanda(i, "no")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>No</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {!proposta && !domande.length && azioniRestanti && (
                 <button onClick={() => chiediAI(troncato ? `[la tua risposta precedente è stata troncata per lunghezza, non è stata applicata alcuna modifica] ${ultimaDomandaRef.current}` : "continua")} disabled={aiBusy}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "2px solid #1a5c4a", background: "#f0f7f4", color: "#1a5c4a", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
