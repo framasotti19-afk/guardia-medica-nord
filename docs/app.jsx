@@ -1586,6 +1586,8 @@ MATTINA/POMERIGGIO/DIURNO SENZA DIRE MMG O PLS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECUPERO ORE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MEDICO SENZA INCARICO: se il medico ha categoria "Senza inc." (controlla sempre "categoria" in stato.medici), non ha un monte ore contrattuale, quindi il concetto di recupero ore non si applica. Non usare mai az: ore_extra per questo medico, qualunque cosa scriva su ore da recuperare. Aggiungi invece nella spiegazione: "🔴 ATTENZIONE: [nome] è senza incarico e non ha monte ore contrattuale, ore da recuperare non si applicano."
+
 • ho X ore da recuperare dal mese scorso / recupero X ore da [mese]
 • il mese scorso ho fatto solo Y ore, recupero X / ho un recupero di X ore
 • devo recuperare le ore di [mese] / ho un debito di X ore
@@ -1602,6 +1604,8 @@ ESPRESSO IN TURNI INVECE CHE IN ORE (conversione automatica):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TURNI EXTRA VOLONTARI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MEDICO SENZA INCARICO: se il medico ha categoria "Senza inc." (controlla sempre "categoria" in stato.medici), non ha un monte ore contrattuale, quindi il concetto di turni extra (oltre il monte ore) non si applica. Non usare mai az: turni_extra per questo medico, qualunque cosa scriva su turni extra o guardie in più. Aggiungi invece nella spiegazione: "🔴 ATTENZIONE: [nome] è senza incarico e non ha monte ore contrattuale, turni extra non si applicano."
+
 Frasi che indicano disponibilità per turni oltre il monte ore contrattuale.
 Estrarre sempre il numero X di turni dichiarati. Se non specificato → segnalare ATTENZIONE.
 
