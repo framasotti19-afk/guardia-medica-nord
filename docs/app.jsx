@@ -1298,16 +1298,27 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
 Nello STATO ATTUALE sotto: "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-5", max_tokens: 16000,
-          // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
-          // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
-          messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
-        }),
-      });
+      // Timeout lato client: se la risposta è molto lunga, l'ambiente artifact può bloccare la
+      // fetch senza mai risolverla né rifiutarla (nessun errore, nessuna risposta: silenzio totale
+      // per l'utente). Interrompiamo noi stessi dopo 55s per garantire SEMPRE un feedback in chat.
+      const abortCtrl = new AbortController();
+      const timeoutId = setTimeout(() => abortCtrl.abort(), 55000);
+      let resp;
+      try {
+        resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: abortCtrl.signal,
+          body: JSON.stringify({
+            model: "claude-sonnet-5", max_tokens: 16000,
+            // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
+            // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
+            messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
+          }),
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const data = await resp.json();
       if (!resp.ok) {
         // API ha risposto con errore HTTP (es. 401, 529, ecc.): mostra il messaggio completo di Anthropic
@@ -1356,7 +1367,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         setAiMsgs((p) => [...p, { role: "assistant", content: testo || "Nessuna risposta." }]);
       }
     } catch (e) {
-      setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${e?.message || String(e)}. Verifica di star usando l'app all'interno di claude.ai come artifact attivo (non come file scaricato).` }]);
+      if (e?.name === "AbortError") {
+        // Richiesta interrotta dal nostro timeout: la risposta stava impiegando troppo (probabilmente
+        // troppo lunga). Stesso trattamento del troncamento per JSON incompleto: nessuna azione
+        // applicata, offriamo di ripetere la richiesta originale in modo più sintetico.
+        setTroncato(true);
+        setAzioniRestanti(true);
+        setAiMsgs((p) => [...p, { role: "assistant", content: "La richiesta ha impiegato troppo tempo (oltre 55s) ed è stata interrotta — probabilmente la risposta era troppo lunga. Nessuna modifica è stata applicata. Premi \"Continua →\" per far ripetere la richiesta in modo più sintetico." }]);
+      } else {
+        setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${e?.message || String(e)}. Verifica di star usando l'app all'interno di claude.ai come artifact attivo (non come file scaricato).` }]);
+      }
     }
     setAiBusy(false);
   };
@@ -1928,7 +1948,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
         </div>
 
         {aiOpen && (
-          <div style={{ width: 320, borderLeft: "1px solid #dde0dc", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
+          <div style={{ width: 480, borderLeft: "1px solid #dde0dc", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef0ec", fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: "#8a8f88" }}>— risponde solo se interpellata</span></div>
             <div style={{ flex: 1, overflow: "auto", padding: 12, display: "grid", gap: 8, alignContent: "start" }}>
               {aiMsgs.length === 0 && <div style={{ fontSize: 12, color: "#8a8f88" }}>Chiedimi es.: "ci sono turni scoperti?", "chi lavora a Ferragosto?", "riassumi lo schema".</div>}
