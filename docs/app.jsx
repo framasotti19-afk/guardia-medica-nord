@@ -2179,6 +2179,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
   const btn = { padding: "8px 12px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
+  // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
+  // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
+  // attualmente scelto — mai una combinazione inesistente in MESI_DISPONIBILI.
+  const anniDisponibili = [...new Set(MESI_DISPONIBILI.map((m) => m.anno))];
+  const mesiDelAnno = MESI_DISPONIBILI.filter((m) => m.anno === anno).map((m) => m.mese);
+  const vaiAMese = (nuovoAnno, nuovoMese) => {
+    let idx = MESI_DISPONIBILI.findIndex((m) => m.anno === nuovoAnno && m.mese === nuovoMese);
+    if (idx < 0) idx = MESI_DISPONIBILI.findIndex((m) => m.anno === nuovoAnno); // mese non valido per quell'anno: primo disponibile
+    if (idx >= 0) setMeseIdx(idx);
+  };
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif", background: "#f6f7f5", minHeight: "100vh", color: "#22252a" }}>
@@ -2189,13 +2199,20 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => setMeseIdx((i) => Math.max(0, i - 1))} disabled={meseIdx === 0} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>‹</button>
-          {/* Selettore diretto mese/anno: salta a qualunque mese disponibile (Agosto 2026 – Dicembre
-              2036) senza dover cliccare le frecce decine di volte. Le frecce restano per il caso
-              d'uso "mese successivo/precedente" più comune. */}
-          <select value={meseIdx} onChange={(e) => setMeseIdx(Number(e.target.value))}
-            style={{ fontSize: 15, fontWeight: 700, minWidth: 150, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 6px", cursor: "pointer" }}>
-            {MESI_DISPONIBILI.map((m, i) => (
-              <option key={i} value={i} style={{ color: "#22252a", background: "#fff" }}>{MESI_IT[m.mese]} {m.anno}</option>
+          {/* Due selettori separati (mese + anno), stile "app nativa": salto diretto a qualunque
+              mese disponibile senza cliccare le frecce decine di volte. Le opzioni del mese si
+              filtrano in base all'anno scelto (il 2026 ha solo agosto-dicembre). Le frecce restano
+              per il caso d'uso "mese successivo/precedente" più comune. */}
+          <select value={mese} onChange={(e) => vaiAMese(anno, Number(e.target.value))}
+            style={{ fontSize: 14, fontWeight: 700, minWidth: 100, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 4px", cursor: "pointer" }}>
+            {mesiDelAnno.map((m) => (
+              <option key={m} value={m} style={{ color: "#22252a", background: "#fff" }}>{MESI_IT[m]}</option>
+            ))}
+          </select>
+          <select value={anno} onChange={(e) => vaiAMese(Number(e.target.value), mese)}
+            style={{ fontSize: 14, fontWeight: 700, minWidth: 68, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 4px", cursor: "pointer" }}>
+            {anniDisponibili.map((a) => (
+              <option key={a} value={a} style={{ color: "#22252a", background: "#fff" }}>{a}</option>
             ))}
           </select>
           <button onClick={() => setMeseIdx((i) => Math.min(MESI_DISPONIBILI.length - 1, i + 1))} disabled={meseIdx === MESI_DISPONIBILI.length - 1} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>›</button>
