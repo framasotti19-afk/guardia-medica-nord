@@ -609,6 +609,40 @@ function notaSlot(slots, si, fis) {
 }
 
 // ============ COMPONENTE ============
+
+// Estrae il primo oggetto JSON valido e "riconoscibile" (con un campo "tipo") da un testo che
+// potrebbe contenere un preambolo prima o dopo il JSON (es. un ragionamento scritto per errore
+// dal modello, in violazione delle istruzioni "RISPONDI SOLO con JSON"). Più robusto di una
+// semplice ricerca "prima { ultima }": conta la profondità delle graffe rispettando le stringhe
+// tra virgolette (per non confondersi con graffe dentro un valore testuale) e prova ogni "{" nel
+// testo come possibile inizio, così una graffa estranea nel preambolo (es. notazione matematica
+// come "h = (...) mod 7") non fa fallire l'estrazione del JSON vero.
+function estraiJsonBilanciato(testo) {
+  for (let i = 0; i < testo.length; i++) {
+    if (testo[i] !== "{") continue;
+    let profondita = 0, dentroStringa = false, escape = false;
+    for (let j = i; j < testo.length; j++) {
+      const ch = testo[j];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { dentroStringa = !dentroStringa; continue; }
+      if (dentroStringa) continue;
+      if (ch === "{") profondita++;
+      else if (ch === "}") {
+        profondita--;
+        if (profondita === 0) {
+          try {
+            const obj = JSON.parse(testo.slice(i, j + 1));
+            if (obj && typeof obj === "object" && obj.tipo) return obj;
+          } catch (e) { /* candidato non valido, prova il prossimo "{" */ }
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 export default function App() {
   const [meseIdx, setMeseIdx] = useState(0);
   const [store, setStore] = useState({});
@@ -1279,10 +1313,10 @@ Le regole ordinarie di assegnazione (categoria, debito, graduatoria) si applican
 UNICA ECCEZIONE: gli errori del coordinatore vanno sempre corretti retroattivamente, in qualsiasi fase.
 
 == CALENDARIO PERPETUO — GIORNO DELLA SETTIMANA E FESTIVITÀ (NON affidarti alla memoria) ==
-Per stabilire se un giorno del mese corrente (indicato in STATO ATTUALE come "mese") è un feriale semplice, un weekend, un festivo o un prefestivo — informazione necessaria per le regole su turni diurno/notturno e weekend ambiguo più sotto — NON fidarti della tua memoria approssimativa del calendario: calcola sempre esplicitamente, passo per passo, usando le regole seguenti.
+Per stabilire se un giorno del mese corrente (indicato in STATO ATTUALE come "mese") è un feriale semplice, un weekend, un festivo o un prefestivo — informazione necessaria per le regole su turni diurno/notturno e weekend ambiguo più sotto — NON fidarti della tua memoria approssimativa del calendario: calcola sempre, usando le regole seguenti, MA SOLO MENTALMENTE, senza scrivere alcun passaggio del calcolo nella risposta: la risposta visibile deve contenere SOLO il risultato finale (JSON valido), MAI il ragionamento o i calcoli intermedi, MAI un'introduzione tipo "Ragionamento interno" o simili — nemmeno se pensi che sia etichettata come "non mostrata all'utente": qualunque testo scrivi prima o dopo il JSON è visibile per l'utente, non esiste un canale nascosto.
 1) GIORNO DELLA SETTIMANA — congruenza di Zeller (calendario gregoriano): per la data giorno=q, mese=m, anno=y, se m è gennaio o febbraio trattalo come mese 13 o 14 dell'anno PRECEDENTE (cioè m+12, y-1). Poi calcola:
    h = ( q + floor(13×(m+1)/5) + K + floor(K/4) + floor(J/4) − 2×J ) mod 7
-   dove K = y mod 100 (ultime due cifre dell'anno), J = floor(y/100) (secolo). Il risultato h corrisponde a: 0=sabato, 1=domenica, 2=lunedì, 3=martedì, 4=mercoledì, 5=giovedì, 6=venerdì. Esegui SEMPRE questo calcolo esplicitamente, mostrando i passaggi a te stesso nel ragionamento, prima di concludere che giorno della settimana è.
+   dove K = y mod 100 (ultime due cifre dell'anno), J = floor(y/100) (secolo). Il risultato h corrisponde a: 0=sabato, 1=domenica, 2=lunedì, 3=martedì, 4=mercoledì, 5=giovedì, 6=venerdì.
 2) FESTIVITÀ FISSE (ogni anno, senza eccezioni): 1 gennaio (Capodanno), 6 gennaio (Epifania), 25 aprile, 1 maggio, 2 giugno, 15 agosto (Ferragosto), 1 novembre (Ognissanti), 8 dicembre (Immacolata), 25 dicembre (Natale), 26 dicembre (Santo Stefano), 31 dicembre (festivo a sé per ASFO — non è un festivo nazionale italiano, ma per il Distretto Nord conta come tale: di conseguenza il 30 dicembre, non il 31, è il suo prefestivo).
 3) PASQUA E PASQUETTA (data variabile, algoritmo di Gauss): per l'anno y calcola a = y mod 19; b = floor(y/100); c = y mod 100; d = floor(b/4); e = b mod 4; f = floor((b+8)/25); g = floor((b−f+1)/3); h = (19a + b − d − g + 15) mod 30; i = floor(c/4); k = c mod 4; l = (32 + 2e + 2i − h − k) mod 7; m = floor((a + 11h + 22l)/451); mese = floor((h + l − 7m + 114)/31) (3=marzo, 4=aprile); giorno = ((h + l − 7m + 114) mod 31) + 1. Questa è la domenica di Pasqua; Pasquetta è il giorno immediatamente successivo.
 4) PREFESTIVO = il giorno immediatamente precedente a una qualsiasi delle date di cui sopra (festività fissa, Pasqua o Pasquetta).
@@ -1807,7 +1841,7 @@ INFORMAZIONI INSUFFICIENTI:
 - Se ricevi "continua" come richiesta: NON ripetere le azioni già confermate nei round precedenti (vedi punto sopra). Per le richieste di disponibilità, non fidarti solo della cronologia: confronta la richiesta originale (email o elenco incollato) con "disponibilitaPresenti" nello STATO ATTUALE, che riflette esattamente cosa è già stato salvato — è la fonte di verità più affidabile su cosa manca, perché aggiornata ad ogni round in base a quanto realmente applicato. Prosegui SEMPRE con i prossimi medici/giorni NUOVI (quelli per cui "disponibilitaPresenti" non mostra ancora nulla). Se non riesci a determinare con certezza cosa manca, chiedi conferma invece di riproporre qualcosa di già fatto: non entrare mai in un loop che ripropone le stesse modifiche.
 - Se ricevi una richiesta che inizia con "[la tua risposta precedente è stata troncata...]": vuol dire che la risposta precedente non è arrivata a completamento e NESSUNA azione di quel round è stata applicata (non è un round già fatto da proseguire: vanno rifatte da capo). Ripeti la stessa richiesta riportata subito dopo, ma con MASSIMO 2 azioni e una spiegazione ancora più corta, per stare sicuramente dentro il limite di token questa volta.
 
-RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati:
+RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati. La tua risposta deve iniziare DIRETTAMENTE con il carattere "{" e finire con "}": nessun preambolo, nessun ragionamento scritto, nessuna frase introduttiva o di chiusura, nemmeno se la marchi come "interna" o "non visibile all'utente" — qualsiasi testo tu scriva viene mostrato integralmente, non esiste alcun canale nascosto per note o ragionamenti.
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ],"domande":[ ...opzionale, vedi sotto... ],"altreAzioniRestanti":true} — "altreAzioniRestanti" è booleano e opzionale (default false): vedi sopra. "azioni" può essere vuoto/omesso se la risposta è fatta SOLO di "domande".
@@ -1863,14 +1897,12 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       let obj = null;
       try { obj = JSON.parse(testo); } catch (e) { obj = null; }
       if (!obj) {
-        // Il modello potrebbe aver anteposto del testo introduttivo al JSON, in violazione delle
-        // istruzioni ("RISPONDI SOLO con un oggetto JSON valido"): proviamo a estrarre il blocco
-        // {...} più esterno prima di arrenderci, per non rischiare di mostrare testo misto a JSON.
-        const inizioJson = testo.indexOf("{");
-        const fineJson = testo.lastIndexOf("}");
-        if (inizioJson >= 0 && fineJson > inizioJson) {
-          try { obj = JSON.parse(testo.slice(inizioJson, fineJson + 1)); } catch (e) { obj = null; }
-        }
+        // Il modello potrebbe aver anteposto del testo introduttivo al JSON (es. un "ragionamento"
+        // scritto per errore, in violazione di "RISPONDI SOLO con JSON"): estraiJsonBilanciato
+        // ignora correttamente eventuali graffe presenti nel preambolo stesso (es. notazione
+        // matematica tipo "h = (...) mod 7"), a differenza di un semplice "prima { ultima }" che
+        // si romperebbe proprio in quel caso.
+        obj = estraiJsonBilanciato(testo);
       }
       const eTroncato = data.stop_reason === "max_tokens";
       if (eTroncato && !obj) {
@@ -1888,7 +1920,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           setMeseIdx(mi);
           setAiMsgs((p) => [...p, { role: "assistant", content: `Ti ho portato su ${MESI_IT[MESI_DISPONIBILI[mi].mese]} ${MESI_DISPONIBILI[mi].anno}.` }]);
         } else {
-          setAiMsgs((p) => [...p, { role: "assistant", content: "Mese non trovato (calendario: Agosto 2026 – Dicembre 2027)." }]);
+          setAiMsgs((p) => [...p, { role: "assistant", content: "Mese non trovato (calendario: Agosto 2026 – Dicembre 2036)." }]);
         }
       } else if ((obj?.tipo === "modifiche" || obj?.tipo === "modifica" || obj?.tipo === "modifica_dispo") &&
         ((Array.isArray(obj.azioni) && obj.azioni.length) || (Array.isArray(obj.domande) && obj.domande.length))) {
@@ -1915,10 +1947,12 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         // un messaggio generico.
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.spiegazione || obj.testo || "Non ho capito bene la richiesta, puoi riformulare?" }]);
       } else {
-        // Nemmeno l'estrazione del blocco JSON è riuscita: se il testo residuo sembra comunque
-        // JSON grezzo (inizia con { e finisce con }), non mostrarlo mai in chat così com'è.
-        const sembraJson = /^\{[\s\S]*\}$/.test(testo.trim());
-        setAiMsgs((p) => [...p, { role: "assistant", content: sembraJson ? "Non sono riuscito a interpretare la risposta, riprova." : (testo || "Nessuna risposta.") }]);
+        // Nemmeno estraiJsonBilanciato è riuscita: se il testo contiene comunque una graffa "{" in
+        // QUALUNQUE punto (non solo se l'intero testo INIZIA con una, come prima) è quasi certamente
+        // JSON grezzo o un misto testo+JSON (es. un preambolo di "ragionamento" seguito dal JSON vero
+        // ma malformato) — non va mai mostrato così com'è, in nessun caso.
+        const contieneJson = testo.includes("{");
+        setAiMsgs((p) => [...p, { role: "assistant", content: contieneJson ? "Non sono riuscito a interpretare la risposta, riprova." : (testo || "Nessuna risposta.") }]);
       }
     } catch (e) {
       if (e?.name === "AbortError") {
