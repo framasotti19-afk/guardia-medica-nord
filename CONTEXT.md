@@ -393,6 +393,26 @@ node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (2
 
 ---
 
+## 8bis. TEST AUTOMATICO DEL PROMPT AI (email simulate contro l'API reale)
+
+A differenza della suite sopra (pura, deterministica, offline), questo harness testa il **prompt di sistema** di `chiediAI` (interpretazione email dei medici) chiamando davvero l'API Anthropic. È diviso in tre file indipendenti:
+
+- **`test_email_generator.mjs`** — genera un corpus di ~550 email simulate in italiano su 24 categorie (sedi fisiche, copertura a distanza, indisponibilità/ferie, recupero ore in ore e in turni, turni extra in tutte le varianti, MMG/PLS attivo e non attivo, weekend ambiguo, notti esplicite, condizionali, contraddizioni, senza-incarico con richieste improprie, sede non identificabile, date vaghe, tetto settimanale, preferenza turno), con un RNG seedato (mulberry32, seed fisso) per riproducibilità totale. Ogni caso ha un `atteso`: azioni che devono comparire, azioni che NON devono mai comparire (`azioniVietate`, usato per testare le regole di protezione come senza-incarico + recupero/turni-extra), domande Sì/No attese o vietate, avvisi 🔴 ATTENZIONE attesi. Girato da solo scrive `test_email_corpus.json` (non committato, vedi `.gitignore`).
+- **`test_email_runner.mjs`** — **estrae il prompt "sys" direttamente dal sorgente** di `turni-guardia-medica.jsx` (stesso principio di sezionamento di `engine_test.mjs`, cercando il marker `const sys = \`` fino a `STATO ATTUALE: ${JSON.stringify(stato)}\`;`) e lo compila con `new Function`, così il test resta sempre sincronizzato col prompt reale senza copie manuali. Per ogni caso costruisce lo `stato` JSON esatto e chiama `api.anthropic.com/v1/messages` (richiede `ANTHROPIC_API_KEY` in env o in un `.env` locale MAI committato). Ha una **guardia di sicurezza**: oltre 20 casi richiede il flag esplicito `--yes` (altrimenti si ferma con un avviso di costo), più un flag `--dry-run` che valida solo il rendering dei prompt senza fare alcuna chiamata di rete. Supporto a `--limit N` (run di prova), `--concurrency N` (default 6), salvataggio incrementale ogni 50 casi. Scrive `test_email_results.json` (non committato).
+- **`test_email_report.mjs`** — legge i risultati e verifica ogni caso con un matcher **strutturale/parziale** (non uguaglianza esatta sull'intero JSON): un'azione attesa deve comparire con i campi discriminanti giusti, un'azione vietata non deve mai comparire, domande/avvisi attesi devono essere presenti. Produce: % di successo globale, breakdown per categoria, pattern di errore ricorrenti (categoria × tipo errore, es. "azione_vietata", "domanda_mancante", "avviso_mancante"), suggerimenti euristici precompilati per le categorie più delicate, e in coda il dettaglio di ogni fallimento. Output sia a console sia su `test_email_report.md` (non committato). Flag opzionale `--ai-suggestions` (richiede anch'esso `ANTHROPIC_API_KEY`): fa una chiamata finale in più per suggerimenti in prosa scritti dall'AI a partire dai fallimenti reali, invece della sola euristica.
+
+```bash
+node test_email_generator.mjs                  # genera test_email_corpus.json (~550 casi)
+node test_email_runner.mjs --dry-run            # verifica il rendering dei prompt, ZERO chiamate API
+node test_email_runner.mjs --limit 20           # run di prova economica (sotto la soglia --yes)
+node test_email_runner.mjs --yes                # run completa sull'intero corpus (a pagamento)
+node test_email_report.mjs                      # report di verifica semantica + suggerimenti
+```
+
+Nota di sicurezza: durante lo sviluppo di questo harness, importare `test_email_runner.mjs` senza controllarne l'entry point ha innescato una run reale accidentale — per questo il file ha una guardia esplicita (`main()` parte solo se eseguito come CLI diretta, mai se importato come modulo) e la soglia `--yes` sopra descritta.
+
+---
+
 ## 9. COME VERIFICARE CHE NON HAI ROTTO NIENTE
 
 ```bash

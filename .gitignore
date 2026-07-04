@@ -1,0 +1,4 @@
+.env
+test_email_corpus.json
+test_email_results*.json
+test_email_report*.md
