@@ -11,8 +11,8 @@ const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3
 // Scorciatoie sui medici della graduatoria simulata (CONTEXT.md §4)
 const BERTUZZI = 1, CAMPANER = 2, TRIGODKO = 3, PRESSACCO = 4, FOSCHIANI = 8, WANG = 12, ZURLO = 13, MICHELI = 17;
 
-function unicoTurno(dispo, extraOre = {}, giorno = G1) {
-  const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
+function unicoTurno(dispo, extraOre = {}, giorno = G1, turniExtra = {}) {
+  const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {}, turniExtra);
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
 }
 function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
@@ -225,12 +225,16 @@ suite.test("ordine fascia 2: senza incarico battono i contrattualizzati con debi
   suite.eq(t.slots[0], ZURLO);
 });
 
-suite.test("fascia 3 (esauriti): competono solo per grad tra loro", () => {
+suite.test("fascia 3 (esauriti CON turni extra dichiarati): competono solo per grad tra loro", () => {
+  // Monte ore ordinario esaurito per entrambi (extraOre: -156) MA con turni extra dichiarati
+  // (§3.10): senza turni extra, il blocco rigido (§3.4) li escluderebbe del tutto (vedi test
+  // successivo e test_stesso_cat2.mjs) — qui invece restano candidati, in fascia 3, e competono
+  // solo per graduatoria come tra medici della stessa categoria.
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
-  const t = unicoTurno(d, { [TRIGODKO]: -156, [PRESSACCO]: -156 });
-  suite.eq(t.slots[0], TRIGODKO);
+  const t = unicoTurno(d, { [TRIGODKO]: -156, [PRESSACCO]: -156 }, G1, { [TRIGODKO]: 1, [PRESSACCO]: 1 });
+  suite.eq(t.slots[0], TRIGODKO, "TRIGODKO (grad4) batte PRESSACCO (grad57): a parità di debito (entrambi 0 + turni extra), decide la graduatoria");
 });
 
 suite.test("un esaurito NON può scalzare un senza incarico anche con grad migliore", () => {
@@ -241,11 +245,23 @@ suite.test("un esaurito NON può scalzare un senza incarico anche con grad migli
   suite.eq(t.slots[0], MICHELI);
 });
 
-suite.test("un esaurito copre comunque un turno se non c'è nessun altro candidato", () => {
+suite.test("un esaurito CON turni extra dichiarati copre comunque un turno se non c'è nessun altro candidato", () => {
+  // Con turni extra dichiarati (>0), il medico resta candidato oltre il monte ore ordinario
+  // esaurito (§3.10) e copre il turno in assenza di alternative.
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  const t = unicoTurno(d, { [TRIGODKO]: -156 }, G1, { [TRIGODKO]: 1 });
+  suite.eq(t.slots[0], TRIGODKO);
+});
+
+suite.test("un esaurito SENZA turni extra dichiarati NON copre: blocco rigido (§3.4), la sede resta scoperta anche senza alternative", () => {
+  // Regola corretta: un esaurito copre un buco SOLO se ha dichiarato turni extra (turniExtra > 0).
+  // Senza turni extra, una volta esaurito il monte ore è escluso dai candidati per QUALSIASI
+  // turno, anche restando l'unico disponibile — coerente con test_stesso_cat2.mjs.
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [TRIGODKO]: -156 });
-  suite.eq(t.slots[0], TRIGODKO);
+  suite.eq(t.slots[0], null, "nessun turno extra dichiarato: TRIGODKO esaurito è escluso, la sede resta scoperta");
 });
 
 // ---------------------------------------------------------------------------
