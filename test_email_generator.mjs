@@ -376,6 +376,32 @@ times(43, () => {
   });
 });
 
+// ============ 20bis. SENZA INCARICO — DISPONIBILITÀ SENZA NUMERO DI GUARDIE MENSILI (avviso, nessuna azione) ============
+times(30, () => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(senzaIncarico);
+  const varianti = [
+    `Il ${giorno} sono disponibile a Maniago per la notte.`,
+    `Per il ${giorno} posso coprire Maniago di notte.`,
+  ];
+  aggiungi("senza_incarico_no_numero_guardie", m, giorno, pick(varianti), {
+    azioniRichieste: [], azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N" } }],
+    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "numero massimo di guardie"] },
+  });
+});
+
+// ============ 20ter. SENZA INCARICO — DISPONIBILITÀ CON NUMERO DI GUARDIE MENSILI (inserimento normale) ============
+times(30, () => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(senzaIncarico);
+  const n = randInt(4, 10);
+  const email = `Voglio fare ${n} guardie questo mese. Il ${giorno} sono disponibile a Maniago per la notte.`;
+  aggiungi("senza_incarico_con_numero_guardie", m, giorno, email, {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
 // ============ 21. SEDE NON IDENTIFICABILE (avviso, nessuna azione) ============
 times(43, () => {
   const giorno = pick(GIORNI_FERIALI);

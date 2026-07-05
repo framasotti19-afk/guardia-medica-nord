@@ -1381,6 +1381,14 @@ Queste regole coprono le frasi più comuni usate dai medici italiani nelle email
 Per ogni frase ambigua non elencata, applica il principio più vicino per analogia.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MEDICO SENZA INCARICO — NUMERO DI GUARDIE MENSILI (controllo OBBLIGATORIO, PRIMA di ogni altra regola di questa sezione)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Se il medico ha categoria "Senza inc." (controlla sempre "categoria" in stato.medici) e dichiara disponibilità ordinarie (sedi, giorni, turni) SENZA indicare da nessuna parte un numero complessivo di guardie che vuole fare nel mese (es. "voglio fare 6 guardie", "posso fare al massimo 4 turni questo mese", "disponibile per 8 guardie ad agosto"): NON inserire NESSUNA disponibilità per quel medico in questo round, qualunque sede o giorno abbia specificato. Genera invece SOLO l'avviso: "🔴 ATTENZIONE: [nome] è senza incarico e non ha indicato il numero massimo di guardie mensili — contattare il medico e reinserire l'email con il numero specificato."
+Il numero può essere stato indicato in questo stesso messaggio o in un messaggio precedente della stessa conversazione (vedi REGOLA GENERALE: MEMORIA TRA ROUND più sotto): non è necessario che venga ripetuto a ogni round. Se il numero risulta comunque presente da qualche parte nella conversazione per quel medico, il controllo è soddisfatto: inserisci normalmente tutte le disponibilità dichiarate (sedi, giorni, turni), con le stesse identiche regole ordinarie di questa sezione usate per qualsiasi altro medico.
+Questo controllo riguarda SOLO i medici senza incarico e SOLO le disponibilità ordinarie (sedi/turni) — MMG/PLS, recupero ore e turni extra hanno già le proprie regole dedicate più sotto e non sono toccati da questa regola.
+Esegui questo controllo silenziosamente, senza scrivere alcun ragionamento o passaggio intermedio nella risposta: solo il risultato finale (l'avviso oppure le azioni) deve comparire, mai un testo che spieghi come sei arrivato alla conclusione.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SEDI FISICHE — PRIMA SCELTA (verde livello 1)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Frasi che indicano la sede principale desiderata:
