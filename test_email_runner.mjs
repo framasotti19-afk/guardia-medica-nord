@@ -104,6 +104,7 @@ function buildStato(caso) {
       nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad,
       oreExtra: (statoOverride.oreExtraPre || {})[m.nome] || 0,
       turniExtra: (statoOverride.turniExtraPre || {})[m.nome] || 0,
+      maxTurniMese: (statoOverride.maxTurniMesePre || {})[m.nome] ?? null,
       oreAssegnate: null, oreMancanti: null,
     })),
     mmgAttivi: statoOverride.mmgAttivi || [],

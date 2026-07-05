@@ -53,7 +53,7 @@ let seq = 0;
 const nextId = (categoria) => `${categoria}_${String(++seq).padStart(4, "0")}`;
 
 function statoBase() {
-  return { mmgAttivi: [], oreExtraPre: {}, turniExtraPre: {} };
+  return { mmgAttivi: [], oreExtraPre: {}, turniExtraPre: {}, maxTurniMesePre: {} };
 }
 
 const casi = [];
@@ -163,7 +163,7 @@ times(43, () => {
 // ============ 6bis. ECCEZIONI "TRANNE"/"ECCETTO"/... IN DISPONIBILITÀ (regressione bug: i giorni
 // dopo il connettivo NON devono mai risultare disponibili — l'AI aveva invertito la logica su una
 // frase reale "disponibile tutto il mese tranne dal 1 al 7", inserendo disponibilità invece di NO) ============
-times(30, (i) => {
+times(50, (i) => {
   const connettori = ["tranne", "eccetto", "salvo", "a parte", "escluso", "fuori da"];
   const connettivo = connettori[i % connettori.length];
   const da = pick(GIORNI_FERIALI.slice(0, 12));
@@ -410,13 +410,18 @@ times(30, () => {
 });
 
 // ============ 20ter. SENZA INCARICO — DISPONIBILITÀ CON NUMERO DI GUARDIE MENSILI (inserimento normale) ============
+// Il numero dichiarato sblocca le disponibilità ordinarie E genera SEMPRE anche tetto_mese
+// (CONTEXT.md §3.11 punto 1 — vedi anche la categoria dedicata "tetto_mese_senza_incarico").
 times(30, () => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(senzaIncarico);
   const n = randInt(4, 10);
   const email = `Voglio fare ${n} guardie questo mese. Il ${giorno} sono disponibile a Maniago per la notte.`;
   aggiungi("senza_incarico_con_numero_guardie", m, giorno, email, {
-    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
+    azioniRichieste: [
+      { az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } },
+      { az: "tetto_mese", match: { medico: m.nome, maxTurni: n } },
+    ],
     azioniVietate: [], nessunaAzione: false,
   });
 });
@@ -460,6 +465,94 @@ times(43, () => {
   const email = `Per il ${giorno}, se dovessi vincere sia il turno diurno che quello notturno, preferisco tenere la notte.`;
   aggiungi("preferenza_turno", m, giorno, email, {
     azioniRichieste: [{ az: "turno_pref", match: { medico: m.nome, giorno, turno: "N" } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
+// ============ 25. TETTO MENSILE — DICHIARAZIONE DIRETTA CON NUMERO ============
+// Vale per QUALSIASI categoria (CONTEXT.md §3.11 punto 1), a differenza dei turni extra.
+times(15, () => {
+  const n = randInt(2, 12);
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    `Voglio fare al massimo ${n} turni questo mese.`,
+    `Non più di ${n} guardie al mese per me.`,
+    `Limitatemi a ${n} turni questo mese, per favore.`,
+    `Questo mese faccio solo ${n} guardie.`,
+    `Non fatemi fare più di ${n} turni.`,
+    `Massimo ${n} guardie per me questo mese.`,
+    `Non superate i ${n} turni per me questo mese.`,
+    `Per questo mese mi fermo a ${n} turni.`,
+    `${n} turni è il mio massimo per questo mese.`,
+  ];
+  aggiungi("tetto_mese_diretto", m, [], pick(varianti), {
+    azioniRichieste: [{ az: "tetto_mese", match: { medico: m.nome, maxTurni: n } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
+// ============ 26. TETTO MENSILE — CONDIZIONALE CON NUMERO ============
+times(12, () => {
+  const n = randInt(2, 12);
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    `Se ne avete bisogno faccio fino a ${n} turni questo mese.`,
+    `In caso di necessità arrivo fino a ${n} guardie.`,
+    `Se serve posso arrivare fino a un massimo di ${n} turni.`,
+    `Al bisogno faccio al massimo ${n} guardie questo mese.`,
+    `Se il distretto ha bisogno, il mio limite è ${n} turni.`,
+  ];
+  aggiungi("tetto_mese_condizionale", m, [], pick(varianti), {
+    azioniRichieste: [{ az: "tetto_mese", match: { medico: m.nome, maxTurni: n } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
+// ============ 27. TETTO MENSILE — SENZA INCARICO (nessun'altra disponibilità nel messaggio) ============
+// Lo stesso numero che soddisfa il controllo obbligatorio (§20ter) genera SEMPRE anche
+// tetto_mese, indipendentemente dal fatto che siano presenti altre disponibilità ordinarie.
+times(12, () => {
+  const n = randInt(2, 10);
+  const m = pick(senzaIncarico);
+  const varianti = [
+    `Questo mese faccio ${n} guardie.`,
+    `Sono disponibile per ${n} guardie questo mese.`,
+    `Voglio fare ${n} turni ad agosto.`,
+  ];
+  aggiungi("tetto_mese_senza_incarico", m, [], pick(varianti), {
+    azioniRichieste: [{ az: "tetto_mese", match: { medico: m.nome, maxTurni: n } }],
+    azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome } }], nessunaAzione: false,
+  });
+});
+
+// ============ 28. TETTO MENSILE — GENERICO SENZA NUMERO (avviso, nessuna azione) ============
+times(12, () => {
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    "Vorrei fare qualche turno in meno del solito questo mese.",
+    "Vorrei lavorare meno questo mese.",
+    "Questo mese preferirei limitare i turni.",
+    "Vorrei un tetto ma non so ancora quanto.",
+    "Fatemi lavorare un po' meno se possibile.",
+  ];
+  aggiungi("tetto_mese_generico", m, [], pick(varianti), {
+    azioniRichieste: [], azioniVietate: [{ az: "tetto_mese" }], nessunaAzione: false,
+    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome] },
+  });
+});
+
+// ============ 29. TETTO MENSILE — RIFIUTO ESPLICITO (maxTurni:null, mai 0) ============
+times(9, () => {
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    "Non voglio limiti questo mese.",
+    "Fate voi, nessun tetto per me.",
+    "Non mettetemi limiti questo mese.",
+    "Decidete voi quanti turni farmi.",
+    "Non ho un massimo, fate come serve.",
+  ];
+  aggiungi("tetto_mese_rifiuto", m, [], pick(varianti), {
+    azioniRichieste: [{ az: "tetto_mese", match: { medico: m.nome, maxTurni: null } }],
     azioniVietate: [], nessunaAzione: false,
   });
 });

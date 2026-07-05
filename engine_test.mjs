@@ -208,6 +208,58 @@ const capSettimanale = (dispo, mid, wk) => {
   return typeof n === "number" && n >= 0 ? n : null;
 };
 
+// Tetto MENSILE dichiarato dal coordinatore per un medico (CONTEXT.md §3.11), indipendente dal
+// debito residuo e valido per QUALSIASI categoria: `dati.maxTurniMese[mid] = N`, o null/assente =
+// nessun limite. A differenza del tetto settimanale non è nella dispo (un solo valore per l'intero
+// mese, non per-settimana) — stesso pattern di `extraOre`/`turniExtra`.
+const capMensileDi = (maxTurniMese, mid) => {
+  const n = maxTurniMese[mid];
+  return typeof n === "number" && n >= 0 ? n : null;
+};
+
+// Distribuzione temporale reale (CONTEXT.md §3.11): per un contrattualizzato NON titolare con
+// debito ordinario positivo all'inizio del mese, precalcola un sottoinsieme di slot dove ha
+// dichiarato verde, il più possibile distanziati nel mese, dimensionato sul numero di turni
+// stimati dal suo debito (o dal tetto mensile dichiarato, se più restrittivo). SOLO su questi
+// slot competerà con piena priorità di categoria; sui restanti giorni disponibili ma non
+// riservati scende al bucket "senza incarico" (pura graduatoria) per QUEL giorno specifico — mai
+// un blocco rigido: resta sempre disponibile come riserva se nessun altro copre quel turno, non
+// lascia mai un buco. Ritorna null (nessuna restrizione, comportamento pre-esistente invariato)
+// per i titolari di sede (la titolarità non va mai intaccata da questo meccanismo), per i senza
+// incarico (debito nullo) e per chi è già esaurito dall'inizio del mese.
+function calcolaRiservati(mid, dispo, anno, mese, extras, budgetOre, capMensileTurni) {
+  if (isDeterminato(mid) && byId[mid].sedeContratto !== null) return null;
+  if (budgetOre === null || budgetOre <= 0) return null;
+  const nGiorni = new Date(anno, mese + 1, 0).getDate();
+  const slots = [];
+  for (let d = 1; d <= nGiorni; d++) {
+    const info = turniDelGiorno(anno, mese, d, extras);
+    info.turni.forEach((turno) => {
+      const slotKey = `${info.key}|${turno.id}`;
+      const v = normDispo(dispo[mid]?.[slotKey]);
+      if (!v.no && v.verde.length) slots.push({ slotKey, ore: turno.ore });
+    });
+  }
+  if (!slots.length) return new Set();
+  const k = slots.length;
+  const oreMedie = slots.reduce((s, x) => s + x.ore, 0) / k || 12;
+  let nTarget = Math.max(1, Math.min(k, Math.ceil(budgetOre / oreMedie)));
+  if (capMensileTurni !== null) nTarget = Math.min(nTarget, capMensileTurni);
+  if (nTarget <= 0) return new Set();
+  // Selezione a spaziatura massima: nTarget indici il più possibile equidistanti nell'elenco
+  // (cronologico) degli slot disponibili — non necessariamente equidistanti in giorni di
+  // calendario (dipende da dove il medico ha effettivamente dichiarato disponibilità), ma la
+  // scelta migliore possibile dato l'elenco reale.
+  const scegliIndici = (n) => {
+    if (n >= k) return slots.map((_, i) => i);
+    if (n <= 1) return [0];
+    const idx = new Set();
+    for (let i = 0; i < n; i++) idx.add(Math.round((i * (k - 1)) / (n - 1)));
+    return [...idx].sort((a, b) => a - b);
+  };
+  return new Set(scegliIndici(nTarget).map((i) => slots[i].slotKey));
+}
+
 // Preferenza di TURNO (diurno/notturno) per un giorno che ha entrambi (weekend/festivo/
 // prefestivo): decide SOLO quale dei due il medico mantiene se li vince entrambi lo stesso
 // giorno, non cambia mai CHI vince un conflitto né anticipa l'elaborazione (CONTEXT.md §3.9).
@@ -219,7 +271,7 @@ const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr
 // ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico in coda).
 // Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
 // alternativo con lo stesso identico criterio usato da elaboraTurno.
-function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) {
+function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, maxTurniMese, meseCount, riservatiPerMedico) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -227,6 +279,9 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
     if (v.no || !(v.verde.length || v.blu.length)) return false;
     const cap = capSettimanale(dispo, m.id, wk);
     if (cap !== null && (settimanaCount[m.id]?.[wk] || 0) >= cap) return false; // tetto settimanale raggiunto
+    // Tetto MENSILE (CONTEXT.md §3.11): indipendente dal debito residuo, vale per ogni categoria.
+    const capMese = capMensileDi(maxTurniMese, m.id);
+    if (capMese !== null && (meseCount[m.id] || 0) >= capMese) return false;
     // Blocco rigido oltre il monte ore (CONTEXT.md §3.4): un contrattualizzato che ha esaurito sia
     // il debito ordinario (monte ore + recupero) sia gli eventuali turni extra volontari non è più
     // un candidato per NESSUN turno, nemmeno se resterebbe l'unico disponibile — il turno resta
@@ -234,13 +289,32 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
     if (debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0) return false;
     return true;
   });
-  const conDeb = candidati.filter((m) => debiti[m.id] !== null && debiti[m.id] > 0)
+  // Bucket 0 (piena priorità di categoria) richiede ANCHE che lo slot sia tra i "riservati" del
+  // medico, se ne ha (distribuzione temporale, CONTEXT.md §3.11) — riservatiPerMedico[mid] è null
+  // per i titolari/senza incarico/già esauriti (nessuna restrizione, comportamento invariato). Un
+  // contrattualizzato con debito ma FUORI dai propri giorni riservati va in un bucket 2 dedicato,
+  // PIÙ DEBOLE della senza-incarico vera (bucket 1): altrimenti, se il suo grad è già il migliore
+  // in assoluto (es. un INDET grad0), vincerebbe comunque anche "retrocesso" a parità di bucket
+  // con un senza incarico — vanificando la distribuzione. Nel bucket 2 compete solo con altri
+  // contrattualizzati ugualmente fuori dai propri riservati, sempre e solo per grad, e resta
+  // comunque disponibile come ultima risorsa se nessun altro (nemmeno un senza incarico) copre
+  // quel turno — non lascia mai un buco.
+  const bucketDi = (m) => {
+    if (debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)) return 1;
+    const riservati = riservatiPerMedico[m.id];
+    return (!riservati || riservati.has(slotKey)) ? 0 : 2;
+  };
+  const conDeb = candidati.filter((m) => bucketDi(m) === 0)
     .sort((a, b) => CAT_INFO[a.cat].prio - CAT_INFO[b.cat].prio || debiti[b.id] - debiti[a.id] || a.grad - b.grad);
-  // "senza" = veri senza incarico + contrattualizzati che hanno esaurito monte ore+recupero ma hanno
-  // ancora turni extra volontari dichiarati: competono insieme, alla pari, solo per graduatoria.
-  // (I contrattualizzati completamente esauriti, senza turni extra residui, sono già esclusi sopra.)
-  const senza = candidati.filter((m) => debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)).sort((a, b) => a.grad - b.grad);
-  return [...conDeb, ...senza]; // già in ordine di gerarchia ufficiale
+  // "senza" = veri senza incarico + contrattualizzati che hanno esaurito monte ore+recupero ma
+  // hanno ancora turni extra volontari dichiarati: competono insieme, alla pari, solo per
+  // graduatoria. (I contrattualizzati completamente esauriti, senza turni extra residui, sono già
+  // esclusi sopra.)
+  const senza = candidati.filter((m) => bucketDi(m) === 1).sort((a, b) => a.grad - b.grad);
+  // "demossi" = contrattualizzati con debito residuo ma fuori dai propri giorni riservati oggi:
+  // ultima risorsa, mai al pari di un vero senza incarico (vedi sopra).
+  const demossi = candidati.filter((m) => bucketDi(m) === 2).sort((a, b) => a.grad - b.grad);
+  return [...conDeb, ...senza, ...demossi]; // già in ordine di gerarchia ufficiale
 }
 
 // Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
@@ -248,10 +322,10 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti,
 // settimanaCount (turni già assegnati per medico/settimana) e ultimoFisico (data dell'ultimo
 // turno fisico per medico) condivisi tra tutte le chiamate dello stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico, maxTurniMese, meseCount, riservatiPerMedico) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
-  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, maxTurniMese, meseCount, riservatiPerMedico); // già in ordine di gerarchia ufficiale
   // Scala il debito del vincitore per un turno fisico: finché ha monte ore+recupero residuo lo
   // scala normalmente; una volta esaurito, scala i turni extra volontari dichiarati (stessa
   // priorità di un senza incarico — vedi bucketOf/candidatiOrdinati). Nessun effetto sui senza
@@ -274,14 +348,23 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       scalaDebito(sel.id, turno.ore);
       settimanaCount[sel.id] = settimanaCount[sel.id] || {};
       settimanaCount[sel.id][wk] = (settimanaCount[sel.id][wk] || 0) + 1;
+      meseCount[sel.id] = (meseCount[sel.id] || 0) + 1;
       ultimoFisico[sel.id] = dataStr;
     }
   } else {
-    // Bucket di priorità (conDeb > senza incarico/turni extra), usato sia per il confronto fisico
-    // che per quello a distanza. I contrattualizzati completamente esauriti (senza turni extra
-    // residui) non arrivano mai qui: sono già esclusi da "ordinati" in candidatiOrdinati (blocco
-    // rigido oltre il monte ore, CONTEXT.md §3.4).
-    const bucketOf = (mid) => (debiti[mid] !== null && debiti[mid] > 0) ? 0 : 1;
+    // Bucket di priorità a TRE livelli (0=conDeb, 1=senza incarico/turni extra, 2=contrattualizzato
+    // demosso perché fuori dai propri giorni riservati oggi), usato sia per il confronto fisico che
+    // per quello a distanza. I contrattualizzati completamente esauriti (senza turni extra residui)
+    // non arrivano mai qui: sono già esclusi da "ordinati" in candidatiOrdinati (blocco rigido oltre
+    // il monte ore, CONTEXT.md §3.4). "riservatiPerMedico" implementa la distribuzione temporale
+    // (§3.11): null per titolari/senza incarico (nessuna restrizione). Il bucket 2 è
+    // DELIBERATAMENTE più debole del bucket 1 (non alla pari): altrimenti un contrattualizzato col
+    // grad migliore in assoluto vincerebbe comunque anche demosso, vanificando la distribuzione.
+    const bucketOf = (mid) => {
+      if (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) return 1;
+      const riservati = riservatiPerMedico[mid];
+      return (!riservati || riservati.has(slotKey)) ? 0 : 2;
+    };
     const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
     // l'assegnazione fisica che per la copertura a distanza (CONTEXT.md §3.1a):
@@ -343,12 +426,22 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
         const occ = slots[si];
         if (occ === null) { slots[si] = m.id; sedeDi[m.id] = si; return true; }
         if (occ === m.id) continue;
+        const richiedenteMeglio = isBetterPriority(m.id, occ, sede);
+        // La ricollocazione "a costo zero" dell'occupante (pari/miglior livello, indifferenza
+        // dichiarata) presuppone che spostarlo non tolga nulla a nessuno — ma se l'occupante è
+        // TITOLARE proprio di questa sede e il richiedente non ha una priorità realmente
+        // superiore, spostarlo comunque (anche se lui stesso è indifferente tra le sue sedi
+        // dichiarate) equivarrebbe a cedere la sua sede di titolarità a chi non ne ha diritto:
+        // la titolarità garantisce quella sede SPECIFICA, non solo "una sede accettabile
+        // qualunque". In questo caso saltiamo il tentativo di ricollocazione e passiamo
+        // direttamente alla prossima preferenza del richiedente (l'occupante titolare resta).
+        if (!richiedenteMeglio && isTitolareDi(occ, sede)) continue;
         const occLiv = livelloVerdeDi(occ, sede);
-        const occMax = isBetterPriority(m.id, occ, sede) ? Infinity : occLiv;
+        const occMax = richiedenteMeglio ? Infinity : occLiv;
         delete sedeDi[occ];
         if (provaFisica(byId[occ], visitate, occMax)) { slots[si] = m.id; sedeDi[m.id] = si; return true; }
         sedeDi[occ] = si; // ricollocazione fallita: l'occupante resta dov'era
-        if (isBetterPriority(m.id, occ, sede)) {
+        if (richiedenteMeglio) {
           delete sedeDi[occ];
           slots[si] = m.id; sedeDi[m.id] = si;
           return true;
@@ -356,10 +449,52 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       }
       return false;
     };
+    // NOTA: non ci si può fermare non appena tutti i target sono occupati — "ordinati" è ordinato
+    // per categoria/debito/graduatoria, MAI per titolarità (CONTEXT.md §3.1a): un titolare può
+    // comparire più avanti nell'elenco di un non titolare di categoria migliore che ha già occupato
+    // la sua sede. Se ci fermassimo qui, quel titolare non avrebbe mai la possibilità di contestare
+    // la propria sede. provaFisica è comunque sicuro da richiamare per OGNI candidato: se non ha
+    // una pretesa reale (isBetterPriority falso su tutte le sue sedi dichiarate) non cambia nulla.
     for (const m of ordinati) {
-      if (Object.keys(sedeDi).length >= target.length) break;
       provaFisica(m, new Set(), Infinity);
     }
+
+    // ---- Correzione titolarità post-FASE1 (CONTEXT.md §3.1a, §10) ----
+    // Limite noto: con 3+ determinati che si contendono sedi sovrapposte nello stesso turno,
+    // catene di ricollocazione ricorsiva profonde in provaFisica possono raramente convergere
+    // lasciando un titolare fuori dalla propria sede pur avendone diritto, senza che nessun
+    // singolo passaggio della catena sia isolatamente scorretto. Una ripetizione generica
+    // dell'intero ciclo FASE1 introduceva regressioni reali altrove (perdita di copertura, la
+    // ricollocazione per indifferenza non è idempotente su stati già stabili) — vedi §10. Questa
+    // funzione è invece MIRATA solo ai titolari (mai a candidati generici), tocca solo LA LORO
+    // sede specifica, e sposta l'eventuale occupante scorretto tramite lo stesso provaFisica già
+    // usato ovunque (sicuro e già testato): se l'occupante non ha davvero priorità superiore su
+    // quella sede (isBetterPriority), il titolare la riprende e l'occupante ritenta altrove.
+    // Richiamata sia subito dopo FASE1 sia dopo la spaziatura temporale (§3.7): la spaziatura può
+    // essa stessa introdurre un nuovo occupante scorretto su una sede di titolarità (spostando via
+    // un occupante NON titolare che l'aveva legittimamente vinta per categoria, es. un INDET, e
+    // rimpiazzandolo con un candidato che non ha alcun diritto su quella sede) — un solo passaggio
+    // non basterebbe a correggere anche questo caso.
+    const correggiTitolarita = () => {
+      for (const m of ordinati) {
+        const S = byId[m.id].sedeContratto;
+        if (!isTitolareDi(m.id, S)) continue;
+        const si = target.find((i) => SEDI5[i] === S);
+        if (si === undefined) continue; // sede non tra i target odierni
+        if (sedeDi[m.id] === si) continue; // già lì, niente da correggere
+        if (accVerdeDi(m.id)[0] !== S) continue; // oggi non è la sua prima preferenza: non forziamo
+        const occ = slots[si];
+        if (occ === null || occ === m.id) continue;
+        if (!isBetterPriority(m.id, occ, S)) continue; // l'occupante ha legittimamente la priorità (es. INDET)
+        const vecchioSi = sedeDi[m.id];
+        delete sedeDi[occ];
+        delete sedeDi[m.id];
+        slots[si] = m.id; sedeDi[m.id] = si;
+        if (vecchioSi !== undefined) slots[vecchioSi] = null;
+        provaFisica(byId[occ], new Set([si]), Infinity);
+      }
+    };
+    correggiTitolarita();
 
     // ---- Regola di spaziatura temporale (CONTEXT.md §3.7) ----
     // Tra i turni disponibili di un medico, il motore preferisce sempre quello più distante
@@ -389,11 +524,29 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       // gestita dalla spaziatura ordinaria, indipendentemente da qualunque preferenza di turno.
       if (distanza === 0 && turnoPrefDi(dispo, mid, dataStr) === turno.id) return;
       const sede = SEDI5[si];
-      const alternativa = ordinati.find((o) => o.id !== mid && sedeDi[o.id] === undefined && normDispo(dispo[o.id]?.[slotKey]).verde.includes(sede));
+      // Il candidato alternativo non può avere un bucket PEGGIORE di quello del vincitore attuale
+      // (CONTEXT.md §3.11): altrimenti la spaziatura, pensata come tie-break tra pari livello di
+      // priorità, diventerebbe una scappatoia per far vincere un contrattualizzato demosso (fuori
+      // dai propri giorni riservati) semplicemente perché l'occupante ha lavorato ieri — vanificando
+      // la distribuzione temporale. Tra candidati dello stesso bucket il comportamento resta quello
+      // originale (il primo trovato nell'ordine di "ordinati"). Se il vincitore attuale è TITOLARE
+      // proprio di questa sede, la rotazione "hai lavorato ieri" non può mai fargliela cedere a un
+      // non titolare: la titolarità garantisce quella sede specifica indipendentemente dalla
+      // spaziatura — può cederla solo a un altro titolare della STESSA sede (caso raro di doppia
+      // titolarità), mai a chi non ha alcun diritto su quella sede in particolare.
+      const midTitolareQui = isTitolareDi(mid, sede);
+      const alternativa = ordinati.find((o) => o.id !== mid && sedeDi[o.id] === undefined && bucketOf(o.id) <= bucketOf(mid) && (!midTitolareQui || isTitolareDi(o.id, sede)) && normDispo(dispo[o.id]?.[slotKey]).verde.includes(sede));
       if (alternativa) { delete sedeDi[mid]; sedeDi[alternativa.id] = si; }
     });
 
     // Rebuild slots da sedeDi (fonte di verità), per eliminare "fantasmi" da ricollocazioni intermedie.
+    slots = [null, null, null, null, null];
+    Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
+    // Seconda passata di correzione titolarità (vedi sopra): la spaziatura appena eseguita può
+    // aver introdotto un nuovo occupante scorretto su una sede di titolarità. Rebuild finale di
+    // slots dopo, per ripulire eventuali "fantasmi" lasciati dalle ricollocazioni di questa seconda
+    // passata (stesso motivo del rebuild qui sopra).
+    correggiTitolarita();
     slots = [null, null, null, null, null];
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
     Object.keys(sedeDi).forEach((midStr) => {
@@ -401,6 +554,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       scalaDebito(mid, turno.ore);
       settimanaCount[mid] = settimanaCount[mid] || {};
       settimanaCount[mid][wk] = (settimanaCount[mid][wk] || 0) + 1;
+      meseCount[mid] = (meseCount[mid] || 0) + 1;
       ultimoFisico[mid] = dataStr;
     });
     fisiche = Object.values(sedeDi);
@@ -455,7 +609,7 @@ function slotHaPreferiti(dispo, slotKey) {
   return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
 }
 
-function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}) {
   const debiti = {};
   // Turni extra volontari (CONTEXT.md §3.10): budget SEPARATO dal debito ordinario, in ore
   // (turniExtra[mid] × 12). Si consuma SOLO dopo che monte ore+recupero è esaurito, e in quel
@@ -467,7 +621,17 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
     debiti[m.id] = base === null ? null : base + (extraOre[m.id] || 0);
     debitiExtra[m.id] = base === null ? null : (turniExtra[m.id] || 0) * 12;
   });
+  // Distribuzione temporale reale (CONTEXT.md §3.11): calcolata UNA VOLTA, prima di processare il
+  // mese, sul debito ordinario e sull'eventuale tetto mensile INIZIALI (prima di qualunque
+  // consumo) — è un meccanismo best-effort di preferenza, non una garanzia rigida: se un medico
+  // vince comunque un giorno non riservato (perché nessun altro copre quel turno), il suo debito
+  // reale si consuma comunque e i suoi giorni riservati successivi potrebbero non bastare più.
+  const riservatiPerMedico = {};
+  MEDICI.forEach((m) => {
+    riservatiPerMedico[m.id] = calcolaRiservati(m.id, dispo, anno, mese, extras, debiti[m.id], capMensileDi(maxTurniMese, m.id));
+  });
   const settimanaCount = {}; // mid -> { weekKey: numero di turni già assegnati quella settimana }
+  const meseCount = {};      // mid -> numero di turni (fisici o extra) già assegnati nel mese (tetto mensile, §3.11)
   const ultimoFisico = {};   // mid -> data "YYYY-MM-DD" dell'ultimo turno fisico assegnato
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
 
@@ -489,7 +653,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
   const avvisiRaw = []; // {d, testo}
 
   [...conPref, ...resto].forEach(({ d, turno, slotKey }) => {
-    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico);
+    const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico, maxTurniMese, meseCount, riservatiPerMedico);
     risultati[`${d}|${turno.id}`] = turnoOut;
     if (avviso) avvisiRaw.push({ d, testo: avviso });
   });
@@ -518,7 +682,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
       const si = target.fis.find((i) => target.slots[i] === mid);
       if (si === undefined) return; // già liberato da un giro precedente in questo stesso ciclo
       const sede = SEDI5[si];
-      const alternativa = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, targetSlotKey)
+      const alternativa = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, targetSlotKey, maxTurniMese, meseCount, riservatiPerMedico)
         .find((o) => o.id !== mid && !target.slots.includes(o.id) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
       if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
       target.slots[si] = alternativa.id;
@@ -536,6 +700,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}) {
       if (settimanaCount[mid]) settimanaCount[mid][wk] = Math.max(0, (settimanaCount[mid][wk] || 0) - 1);
       settimanaCount[alternativa.id] = settimanaCount[alternativa.id] || {};
       settimanaCount[alternativa.id][wk] = (settimanaCount[alternativa.id][wk] || 0) + 1;
+      if (meseCount[mid]) meseCount[mid] = Math.max(0, meseCount[mid] - 1);
+      meseCount[alternativa.id] = (meseCount[alternativa.id] || 0) + 1;
     });
   }
 
