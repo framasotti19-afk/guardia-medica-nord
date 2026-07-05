@@ -228,23 +228,24 @@ Il coordinatore può dichiarare, per ciascun medico contrattualizzato (non per i
 
 **Punto 1 — Max turni mese (tetto mensile, tutte le categorie).** Il coordinatore può dichiarare, per QUALSIASI medico (contrattualizzato O senza incarico), un numero massimo di turni nell'intero mese: `dati.maxTurniMese[mid] = N` (tab "3 · Medici", campo "Max turni mese", accanto a "Turni extra" — colonna sempre attiva, anche per i senza incarico). È un **tetto superiore indipendente dal debito**: può essere anche inferiore al monte ore contrattuale, e il motore si ferma su quel numero anche con debito residuo ampiamente positivo. Diverso dai turni extra (§3.10): i turni extra sono un'ESTENSIONE oltre il monte ore, il Max turni mese è un TETTO che può ridurre il numero di turni effettivi rispetto a quanto il debito permetterebbe.
 
-- Implementato con `capMensileDi(maxTurniMese, mid)` (ritorna il numero o `null` = nessun limite) e un contatore `meseCount[mid]` (turni fisici + extra già assegnati nel mese — la copertura **blu** non consuma il tetto, coerentemente con §3.2/§3.10: coprire a distanza non è un turno a sé).
-- **Blocco rigido, non deprioritizzazione**: in `candidatiOrdinati`, un medico che ha raggiunto `meseCount[mid] >= capMensileDi(...)` è **escluso interamente da `candidati`** (stesso trattamento del blocco rigido oltre il monte ore, §3.4) — mai solo retrocesso.
+- Il valore dichiarato è letto da `capMensileDi(maxTurniMese, mid)` (ritorna il numero o `null` = nessun limite) — usato SOLO come input di `tettoDistribuzioneDi` (punto 2 sotto). Non esiste più un filtro separato in `candidatiOrdinati` per questo tetto: dalla v2 in poi Max turni mese ed il monte ore implicito sono UN UNICO meccanismo di enforcement (il tetto di distribuzione), non due controlli distinti — vedi punto 2.
 - Wiring AI: azione `{"az":"tetto_mese","medico":"...","maxTurni":N}` (o `null`/assente per rimuovere il tetto), mirror di `tetto_settimana`. La regola "senza incarico — numero di guardie mensili" (§13) genera SEMPRE anche questa azione quando il medico dichiara un numero massimo di guardie: è quello che rende il numero un vincolo REALE nel motore, non solo un avviso testuale.
 - `elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {})`: 7° parametro, **opzionale** (default `{}`).
 
-**Punto 2 — Distribuzione temporale reale (turni distanziati, non i primi N cronologici).** Quando un contrattualizzato **NON titolare** ha diritto a N turni ma dispone di molti più giorni disponibili di quanti gliene servano, il motore preferisce assegnarglieli **il più possibile distanziati nel mese**, non i primi N cronologici.
+**Punto 2 — Distribuzione temporale reale (due passaggi: elabora, poi ridistribuisci).** Quando un medico ha diritto a N turni (il più restrittivo tra monte ore implicito e Max turni mese dichiarato, vedi sotto) ma vincerebbe naturalmente più turni di N nel mese, il motore cede l'eccesso al candidato successivo in gerarchia scegliendo di TENERE il sottoinsieme più equidistanziato possibile — non i primi N cronologici. Riscritto da zero (v2): il vecchio meccanismo a bucket-3-livelli/`calcolaRiservati` (che precalcolava slot "riservati" dalla sola disponibilità dichiarata, PRIMA di eseguire la gerarchia) è stato sostituito da un meccanismo **run-then-redistribute** a due passaggi completi, perché la gerarchia normale (titolarità, spaziatura, ricollocazioni) poteva sovrascrivere le riserve precalcolate e vanificare la distribuzione.
 
-- `calcolaRiservati(mid, dispo, anno, mese, extras, budgetOre, capMensileTurni)`: calcolato **una sola volta** a inizio mese (in `elaboraSchema`, su debito INIZIALE e tetto mensile iniziale — è un meccanismo *best-effort*, non una garanzia rigida ricalcolata giorno per giorno), precalcola un sottoinsieme di slot dove il medico ha dichiarato verde, distanziati uniformemente (`Math.round((i*(k-1))/(n-1))` sui k slot disponibili), dimensionato su `min(turni stimati dal debito, Max turni mese se più restrittivo — i due punti sono collegati by design)`. Ritorna `null` (nessuna restrizione) per: **titolari di sede** (la titolarità non è mai intaccata da questa funzionalità — `if (isDeterminato(mid) && sedeContratto !== null) return null`), senza incarico (nessun debito da distribuire), e chi ha già esaurito il debito a inizio mese.
-- **Bucket a TRE livelli** in `candidatiOrdinati`/`elaboraTurno` (`bucketDi`/`bucketOf`): bucket 0 = piena priorità di categoria (giorno riservato, o nessuna restrizione); bucket 1 = senza incarico veri e chi usa turni extra (solo graduatoria); bucket 2 = contrattualizzato con debito ma FUORI dai propri giorni riservati oggi — **deliberatamente più debole del bucket 1**, non alla pari: altrimenti un contrattualizzato con grad già ottimo in assoluto (es. INDET grad0) vincerebbe comunque anche "demosso", vanificando la distribuzione.
-- **Mai un buco per la demozione in sé**: un contrattualizzato in bucket 2 resta comunque disponibile come ultima risorsa se nessun altro (nemmeno un vero senza incarico) copre quel turno. Se invece è l'UNICO candidato disponibile per l'intero mese (nessun backup), la distribuzione non ha alcun effetto pratico — si comporta esattamente come prima di questa funzionalità: consuma il monte ore nei primi giorni consecutivi disponibili, e il blocco rigido preesistente (§3.4) lascia scoperto il resto del mese una volta esaurito. Non è un difetto introdotto da questo meccanismo.
-- **I titolari sono sempre completamente esenti**: `riservatiPerMedico[mid]` è `null` per loro, quindi restano sempre bucket 0 (finché hanno debito) e consumano il monte ore nei primi giorni consecutivi disponibili, non distanziati — la titolarità non viene mai toccata dalla distribuzione.
-- **Due bug scoperti e corretti durante l'implementazione** (entrambi nel meccanismo di ricollocazione/rotazione preesistente, esposti dalla nuova demozione a bucket 2 — vedi §10 per il dettaglio):
-  1. La **spaziatura temporale (§3.7)** sceglieva l'"alternativa" a cui cedere la sede solo controllando che non avesse già vinto nulla quel turno, senza controllare il suo bucket: un contrattualizzato demosso (bucket 2) poteva scavalcare il vincitore bucket 1 semplicemente perché quest'ultimo "aveva lavorato ieri". Corretto vincolando l'alternativa a `bucketOf(alternativa) <= bucketOf(vincitore attuale)`.
-  2. La stessa spaziatura poteva far perdere a un **titolare** la propria sede tramite la rotazione "hai lavorato ieri", ignorando la titolarità. Corretto: se il vincitore attuale è titolare della sede contesa, l'alternativa può sostituirlo solo se ANCH'ESSA titolare della stessa sede.
-- `elaboraSchema`/`elaboraTurno`/`candidatiOrdinati` calcolano/ricevono `riservatiPerMedico` (un dizionario `mid -> Set(slotKey) | null`, calcolato una volta per l'intero mese) oltre a `meseCount`.
+- **Tetto di distribuzione (`tettoDistribuzioneDi`)**: si applica a QUALSIASI medico, il più restrittivo tra il monte ore implicito (arrotondato a turni da 12h — `Math.round(debito/12)`, INDET≈8, DET36≈13, DET24≈9, DET12ASAP/DET12≈4, includendo anche l'eventuale budget di turni extra dichiarato, §3.10 — un residuo inferiore a 6h arrotonda a 0 turni in meno: un medico con debito residuo così piccolo è considerato esaurito ai fini del tetto, il resto va perso, comportamento voluto e non un difetto) e l'eventuale Max turni mese esplicito (punto 1 sopra). Per i **contrattualizzati senza tetto dichiarato**, il monte ore implicito FA SEMPRE da tetto — non c'è modo di disattivare la distribuzione per loro. Per i **senza incarico**, il tetto è `null` (nessuna distribuzione) a meno che non abbia un Max turni mese dichiarato esplicitamente: senza monte ore non c'è alcun riferimento su cui calcolarne uno implicito.
+- **I titolari NON sono esenti**: seguono lo stesso tetto di tutti — la titolarità di sede è già protetta separatamente dalla gerarchia normale (§3.1a) finché il medico resta in gara; non è un'esenzione dal proprio tetto di distribuzione.
+- **Il tetto è RIGIDO**: non si supera mai. Se un turno ceduto non trova nessun altro candidato disponibile, la sede resta SCOPERTA — la copertura non prevale mai sul tetto dichiarato dal medico (a differenza, per esempio, della spaziatura §3.7 o della preferenza di turno §3.9, dove la copertura vince sempre).
+- **Passaggio 1 (oracolo, scartato)**: `elaboraSchema` esegue l'INTERO mese una prima volta con la sola gerarchia esistente (`eseguiMese`, la stessa funzione usata anche dal passaggio 2), senza alcuna esclusione per tetto — serve solo a scoprire, per ogni medico, quali turni vincerebbe naturalmente (non c'è altro modo affidabile di saperlo: dipende da chi altro è disponibile, titolarità, spaziatura...). Il risultato (`risultatiP1`) è scartato subito dopo l'uso.
+- **Selezione delle cessioni**: per ogni medico i cui turni EFFETTIVAMENTE vinti nel passaggio 1 (`vintiDi[mid]`, solo presenze fisiche/extra, MAI la copertura blu — stessa regola già usata per il conteggio del tetto) superano il proprio tetto, il motore:
+  1. Raggruppa i vinti per **livello della sede verde ottenuta** (1 = più desiderata) — la priorità di sede dichiarata dal medico è **ASSOLUTA sull'equidistanza**: un turno di livello migliore va sempre tenuto rispetto a uno di livello peggiore, anche se quest'ultimo sarebbe temporalmente più distanziato.
+  2. Riempie il tetto residuo un livello alla volta, dal migliore al peggiore: se un livello entra per intero nel residuo lo tiene tutto; altrimenti (livello più numeroso del residuo) sceglie tra quel livello il sottoinsieme più equidistanziato (`scegliIndiciEquidistanti(k, n)`, indici il più possibile equidistanti tra 0 e k-1) e azzera il residuo — tutto il resto di quel livello E tutti i livelli peggiori successivi sono interamente marcati "da cedere".
+  3. Poiché il "pool" di partenza è fatto di vittorie EFFETTIVE (non di semplice disponibilità dichiarata), resta comunque concentrato nella finestra in cui il medico è naturalmente il candidato più forte (per un contrattualizzato senza altra scarsità, tipicamente i primi turni del mese finché il debito non si esaurisce) — è una conseguenza accettata della gerarchia, non un difetto: quando il tetto implicito coincide col numero di vittorie naturali (il caso più comune, nessun Max turni mese esplicito più restrittivo), non c'è nulla da cedere e nessuna distribuzione ha effetto.
+- **Passaggio 2 (rielaborazione pulita e DEFINITIVA)**: rifà l'intero mese da zero (stato iniziale, nessun residuo dal passaggio 1) applicando le cessioni decise sopra come esclusioni per singolo slot (`escludiPerSlot`), più un controllo LIVE del tetto (`contoMensile[mid] >= tetto[mid]`) applicato uniformemente a ogni turno — non solo ai medici segnalati dal passaggio 1: le esclusioni cambiano le dinamiche del mese (un concorrente escluso oggi può far vincere un altro medico un giorno che nel passaggio 1 non avrebbe vinto), quindi il conteggio va tenuto vivo turno per turno per garantire che il tetto non sia MAI superato, in nessun caso. Il risultato di questo passaggio è quello REALE, definitivo — il passaggio 1 non compare mai nell'output finale.
+- `elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {})`: stessa firma di prima (7° parametro invariato).
 
-Test dedicati: `test_max_turni_mese.mjs` (6 casi), `test_distribuzione_temporale.mjs` (6 casi). Invarianti aggiuntivi nella simulazione massiva (§8, §12): tetto mensile mai superato, titolarità sempre rispettata (con il limite noto residuo di cui sopra).
+Test dedicati: `test_max_turni_mese.mjs` (7 casi), `test_distribuzione_temporale.mjs` (7 casi, incluso un caso dedicato alla priorità di sede assoluta sull'equidistanza). Invarianti aggiuntivi nella simulazione massiva (§8, §12): tetto mensile mai superato (INV-MAXTURNI), titolarità sempre rispettata (con il limite noto residuo di cui sopra, §3.1a).
 
 ---
 
@@ -271,31 +272,27 @@ La lista è modificabile dall'interfaccia (tab "3 · Medici / ore da recuperare"
 ### elaboraTurno (cuore)
 
 ```javascript
-function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico, maxTurniMese, meseCount, riservatiPerMedico) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, ultimoFisico) {
   // 1. Trova candidati con disponibilità valida (verde o blu) per questo slotKey, ESCLUSI quelli
   //    che hanno già raggiunto il tetto settimanale dichiarato per la settimana di questo turno
   //    (capSettimanale, §3.8) — se non dichiarato, nessuna esclusione (comportamento invariato) —
-  //    ESCLUSI quelli che hanno già raggiunto il Max turni mese dichiarato (capMensileDi, §3.11,
-  //    tutte le categorie) — ED ESCLUSI i contrattualizzati con debito ordinario e turni extra
-  //    ENTRAMBI esauriti (blocco rigido oltre il monte ore, §3.1/§3.4): non sono più candidati
-  //    per nessun turno, nemmeno se resterebbero l'unico disponibile, il turno resta SCOPERTO.
-  // 2. Li ordina in TRE bucket (bucketDi/bucketOf, §3.11): [conDeb (cat→deb→grad, bucket 0),
-  //    senzaInc+turniExtra (grad, bucket 1), contrattualizzato con debito ma FUORI dai propri
-  //    giorni riservati oggi (grad, bucket 2 — deliberatamente più debole del bucket 1)] — ordine
-  //    globale, la titolarità NON entra in questo ordinamento globale (è specifica per sede). Un
-  //    contrattualizzato con debito esaurito ma con debitiExtra[mid] > 0 (turni extra volontari
-  //    residui, §3.10) rientra nel bucket 1 (è già filtrato fuori se anche i turni extra sono
-  //    esauriti, vedi punto 1). Il bucket 0 richiede ANCHE che lo slot sia tra i "riservati" del
-  //    medico se ne ha (riservatiPerMedico[mid], §3.11 — null per titolari/senza incarico/già
-  //    esauriti: nessuna restrizione).
+  //    ED ESCLUSI i contrattualizzati con debito ordinario e turni extra ENTRAMBI esauriti
+  //    (blocco rigido oltre il monte ore, §3.1/§3.4): non sono più candidati per nessun turno,
+  //    nemmeno se resterebbero l'unico disponibile, il turno resta SCOPERTO. Il Max turni mese e
+  //    la distribuzione temporale (§3.11) NON sono un filtro qui: sono applicati interamente in
+  //    un secondo passaggio di post-elaborazione in elaboraSchema (vedi sotto) tramite esclusioni
+  //    per singolo slot passate dall'esterno (dispo effettiva già modificata per quello slotKey).
+  // 2. Li ordina in DUE bucket (bucketDi/bucketOf): [conDeb (cat→deb→grad, bucket 0),
+  //    senzaInc+turniExtra (grad, bucket 1)] — ordine globale, la titolarità NON entra in questo
+  //    ordinamento globale (è specifica per sede). Un contrattualizzato con debito esaurito ma con
+  //    debitiExtra[mid] > 0 (turni extra volontari residui, §3.10) rientra nel bucket 1 (è già
+  //    filtrato fuori se anche i turni extra sono esauriti, vedi punto 1).
   //    Scala il debito del vincitore con scalaDebito(mid, ore): se debiti[mid] > 0 scala il
   //    debito ordinario, altrimenti scala debitiExtra[mid] — mai entrambi per lo stesso turno.
-  //    Incrementa anche meseCount[mid] (Max turni mese, §3.11) per ogni presenza fisica o extra
-  //    (la copertura blu non consuma il tetto mensile).
   // 3. FASE 1 — assegnazione fisica (verde):
   //    - target = sedi fisiche da puntare (dinamico per n=1, altrimenti MA[,SP[,ME[,CL]]])
   //    - Itera TUTTI i candidati di "ordinati", senza fermarsi quando i target sono già pieni
-  //      (§3.11, §10): "ordinati" è ordinato per bucket/categoria/debito/graduatoria, MAI per
+  //      (§10): "ordinati" è ordinato per bucket/categoria/debito/graduatoria, MAI per
   //      titolarità — un titolare può comparire più avanti nell'elenco di un non titolare di
   //      categoria migliore che ha già occupato la sua sede, e deve comunque avere la possibilità
   //      di contestarla. provaFisica() è sicuro da richiamare per ogni candidato: se non ha una
@@ -313,17 +310,15 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
   //    - SPAZIATURA TEMPORALE (§3.7): per ogni vincitore fisico, se ha lavorato ieri (o oggi
   //      stesso su un altro turno — distanza di calendario ≤ 1, con Math.abs perché conPref può
   //      processare fuori ordine cronologico) ED esiste un'alternativa che ha dichiarato verde
-  //      la STESSA sede, non ha ancora ottenuto nulla quel turno, E non ha un bucket peggiore del
-  //      vincitore attuale (§3.11/§10 — altrimenti un contrattualizzato demosso scavalcherebbe un
-  //      vincitore bucket 1 solo perché "ha lavorato ieri"), la sede passa all'alternativa. Se il
-  //      vincitore attuale è TITOLARE della sede contesa, l'alternativa può sostituirlo SOLO se
-  //      anch'essa titolare della stessa sede (§10) — la rotazione non può mai fargli perdere la
-  //      propria sede. Mai una sede scoperta per questo: senza alternativa valida, il medico
+  //      la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa all'alternativa.
+  //      Se il vincitore attuale è TITOLARE della sede contesa, l'alternativa può sostituirlo SOLO
+  //      se anch'essa titolare della stessa sede (§10) — la rotazione non può mai fargli perdere
+  //      la propria sede. Mai una sede scoperta per questo: senza alternativa valida, il medico
   //      recente resta. ECCEZIONE (§3.9): se la distanza è esattamente 0 (stesso giorno: caso G/N)
   //      e il medico ha dichiarato una preferenza di turno che combacia con questo turno, la
   //      spaziatura non lo tocca — la preferenza esplicita prevale sull'euristica generica.
   //    - Rebuild slots da sedeDi (elimina "fantasmi" da ricollocazioni intermedie)
-  //    - Scala i debiti dei fisici, incrementa settimanaCount e meseCount, aggiorna ultimoFisico
+  //    - Scala i debiti dei fisici, incrementa settimanaCount, aggiorna ultimoFisico
   // 4. FASE 2 — copertura a distanza (blu):
   //    - Solo i FISICI di questo turno tentano, nell'ordine di ordinati
   //    - provaBlu() — stesso schema ricorsivo di bump/retry, con la STESSA isBetterPriority()
@@ -343,7 +338,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
 - INV_BLU1: un medico copre al massimo 1 sede a distanza per turno
 - INV_GER: nessun medico con priorità inferiore (titolarità sede → categoria → debito → grad — stessa identica gerarchia sia per il fisico che per il blu) occupa una sede che un medico con priorità superiore voleva e non ha ottenuto
 - INV_SETT: nessun medico risulta fisico più volte di quante dichiarate dal proprio tetto settimanale (se dichiarato) per la settimana di quel turno
-- INV_MESE: nessun medico risulta fisico/extra più volte di quante dichiarate dal proprio Max turni mese (se dichiarato), per l'intero mese (§3.11)
+- INV_MESE (INV-MAXTURNI nella simulazione, §8): nessun medico risulta fisico/extra più volte di quante permesse dal proprio tetto di distribuzione (il più restrittivo tra monte ore implicito e Max turni mese dichiarato, §3.11), per l'intero mese — verificato nel passaggio 2 definitivo di elaboraSchema
 
 **Invarianti storiche RIMOSSE con il nuovo sistema** (non più valide, sostituite dal modello dichiarativo):
 - ~~INV4: Claut a distanza viene sempre da Maniago~~ — ora dipende esclusivamente da chi dichiara blu su Claut.
@@ -352,27 +347,54 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
 
 ```javascript
 function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}) {
-  // Inizializza debiti: CAT_INFO[cat].ore + (extraOre[mid] || 0)
-  // Inizializza debitiExtra: (turniExtra[mid] || 0) × 12 — budget separato, §3.10 (turniExtra è
+  // Inizializza debiti0: CAT_INFO[cat].ore + (extraOre[mid] || 0) (debitoOrdinarioIniziale)
+  // Inizializza debitiExtra0: (turniExtra[mid] || 0) × 12 — budget separato, §3.10 (turniExtra è
   // opzionale, default {}: tutte le chiamate esistenti restano valide senza modifiche)
-  // Calcola riservatiPerMedico UNA VOLTA (§3.11), su debiti e maxTurniMese INIZIALI, prima di
-  // processare qualunque turno: calcolaRiservati(mid, dispo, anno, mese, extras, debiti[mid],
-  // capMensileDi(maxTurniMese, mid)) per ogni medico
-  // Inizializza settimanaCount ({}), meseCount ({}, §3.11) e ultimoFisico ({}) — stato condiviso
-  // tra tutte le chiamate a elaboraTurno di questo stesso elaboraSchema (§3.7, §3.8, §3.11)
-  // Costruisce lista turni del mese
-  // ORDINE CRITICO: [...conPref, ...resto]
+  // Costruisce la lista di TUTTI i turni del mese (voci, ordine di calendario) e l'ordine di
+  // elaborazione ORDINE CRITICO: [...conPref, ...resto]
   //   conPref = turni dove almeno un medico ha marcato con ★ una sua sede verde (preferito != null)
   //   Questo ordine cambia i debiti progressivi — il checker di gerarchia DEVE rispettarlo
-  // Chiama elaboraTurno per ogni turno nell'ordine sopra
-  // PREFERENZA TURNO (§3.9): dopo che TUTTO il mese è elaborato, per ogni giorno con G e N,
-  // per ogni medico che vince fisicamente ENTRAMBI e ha dichiarato una preferenza, libera il
-  // turno non preferito a favore della stessa gerarchia (candidatiOrdinati, ora anche debitiExtra-
-  // aware) — se un'alternativa esiste. Storna/scala lo stesso pool (debiti o debitiExtra) che il
-  // turno aveva effettivamente consumato per ciascuno, in base al segno corrente di debiti[mid]
-  // (identica logica di scalaDebito). Eseguita in un passaggio a parte, dopo l'intero ciclo
-  // conPref+resto, perché deve conoscere l'esito di entrambi i turni dello stesso giorno
-  // indipendentemente da quale dei due è stato elaborato per primo.
+  //
+  // eseguiMese(debiti, debitiExtra, settimanaCount, ultimoFisico, escludiPerSlot, dopoTurno):
+  //   esegue ordineVoci chiamando elaboraTurno per ognuno, con un'eventuale esclusione live per
+  //   singolo slot (escludiPerSlot(slotKey) -> Set<mid>, forza "no" SOLO per quel medico/slot,
+  //   senza toccare il resto della sua dispo) e un callback dopoTurno(turno, turnoOut) opzionale.
+  //
+  // ---- PASSAGGIO 1 (§3.11, punto 2): oracolo, gerarchia pura, nessun tetto ----
+  // risultatiP1 = eseguiMese(copia di debiti0/debitiExtra0, {}, {}, null, null) — scoperto subito
+  // dopo l'uso: serve solo a sapere quali turni ogni medico vincerebbe naturalmente.
+  //
+  // tetto[mid] = tettoDistribuzioneDi(mid, debiti0[mid], debitiExtra0[mid], maxTurniMese) — il più
+  // restrittivo tra monte ore implicito (incluso il budget turni extra) e Max turni mese esplicito;
+  // null solo per i senza incarico senza tetto dichiarato (nessuna distribuzione per loro).
+  //
+  // vintiDi[mid] = turni fisici/extra EFFETTIVAMENTE vinti nel passaggio 1, in ordine cronologico,
+  // ciascuno con il livello della sede verde ottenuta (livelloVintoDi) — la copertura blu non
+  // conta mai (stessa regola usata per il conteggio del tetto, §3.11 punto 1).
+  //
+  // Per ogni medico con vintiDi[mid].length > tetto[mid]: raggruppa per livello (1 = migliore),
+  // riempie il tetto residuo livello per livello dal migliore al peggiore (un livello che eccede
+  // il residuo usa scegliIndiciEquidistanti(k, n) per scegliere il sottoinsieme da tenere), marca
+  // tutto il resto "da cedere" in cessioniPerSlot (slotKey -> Set<mid>).
+  //
+  // ---- PASSAGGIO 2 (§3.11, punto 2): rielaborazione pulita e DEFINITIVA ----
+  // Riparte da debiti0/debitiExtra0 (nessun residuo dal passaggio 1). escludiPerSlot(slotKey)
+  // unisce le cessioni precalcolate per quello slot E, live, chiunque abbia già raggiunto il
+  // proprio tetto (contoMensile[mid] >= tetto[mid]) in QUESTO passaggio — non solo chi era stato
+  // segnalato dal passaggio 1, perché le esclusioni cambiano le dinamiche del mese. Il risultato
+  // di questo passaggio (risultati) è quello REALE — il tetto non è mai superato: se un turno
+  // ceduto non trova un'alternativa disponibile resta SCOPERTO (la copertura non prevale mai sul
+  // tetto dichiarato).
+  //
+  // PREFERENZA TURNO (§3.9): dopo che TUTTO il mese (passaggio 2) è elaborato, per ogni giorno con
+  // G e N, per ogni medico che vince fisicamente ENTRAMBI e ha dichiarato una preferenza, libera
+  // il turno non preferito a favore della stessa gerarchia (candidatiOrdinati) — solo se
+  // l'alternativa non ha già raggiunto il proprio tetto di distribuzione (contoMensile/tetto) — se
+  // un'alternativa esiste. Storna/scala lo stesso pool (debiti o debitiExtra) che il turno aveva
+  // effettivamente consumato per ciascuno, in base al segno corrente di debiti[mid] (identica
+  // logica di scalaDebito), e aggiorna contoMensile per entrambi. Eseguita in un passaggio a
+  // parte, dopo l'intero ciclo conPref+resto, perché deve conoscere l'esito di entrambi i turni
+  // dello stesso giorno indipendentemente da quale dei due è stato elaborato per primo.
   // Raccoglie avvisi: copertura scoperta (per sede) + preferiti non rispettati
 }
 ```
@@ -406,7 +428,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
 23. **Blocco rigido oltre il monte ore (fix bug)** — un contrattualizzato con debito ordinario e turni extra ENTRAMBI esauriti non è più un candidato per nessun turno, nemmeno se resterebbe l'unico disponibile: il turno resta SCOPERTO invece di essere assegnato oltre il limite dichiarato (§3.1). Prima di questo fix un medico rimasto l'unico candidato disponibile per molte notti consecutive continuava a essere assegnato ben oltre il proprio monte ore (bug segnalato: 228h assegnate su un monte ore di 96h). Filtro applicato in `candidatiOrdinati`, `bucketOf` semplificato di conseguenza (§5)
 24. **Selettori diretti mese/anno nell'header** — accanto alle frecce ‹/› (che restano per il caso d'uso "mese successivo/precedente"), due `<select>` compatti e affiancati (mese, poi anno), stile "app nativa", al posto di un unico menu combinato. Le opzioni del mese si filtrano in base all'anno scelto (`mesiDelAnno`, derivato da `MESI_DISPONIBILI`): il 2026 ha solo 5 mesi (agosto-dicembre), tutti gli altri anni 12. Cambiando l'anno mentre è selezionato un mese non valido per quel nuovo anno (es. "Marzo" tornando al 2026), `vaiAMese` ricade automaticamente sul primo mese disponibile per l'anno scelto — mai una combinazione inesistente in `MESI_DISPONIBILI`. Stato invariato (`meseIdx`), nessuna nuova variabile di stato. Testato in browser (Playwright): opzioni mese filtrate correttamente per anno (5 per il 2026, 12 per gli altri), cambio anno con mese preservato quando valido, fallback al primo mese disponibile quando non valido, nessun errore in console.
 25. **Max turni mese** — campo "Max turni mese" nel tab Medici, valido per QUALSIASI categoria (anche senza incarico): tetto rigido indipendente dal debito, collegato all'azione AI `tetto_mese` e alla regola "numero di guardie mensili" per i senza incarico (§3.11 punto 1)
-26. **Distribuzione temporale reale** — un contrattualizzato non titolare con più giorni disponibili del necessario riceve i turni distanziati uniformemente nel mese invece dei primi N cronologici, tramite un meccanismo di giorni "riservati" precalcolato a inizio mese e un sistema di priorità a 3 bucket; i titolari di sede ne sono sempre esenti (§3.11 punto 2)
+26. **Distribuzione temporale reale (v2, run-then-redistribute)** — QUALSIASI medico (titolari inclusi, nessuna esenzione) il cui tetto di distribuzione (il più restrittivo tra monte ore implicito e Max turni mese dichiarato) è inferiore ai turni che vincerebbe naturalmente, cede l'eccesso al candidato successivo in gerarchia tenendo il sottoinsieme più equidistanziato possibile dei turni EFFETTIVAMENTE vinti (con priorità di sede assoluta sull'equidistanza); il tetto è rigido, mai superato, coverage non prevale mai su di esso (§3.11 punto 2)
 
 ---
 
@@ -444,8 +466,8 @@ node test_spaziatura_settimana.mjs  # 13 test spaziatura temporale (§3.7) e tet
 node test_categorie_12h.mjs    # 11 test DET12ASAP e DET12 (§3.1)
 node test_preferenza_turno.mjs # 13 test preferenza di turno stesso giorno G/N (§3.9)
 node test_turni_extra.mjs      # 7 test turni extra volontari oltre il monte ore (§3.10)
-node test_max_turni_mese.mjs   # 6 test tetto mensile dichiarato dal coordinatore, tutte le categorie (§3.11)
-node test_distribuzione_temporale.mjs  # 6 test distribuzione uniforme dei turni nel mese, esenzione titolari (§3.11)
+node test_max_turni_mese.mjs   # 7 test tetto mensile dichiarato dal coordinatore, tutte le categorie (§3.11)
+node test_distribuzione_temporale.mjs  # 7 test distribuzione run-then-redistribute, priorità di sede, titolari non esenti (§3.11)
 node test_simulazione_completa.mjs  # ~25M check su scenari randomici (800 semi × 125 mesi, agosto 2026-dicembre 2036, con titolarità/turni extra/tetti mensili)
 node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
 ```
@@ -497,7 +519,8 @@ for fn in setSedeOpzione setNoCella setPreferitoSede setTurnoPref toggleExtra el
   applicaProposta applicaAzioni riepilogoDi rispondiDomanda nomeToId elaboraSchema elaboraTurno normDispo \
   ordinaPerLivello isDeterminato setMediciGlobal giorniTra settimanaDi capSettimanale \
   turnoPrefDi candidatiOrdinati oreAssegnateDi scalaDebito chiediAI estraiJsonBilanciato \
-  pasquaDi festiviFissiDi capMensileDi calcolaRiservati correggiTitolarita; do
+  pasquaDi festiviFissiDi capMensileDi tettoDistribuzioneDi scegliIndiciEquidistanti \
+  livelloVintoDi debitoOrdinarioIniziale correggiTitolarita; do
   n=$(grep -c "const $fn = \|function $fn(" turni-guardia-medica.jsx)
   [ "$n" != "1" ] && echo "DUPLICATA: $fn"
 done
@@ -531,11 +554,13 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 
 5. **Livello blu oltre il cap (5) su un elenco max 4** — `ordinaPerLivello` con `maxLivello=4` ignora silenziosamente un livello 5 mai raggiunto dal ciclo `for l=1..maxLivello`: comportamento corretto e verificato da test dedicato, ma da tenere a mente se si costruiscono dati di test blu manualmente (livelli validi: 1-4, non 1-5 come per verde).
 
-6. **Spaziatura temporale ignora il bucket del candidato (introdotto e corretto durante l'implementazione della distribuzione temporale, §3.11)** — la regola di spaziatura (§3.7) sceglieva l'"alternativa" a cui cedere la sede controllando solo che non avesse già vinto nulla quel turno, non il suo bucket di priorità: un contrattualizzato demosso (bucket 2, fuori dai propri giorni riservati) poteva scavalcare il vincitore bucket 1 (o bucket 0) semplicemente perché quest'ultimo "aveva lavorato ieri", vanificando sia la distribuzione sia — nel caso peggiore — la titolarità. Fix: l'alternativa è ammessa solo se `bucketOf(alternativa) <= bucketOf(vincitore attuale)`, e se il vincitore attuale è titolare della sede contesa l'alternativa deve ESSA STESSA essere titolare della stessa sede.
+6. **Spaziatura temporale ignora il bucket del candidato (introdotto e corretto durante la v1 — a 3 bucket — della distribuzione temporale, §3.11; oggi in parte superato dalla v2)** — la regola di spaziatura (§3.7) sceglieva l'"alternativa" a cui cedere la sede controllando solo che non avesse già vinto nulla quel turno, non il suo bucket di priorità: un contrattualizzato demosso (bucket 2, fuori dai propri giorni riservati) poteva scavalcare il vincitore bucket 1 (o bucket 0) semplicemente perché quest'ultimo "aveva lavorato ieri", vanificando sia la distribuzione sia — nel caso peggiore — la titolarità. Fix v1: l'alternativa era ammessa solo se `bucketOf(alternativa) <= bucketOf(vincitore attuale)`. Con la v2 (bucket tornati a 2: solo con-debito/senza-incarico, nessun bucket 2 da confrontare) quel controllo di parità di bucket non serve più ed è stato rimosso — ma la parte sulla titolarità è rimasta, perché è un fix indipendente e tuttora necessario: se il vincitore attuale è titolare della sede contesa, l'alternativa deve ESSA STESSA essere titolare della stessa sede.
 
 7. **Titolare mai invitato a contestare la propria sede se `ordinati` si esaurisce prima del suo turno** — nel ciclo FASE1 di `elaboraTurno`, l'iterazione su `ordinati` si fermava non appena tutti i target fisici erano occupati (ottimizzazione presente da sempre). Poiché `ordinati` è ordinato per bucket/categoria/debito/graduatoria e MAI per titolarità, un titolare poteva comparire più avanti nell'elenco di un non titolare che aveva già occupato la sua sede — e non riceveva mai la possibilità di contestarla. Fix: il ciclo itera SEMPRE tutti i candidati di `ordinati` (`provaFisica` è comunque un no-op sicuro per chi non ha una pretesa reale).
 
 8. **3+ determinati su sedi sovrapposte (fix mirato, non generico)** — anche dopo i fix 6 e 7, in scenari con 3+ determinati che si contendono più sedi sovrapposte nello stesso turno, catene di ricollocazione ricorsiva profonde in `provaFisica` potevano raramente convergere a un equilibrio in cui un titolare finiva fisicamente altrove pur avendone diritto, senza che nessun singolo passaggio della catena fosse isolatamente scorretto. Un primo tentativo di correzione GENERICO (ripetere l'intero ciclo FASE1 più volte per far convergere lo stato) è stato **scartato**: introduceva regressioni reali (perdita di copertura, sedi che restavano scoperte pur avendo un candidato disponibile) in scenari altrove già corretti — la ricollocazione ricorsiva non è idempotente su stati già stabili, e ripetere l'intero ciclo perturba anche sistemazioni per indifferenza non correlate alla titolarità. Risolto con una funzione dedicata `correggiTitolarita()`, MIRATA solo ai titolari (mai a candidati generici, tocca solo la loro sede specifica): per ogni titolare non ancora sulla propria sede dichiarata come prima preferenza oggi, se l'occupante attuale non ha davvero priorità superiore (`isBetterPriority`), lo scambia dentro e ridà all'occupante spostato una possibilità di ricollocarsi tramite lo stesso `provaFisica`. Eseguita in DUE punti: subito dopo FASE1, e di nuovo dopo la spaziatura temporale (§3.7) — che può essa stessa reintrodurre il problema spostando un occupante non-titolare (legittimo, es. un INDET) e rimpiazzandolo con un candidato senza alcun diritto sulla sede. Verificato dalla simulazione massiva (`test_simulazione_completa.mjs`, invariante `INV-TITOLARE`): **0 violazioni su 100.000 scenari / 25.151.195 check**, nessuna regressione sui 12 file di test dedicati.
+
+9. **Distribuzione temporale v1 (precalcolo + 3 bucket) sovrascritta dalla gerarchia — riscritta come v2 run-then-redistribute (§3.11 punto 2)** — la v1 precalcolava (`calcolaRiservati`, RIMOSSA) un sottoinsieme di slot "riservati" dalla sola disponibilità DICHIARATA, prima di eseguire qualunque turno, e usava un bucket 2 dedicato per demuovere il medico fuori dai suoi giorni riservati. Segnalato dal coordinatore: la gerarchia normale (titolarità, spaziatura, ricollocazioni) poteva sovrascrivere quelle riserve durante l'elaborazione reale, facendo concentrare i turni invece di distribuirli — il precalcolo non rifletteva ciò che il medico avrebbe VERAMENTE vinto. Riscritta come meccanismo a due passaggi completi: passaggio 1 (oracolo, gerarchia pura, nessun tetto) scopre quali turni ogni medico vince EFFETTIVAMENTE; solo chi supera il proprio tetto cede l'eccesso (scelto per livello di sede — assoluto sull'equidistanza — poi equidistanza dentro il livello) al passaggio 2, che rifà l'intero mese da zero applicando le cessioni più un controllo live del tetto per chiunque lo raggiunga durante questo stesso passaggio (non solo chi era stato segnalato dal passaggio 1: le esclusioni cambiano le dinamiche del mese). Bucket tornati a 2 (con-debito/senza-incarico), `meseCount` sostituito da `contoMensile` (vivo solo nel passaggio 2). Conseguenza nota e accettata (non un difetto): poiché il pool di partenza sono vittorie EFFETTIVE — non disponibilità dichiarata — quando il tetto implicito coincide con le vittorie naturali (il caso più comune, nessun Max turni mese esplicito più restrittivo) non c'è nulla da cedere e la distribuzione non ha alcun effetto pratico; il pattern osservato in quei casi (es. `[1,3,5,7,9,11,13,15]` invece di uno spaziato sull'intero mese) viene semmai dalla spaziatura §3.7 preesistente, non da questo meccanismo. Verificato dalla simulazione massiva (`INV-MAXTURNI`): **0 violazioni su 100.000 scenari / 25.163.865 check**, nessuna regressione sui file di test dedicati.
 
 ---
 

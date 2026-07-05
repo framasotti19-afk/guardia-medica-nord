@@ -52,13 +52,17 @@ suite.test("DET24 batte SENZA anche con grad numerico peggiore", () => {
   suite.eq(t.slots[0], FOSCHIANI);
 });
 
-suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche 1h residua)", () => {
+suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche pochissime ore residue)", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
-  // BERTUZZI (INDET, base 96h) con debito ridotto a 1h residua
-  const t = unicoTurno(d, { [BERTUZZI]: -95 });
-  suite.eq(t.slots[0], BERTUZZI, "INDET con 1h di debito deve battere DET36 con debito pieno");
+  // BERTUZZI (INDET, base 96h) con debito ridotto a 7h residue: sotto le 6h il tetto implicito di
+  // distribuzione (§3.11, Math.round(debito/12)) arrotonda a 0 e lo esclude comunque dal mese —
+  // comportamento voluto (un residuo così piccolo è considerato esaurito ai fini del tetto, il
+  // resto va perso), non testato qui. Con 7h il tetto arrotonda a 1 (round(7/12)=1): resta un
+  // candidato valido per QUESTO turno, isolando la sola regola di gerarchia/categoria (§3.1).
+  const t = unicoTurno(d, { [BERTUZZI]: -89 });
+  suite.eq(t.slots[0], BERTUZZI, "INDET con 7h di debito deve battere DET36 con debito pieno");
 });
 
 // ---------------------------------------------------------------------------

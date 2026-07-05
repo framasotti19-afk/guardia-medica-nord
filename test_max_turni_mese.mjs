@@ -44,16 +44,19 @@ suite.test("un contrattualizzato con debito ancora ampiamente positivo si ferma 
   suite.assert(vittorieBERTUZZI.includes(G1) && vittorieBERTUZZI.includes(G3) && vittorieBERTUZZI.includes(G5), "le 3 notti di BERTUZZI sono quelle più spaziate (G1,G3,G5), non i primi 3 giorni consecutivi");
 });
 
-suite.test("il tetto mensile vale anche per un senza incarico (nessun monte ore): si ferma comunque al numero dichiarato", () => {
+suite.test("il tetto mensile vale anche per un senza incarico (nessun monte ore): si ferma comunque al numero dichiarato, distribuito (§3.11)", () => {
   const d = dispoBase(MEDICI);
   [G1, G2, G3].forEach((g) => {
     d[ZURLO][N(g)] = turnoDisp(["Maniago"]); // grad2, migliore di GRANDO
     d[GRANDO][N(g)] = turnoDisp(["Maniago"]); // grad13, backup
   });
+  // ZURLO vincerebbe naturalmente tutte e 3 le notti (grad migliore di GRANDO); con un tetto di 2,
+  // il motore tiene il sottoinsieme più equidistanziato dei suoi 3 turni vinti — G1 e G3 (gli
+  // estremi), non i primi 2 cronologici — e cede G2 a GRANDO, senza lasciare buchi.
   const schema = schemaCon(d, {}, {}, { [ZURLO]: 2 });
-  suite.eq(vinceGiorno(schema, G1), ZURLO, "1ª notte: ZURLO sotto il tetto, vince per grad migliore");
-  suite.eq(vinceGiorno(schema, G2), ZURLO, "2ª notte: raggiunge il tetto (2), vince ancora");
-  suite.eq(vinceGiorno(schema, G3), GRANDO, "3ª notte: ZURLO ha raggiunto il proprio tetto ed è escluso, nonostante non abbia alcun monte ore — vince GRANDO");
+  suite.eq(vinceGiorno(schema, G1), ZURLO, "1ª notte: tra i giorni tenuti (spaziatura massima), ZURLO vince per grad migliore");
+  suite.eq(vinceGiorno(schema, G2), GRANDO, "2ª notte: ceduta da ZURLO per mantenere la distribuzione più equidistanziata — vince GRANDO");
+  suite.eq(vinceGiorno(schema, G3), ZURLO, "3ª notte: anch'essa tra i giorni tenuti da ZURLO, mai superato il tetto di 2 in totale nel mese");
 });
 
 suite.test("un tetto di 0 esclude completamente il medico dal mese, fin dalla prima notte", () => {
@@ -79,7 +82,9 @@ suite.test("un turno EXTRA conta ai fini del tetto mensile, esattamente come un 
   suite.eq(vinceGiorno(schema, G2), ZURLO, "avendo già consumato il tetto (1) con il turno extra, BERTUZZI è escluso dal notturno successivo");
 });
 
-suite.test("senza tetto dichiarato (assente o null) nessuna restrizione: comportamento invariato", () => {
+suite.test("senza tetto dichiarato, un contrattualizzato entro il proprio monte ore non subisce alcuna restrizione", () => {
+  // 4 notti, ben sotto le 8 implicite dal monte ore di BERTUZZI (96h/12h, §3.11): nessun tetto
+  // esplicito e nessun sottoinsieme naturale da vinti > tetto, quindi comportamento invariato.
   const d = dispoBase(MEDICI);
   [G1, G2, G3, G4].forEach((g) => {
     d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
@@ -87,6 +92,19 @@ suite.test("senza tetto dichiarato (assente o null) nessuna restrizione: comport
   });
   const schema = schemaCon(d, {}, {}, {}); // maxTurniMese vuoto
   [G1, G2, G3, G4].forEach((g) => suite.eq(vinceGiorno(schema, g), BERTUZZI, `giorno ${g}: senza tetto, BERTUZZI vince sempre per categoria`));
+});
+
+suite.test("un senza incarico senza tetto dichiarato non ha alcuna distribuzione: nessun riferimento su cui calcolarla", () => {
+  // ZURLO (senza incarico, nessun monte ore) senza Max turni mese dichiarato: a differenza di un
+  // contrattualizzato, non esiste alcun tetto implicito da monte ore — vince tutte le notti in
+  // cui è disponibile e superiore in graduatoria, senza alcuna distribuzione forzata (§3.11).
+  const d = dispoBase(MEDICI);
+  [G1, G2, G3, G4, G5].forEach((g) => {
+    d[ZURLO][N(g)] = turnoDisp(["Maniago"]);
+    d[GRANDO][N(g)] = turnoDisp(["Maniago"]);
+  });
+  const schema = schemaCon(d, {}, {}, {});
+  [G1, G2, G3, G4, G5].forEach((g) => suite.eq(vinceGiorno(schema, g), ZURLO, `giorno ${g}: nessun tetto per ZURLO, vince sempre per grad migliore`));
 });
 
 suite.test("parametro maxTurniMese è opzionale: elaboraSchema senza il 7° argomento si comporta come prima", () => {
