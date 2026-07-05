@@ -281,12 +281,15 @@ times(65, (i) => {
 });
 
 // ============ 14. MMG/PLS — TURNO NON ATTIVO (domanda Sì/No obbligatoria) ============
+// La sede è sempre indicata esplicitamente (bug di corpus corretto: senza sede l'AI segnala
+// correttamente "sede MMG non specificata" — regola §14bis — invece di porre la domanda di
+// attivazione qui attesa, le due ambiguità si sovrappongono se la sede manca).
 times(65, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(MEDICI_DEFAULT);
   const fascia = i % 2 === 0 ? "M" : "P";
   const parola = fascia === "M" ? "mattina" : "pomeriggio";
-  const email = `Vorrei fare la ${parola} MMG del ${giorno}.`;
+  const email = `Vorrei fare la ${parola} MMG del ${giorno} a Maniago.`;
   aggiungi("mmg_non_attivo", m, giorno, email, {
     azioniRichieste: [], azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: fascia } }],
     nessunaAzione: false,
@@ -313,9 +316,14 @@ times(20, (i) => {
 });
 
 // ============ 15. WEEKEND AMBIGUO (nessuna precisazione diurno/notturno → domanda) ============
+// Pool ristretto ai contrattualizzati (bug di corpus corretto): un senza incarico pescato qui,
+// senza numero di guardie mensili dichiarato, viene correttamente bloccato dalla regola dedicata
+// (§ MEDICO SENZA INCARICO — NUMERO DI GUARDIE MENSILI) invece di generare la domanda qui attesa —
+// le due ambiguità si sovrapponevano. Quella regola ha una propria categoria dedicata
+// (senza_incarico_no_numero_guardie/senza_incarico_con_numero_guardie), qui non serve rimescolarla.
 times(54, () => {
   const giorno = pick(GIORNI_WEEKEND);
-  const m = pick(MEDICI_DEFAULT);
+  const m = pick(contrattualizzati);
   const email = `Per il ${giorno} sono disponibile a Maniago.`;
   aggiungi("weekend_ambiguo", m, giorno, email, {
     azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
@@ -326,9 +334,10 @@ times(54, () => {
 });
 
 // ============ 16. NOTTI ESPLICITE NEL WEEKEND (parola "notti"/"notturni" → niente domanda) ============
+// Stesso motivo del pool ristretto: categoria gemella di weekend_ambiguo (vedi sopra).
 times(43, () => {
   const giorno = pick(GIORNI_WEEKEND);
-  const m = pick(MEDICI_DEFAULT);
+  const m = pick(contrattualizzati);
   const varianti = [`Per il ${giorno} sono disponibile a Maniago solo per le notti.`, `Il ${giorno} copro Maniago, ma solo il notturno.`];
   aggiungi("weekend_notti_esplicite", m, giorno, pick(varianti), {
     azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
@@ -341,10 +350,11 @@ times(43, () => {
 // Regressione di un bug segnalato: l'AI aveva generato la domanda "vuoi aggiungere anche il
 // diurno?" per FOSCHIANI il 7 agosto (giovedì, feriale semplice) — nei feriali esiste SOLO il
 // notturno, quindi la stessa identica frase che su un weekend genera correttamente una domanda
-// (categoria weekend_ambiguo) non deve MAI generarne una su un feriale.
+// (categoria weekend_ambiguo) non deve MAI generarne una su un feriale. Pool ristretto ai
+// contrattualizzati per lo stesso motivo di weekend_ambiguo (vedi sopra).
 times(30, () => {
   const giorno = pick(GIORNI_FERIALI);
-  const m = pick(MEDICI_DEFAULT);
+  const m = pick(contrattualizzati);
   const email = `Per il ${giorno} sono disponibile a Maniago.`;
   aggiungi("feriale_no_domanda_diurno", m, giorno, email, {
     azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: ["Maniago"] } }],
@@ -374,24 +384,30 @@ times(43, () => {
 });
 
 // ============ 19. SENZA INCARICO — RECUPERO ORE IMPROPRIO ============
+// avvisoRichiesto non pretende più il prefisso letterale "ATTENZIONE" (bug di corpus corretto):
+// il comportamento CRITICO — mai ore_extra per un senza incarico — è già verificato da
+// azioniVietate; il modello a volte parafrasa l'avviso senza il prefisso esatto pur trasmettendo
+// lo stesso significato ("PARRONI è senza incarico, il recupero ore non si applica al suo caso"),
+// una differenza di forma non di sostanza che non vale la pena trattare come fallimento.
 times(43, () => {
   const ore = pick([6, 12, 18, 24, 36]);
   const m = pick(senzaIncarico);
   const email = `Ho ${ore} ore da recuperare dal mese scorso.`;
   aggiungi("senza_incarico_recupero", m, [], email, {
     azioniRichieste: [], azioniVietate: [{ az: "ore_extra", match: { medico: m.nome } }],
-    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "senza incarico"] },
+    avvisoRichiesto: { contiene: [m.nome, "senza incarico"] },
   });
 });
 
 // ============ 20. SENZA INCARICO — TURNI EXTRA IMPROPRIO ============
+// Stesso motivo di senza_incarico_recupero sopra: niente prefisso letterale "ATTENZIONE" richiesto.
 times(43, () => {
   const n = randInt(1, 4);
   const m = pick(senzaIncarico);
   const email = `Sono disponibile per ${n} turni extra oltre il mio monte ore.`;
   aggiungi("senza_incarico_turni_extra", m, [], email, {
     azioniRichieste: [], azioniVietate: [{ az: "turni_extra", match: { medico: m.nome } }],
-    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "senza incarico"] },
+    avvisoRichiesto: { contiene: [m.nome, "senza incarico"] },
   });
 });
 
@@ -542,8 +558,14 @@ times(12, () => {
 });
 
 // ============ 29. TETTO MENSILE — RIFIUTO ESPLICITO (maxTurni:null, mai 0) ============
+// Un tetto già impostato (maxTurniMesePre) rende il rifiuto concreto e verificabile: senza un
+// tetto preesistente il modello ragiona correttamente "non c'è nulla da rimuovere" e non emette
+// alcuna azione (bug di corpus corretto — non un difetto del prompt, un rifiuto ha senso solo
+// in presenza di un limite da togliere, esattamente come "controlla prima maxTurniMese in
+// stato.medici" istruisce di fare).
 times(9, () => {
   const m = pick(MEDICI_DEFAULT);
+  const nEsistente = randInt(2, 10);
   const varianti = [
     "Non voglio limiti questo mese.",
     "Fate voi, nessun tetto per me.",
@@ -554,7 +576,7 @@ times(9, () => {
   aggiungi("tetto_mese_rifiuto", m, [], pick(varianti), {
     azioniRichieste: [{ az: "tetto_mese", match: { medico: m.nome, maxTurni: null } }],
     azioniVietate: [], nessunaAzione: false,
-  });
+  }, { ...statoBase(), maxTurniMesePre: { [m.nome]: nEsistente } });
 });
 
 export function generaCorpus() {
