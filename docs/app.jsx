@@ -578,21 +578,39 @@ function slotHaPreferiti(dispo, slotKey) {
   return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
 }
 
+// Aggiustamento mensile del monte ore (bilanciamento turni annui, §3.11): il monte ore BASE resta
+// sempre quello di CAT_INFO, ma per DET24 e DET12/DET12ASAP viene aggiustato di ±8h in mesi
+// specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione — DET24 perde 8h
+// (104→96h, 9→8 turni impliciti) a Febbraio/Aprile/Settembre/Novembre; DET12 e DET12ASAP guadagnano
+// 8h (52→60h, 4→5 turni impliciti) a Marzo/Maggio/Agosto/Dicembre. Compensato sugli altri 8 mesi
+// dell'anno: 104 turni/anno per DET24 (8×9 + 4×8), 52 per DET12/DET12ASAP (8×4 + 4×5). INDET e
+// DET36 non hanno mai aggiustamento. "mese" è l'indice 0-based usato ovunque (Gennaio=0, MESI_IT).
+const AGGIUSTAMENTO_MESE_ORE = {
+  DET24: { mesi: [1, 3, 8, 10], delta: -8 },
+  DET12ASAP: { mesi: [2, 4, 7, 11], delta: 8 },
+  DET12: { mesi: [2, 4, 7, 11], delta: 8 },
+};
+
 // Costruisce il debito ORDINARIO iniziale (prima di qualunque consumo) per ciascun medico: monte
-// ore contrattuale + ore extra di recupero dichiarate per il mese, null per i senza incarico
-// (nessun monte ore). È un valore puramente statico (dipende solo da categoria ed extraOre, mai
-// dal consumo effettivo) — usato sia per popolare "debiti" a inizio elaborazione sia, invariato,
-// per calcolare il tetto di distribuzione temporale (§3.11) anche dopo che il debito è stato speso.
-function debitoOrdinarioIniziale(mid, extraOre) {
-  const base = CAT_INFO[byId[mid].cat].ore;
-  return base === null ? null : base + (extraOre[mid] || 0);
+// ore contrattuale (con l'eventuale aggiustamento mensile sopra) + ore extra di recupero dichiarate
+// per il mese, null per i senza incarico (nessun monte ore). È un valore puramente statico (dipende
+// solo da categoria, mese ed extraOre, mai dal consumo effettivo) — usato sia per popolare "debiti"
+// a inizio elaborazione sia, invariato, per calcolare il tetto di distribuzione temporale (§3.11)
+// anche dopo che il debito è stato speso.
+function debitoOrdinarioIniziale(mid, extraOre, mese) {
+  const cat = byId[mid].cat;
+  const base = CAT_INFO[cat].ore;
+  if (base === null) return null;
+  const agg = AGGIUSTAMENTO_MESE_ORE[cat];
+  const baseAggiustato = agg && agg.mesi.includes(mese) ? base + agg.delta : base;
+  return baseAggiustato + (extraOre[mid] || 0);
 }
 
 function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}) {
   const debiti0 = {};
   const debitiExtra0 = {};
   MEDICI.forEach((m) => {
-    debiti0[m.id] = debitoOrdinarioIniziale(m.id, extraOre);
+    debiti0[m.id] = debitoOrdinarioIniziale(m.id, extraOre, mese);
     debitiExtra0[m.id] = debiti0[m.id] === null ? null : (turniExtra[m.id] || 0) * 12;
   });
 

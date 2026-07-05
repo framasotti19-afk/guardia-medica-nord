@@ -76,7 +76,7 @@ suite.test("DET24 vs DET12ASAP: con più debito residuo, il DET12ASAP vince anch
   const d = dispoBase();
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
   d[WANG][N(G1)] = turnoDisp(["Maniago"]);
-  const t = unicoTurno(d, { [FOSCHIANI]: 80 }, lista); // 52+80=132h > 104h di WANG
+  const t = unicoTurno(d, { [FOSCHIANI]: 80 }, lista); // 60+80=140h (52h base +8h aggiustamento di agosto, §3.11) > 104h di WANG
   suite.eq(t.slots[0], FOSCHIANI, "FOSCHIANI (DET12ASAP, con debito maggiorato) vince su WANG (DET24)");
   resetMedici();
 });
@@ -86,9 +86,9 @@ suite.test("DET24 vs DET12ASAP a parità di debito residuo: decide la graduatori
   const lista = MEDICI_DEFAULT.map((m) => (m.id === FOSCHIANI ? { ...m, cat: "DET12ASAP" } : m));
   setMediciGlobal(lista);
   const d = dispoBase();
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // grad3, DET12ASAP: 52h + extra
-  d[WANG][N(G1)] = turnoDisp(["Maniago"]); // grad124, DET24: 104h
-  const t = unicoTurno(d, { [FOSCHIANI]: 52 }, lista); // 52+52=104h = 104h di WANG: debito pari
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // grad3, DET12ASAP: 60h (52h base +8h aggiustamento di agosto, §3.11) + extra
+  d[WANG][N(G1)] = turnoDisp(["Maniago"]); // grad124, DET24: 104h (agosto non è mese aggiustato per DET24)
+  const t = unicoTurno(d, { [FOSCHIANI]: 44 }, lista); // 60+44=104h = 104h di WANG: debito pari
   suite.eq(t.slots[0], FOSCHIANI, "a parità di debito, vince il grad migliore (FOSCHIANI, grad3 contro grad124)");
   resetMedici();
 });
