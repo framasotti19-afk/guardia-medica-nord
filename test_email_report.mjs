@@ -150,6 +150,8 @@ const SUGGERIMENTI = {
   recupero_ore_in_turni: "Se la conversione turni×12 non avviene o è sbagliata, verifica che l'esempio numerico nel prompt (es. '4 turni → 48 ore') sia sufficientemente esplicito e non ambiguo rispetto a un altro turno di durata diversa (es. MMG da 6h).",
   tetto_settimanale: "Se l'azione tetto_settimana non usa il giorno giusto per identificare la settimana, chiarisci nel prompt che 'giorno' può essere un giorno qualsiasi della settimana voluta, non necessariamente il primo.",
   preferenza_turno: "Se turno_pref viene generato con il turno sbagliato (G invece di N o viceversa), verifica che l'esempio nel prompt distingua chiaramente 'tengo la notte' da 'tengo il giorno' con frasi diverse.",
+  ultima_risorsa: "Se il modello inserisce comunque la disponibilità come verde normale invece di segnalarla, la lista di formulazioni nel prompt potrebbe non coprire abbastanza varianti: aggiungi le frasi fallite qui sotto come nuovi esempi letterali nella sezione dedicata.",
+  ultima_risorsa_falso_positivo: "Se il modello tratta una condizione sulla SEDE (non sul lavorare quel giorno) come 'ultima risorsa' — bloccando un'azione dispo_aggiungi che invece andrebbe inserita normalmente — rinforza nel prompt la distinzione esplicita tra condizione sul turno/giorno e condizione sulla sede, con un esempio negativo letterale vicino alla regola.",
 };
 const SUGGERIMENTO_GENERICO = "Nessun suggerimento specifico precompilato per questa categoria: rivedi manualmente gli esempi falliti elencati sopra per individuare il pattern.";
 

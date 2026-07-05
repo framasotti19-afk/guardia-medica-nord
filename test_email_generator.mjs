@@ -579,6 +579,103 @@ times(9, () => {
   }, { ...statoBase(), maxTurniMesePre: { [m.nome]: nEsistente } });
 });
 
+// ============ 30. DISPONIBILITÀ "ULTIMA RISORSA" — formulazione classica su un solo giorno
+// (avviso dedicato, nessuna disponibilità inserita per quel giorno) ============
+times(8, (i) => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(contrattualizzati); // evita l'interferenza della regola "senza incarico senza numero guardie" con l'avviso atteso
+  const varianti = [
+    `Il ${giorno} sono disponibile a Maniago per la notte, solo se non trovate altri.`,
+    `Per il ${giorno} posso coprire Maniago di notte, ma solo come ultima risorsa.`,
+    `Il ${giorno} ci sarei a Maniago per la notte, se proprio serve.`,
+    `Per il ${giorno} in caso di emergenza posso coprire Maniago di notte.`,
+    `Il ${giorno} preferirei evitare, ma se siete disperati ci sono a Maniago per la notte.`,
+    `Per il ${giorno} se non trovate nessun altro, ci sono a Maniago per la notte.`,
+  ];
+  const email = varianti[i % varianti.length];
+  aggiungi("ultima_risorsa", m, giorno, email, {
+    azioniRichieste: [], azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N" } }],
+    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "ultima risorsa"] },
+  });
+});
+
+// ============ 31. DISPONIBILITÀ "ULTIMA RISORSA" — caso MISTO (disponibilità normale + un
+// giorno condizionato nella stessa email): solo il giorno condizionato va segnalato, l'altro va
+// inserito regolarmente ============
+times(6, () => {
+  const giornoNormale = pick(GIORNI_FERIALI.slice(0, 10));
+  let giornoUR = pick(GIORNI_FERIALI.slice(10));
+  const m = pick(contrattualizzati); // evita l'interferenza della regola "senza incarico senza numero guardie" sul giorno normale
+  const varianti = [
+    `Il ${giornoNormale} sono disponibile a Maniago per la notte. Il ${giornoUR} potrei esserci ma solo come ultima risorsa.`,
+    `Per il ${giornoNormale} posso coprire Maniago di notte. Il ${giornoUR}, se proprio serve, ci sono, ma preferirei evitare.`,
+    `Il ${giornoNormale} sono disponibile a Maniago per la notte, mentre il ${giornoUR} solo se non trovate altri.`,
+  ];
+  const email = pick(varianti);
+  aggiungi("ultima_risorsa", m, [giornoNormale, giornoUR], email, {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno: giornoNormale, turno: "N", sedi: ["Maniago"] } }],
+    azioniVietate: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno: giornoUR, turno: "N" } }],
+    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "ultima risorsa"] },
+  });
+});
+
+// ============ 32. DISPONIBILITÀ "ULTIMA RISORSA" — condizione su PIÙ giorni nella stessa
+// dichiarazione (entrambi vanno segnalati, nessuno dei due inserito) ============
+times(6, () => {
+  const g1 = pick(GIORNI_FERIALI.slice(0, 10));
+  const g2 = pick(GIORNI_FERIALI.slice(10));
+  const m = pick(contrattualizzati); // evita l'interferenza della regola "senza incarico senza numero guardie" con l'avviso atteso
+  const varianti = [
+    `Il ${g1} e il ${g2} potrei esserci a Maniago per la notte, ma solo come ultima risorsa, se non trovate nessun altro.`,
+    `Per il ${g1} e il ${g2} ci sarei a Maniago per la notte solo se proprio serve, preferirei evitare.`,
+  ];
+  const email = pick(varianti);
+  aggiungi("ultima_risorsa", m, [g1, g2], email, {
+    azioniRichieste: [],
+    azioniVietate: [
+      { az: "dispo_aggiungi", match: { medico: m.nome, giorno: g1, turno: "N" } },
+      { az: "dispo_aggiungi", match: { medico: m.nome, giorno: g2, turno: "N" } },
+    ],
+    avvisoRichiesto: { contiene: ["ATTENZIONE", m.nome, "ultima risorsa"] },
+  });
+});
+
+// ============ 33. FALSO POSITIVO "ULTIMA RISORSA" — condizione sulla SEDE, non sul lavorare quel
+// giorno ("se serve vado anche a Meduno"): normale disponibilità alternativa di sede, va inserita
+// regolarmente, MAI trattata come ultima risorsa ============
+times(5, () => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(contrattualizzati);
+  const primaria = pick(["Maniago", "Spilimbergo"]);
+  const varianti = [
+    `Il ${giorno} sono disponibile a ${primaria} per la notte; se serve vado anche a Meduno.`,
+    `Per il ${giorno} preferirei ${primaria}, ma se necessario vado anche a Meduno per la notte.`,
+  ];
+  const email = pick(varianti);
+  aggiungi("ultima_risorsa_falso_positivo", m, giorno, email, {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: [primaria, "Meduno"] } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
+// ============ 34. FALSO POSITIVO "ULTIMA RISORSA" — condizione sulla copertura A DISTANZA
+// ("se necessario copro Meduno a distanza"): normale dichiarazione blu, va inserita regolarmente,
+// MAI trattata come ultima risorsa ============
+times(5, () => {
+  const giorno = pick(GIORNI_FERIALI);
+  const m = pick(contrattualizzati);
+  const sedeVerde = pick(["Maniago", "Spilimbergo"]);
+  const varianti = [
+    `Il ${giorno} sono disponibile a ${sedeVerde} in presenza; se necessario copro anche Meduno a distanza.`,
+    `Per il ${giorno} ci sono a ${sedeVerde}, e se serve posso coprire Meduno a distanza.`,
+  ];
+  const email = pick(varianti);
+  aggiungi("ultima_risorsa_falso_positivo", m, giorno, email, {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: [sedeVerde], blu: ["Meduno"] } }],
+    azioniVietate: [], nessunaAzione: false,
+  });
+});
+
 export function generaCorpus() {
   return casi;
 }
