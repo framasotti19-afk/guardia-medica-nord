@@ -15,9 +15,8 @@ const BERTUZZI = 1, CAMPANER = 2;
 const TRIGODKO = 3;
 // SENZA: ZURLO grad2, GRANDO grad13
 const ZURLO = 13, GRANDO = 14;
-// G1/G2/G3 scelti NON consecutivi (distanza > 1 giorno) per isolare il test dalla regola di
-// spaziatura temporale (CONTEXT.md §3.7), che altrimenti sposterebbe il vincitore del giorno
-// successivo su un'alternativa disponibile indipendentemente dal bucket di priorità testato qui.
+// G1/G2/G3 scelti NON consecutivi (scelta ereditata da quando esisteva ancora la regola di
+// spaziatura temporale §3.7, oggi rimossa — CONTEXT.md §10 — innocua qui, mantenuta per leggibilità).
 const [G1, , G2, , G3] = GIORNI_FERIALI_SEMPLICI;
 
 function unicoTurno(dispo, extraOre, turniExtra, giorno = G1) {

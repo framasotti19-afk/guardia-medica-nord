@@ -8,9 +8,9 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_ut
 
 const suite = makeSuite("test_max_turni_mese — tetto mensile dichiarato dal coordinatore");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-// Giorni feriali semplici ma spaziati di 7 in 7 (sempre distanza > 1): isolano i test dalla
-// regola di spaziatura temporale (§3.7), che altrimenti sposterebbe il vincitore del giorno
-// successivo su un'alternativa indipendentemente dal tetto mensile testato qui.
+// Giorni feriali semplici, spaziati di 7 in 7 (scelta ereditata da quando esisteva ancora la
+// regola di spaziatura temporale §3.7, oggi rimossa — CONTEXT.md §10 — ma la spaziatura tra i
+// giorni resta comunque comoda per leggibilità).
 const [G1, G2, G3, G4, G5] = [3, 10, 17, 24, 31];
 // INDET: BERTUZZI grad0 (96h monte ore = 8 notti)
 const BERTUZZI = 1;

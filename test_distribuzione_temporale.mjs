@@ -9,7 +9,10 @@
 // copertura non prevale mai sul tetto dichiarato). Poiché il "pool" da cui si sceglie è fatto di
 // vittorie EFFETTIVE (non di semplice disponibilità dichiarata), resta comunque concentrato nella
 // finestra iniziale in cui il medico è naturalmente il più forte candidato — è una conseguenza
-// accettata della gerarchia, non un difetto di questo meccanismo.
+// accettata della gerarchia, non un difetto di questo meccanismo. Senza la vecchia regola di
+// spaziatura temporale (§3.7, RIMOSSA — CONTEXT.md §10), quella finestra naturale è semplicemente
+// i primi N giorni CONSECUTIVI in cui il medico è disponibile, dato che nulla forza più
+// un'alternanza giorno per giorno.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
 
@@ -33,12 +36,12 @@ function vincitoriNotte(schema, mid) {
   schema.forEach((g) => g.turni.forEach((t) => { if (t.id === "N" && t.slots.includes(mid)) notti.push(g.giorno); }));
   return notti;
 }
-suite.test("scarsità genuina su un'unica sede: il tetto implicito (8, dal monte ore) coincide col numero di vittorie naturali, quindi nessuna cessione scatta — il pattern osservato viene interamente dalla spaziatura §3.7 preesistente, non dalla distribuzione", () => {
+suite.test("scarsità genuina su un'unica sede: il tetto implicito (8, dal monte ore) coincide col numero di vittorie naturali, quindi nessuna cessione scatta — vince i primi 8 giorni CONSECUTIVI (nessuna alternanza forzata, §3.7 rimossa)", () => {
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 8, "BERTUZZI vince esattamente le 8 notti previste dal suo monte ore (96h/12h): il tetto implicito non taglia nulla perché coincide col numero di vittorie naturali");
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 3, 5, 7, 9, 11, 13, 15]), "pattern alternato dovuto alla spaziatura temporale (§3.7, preesistente): non è distribuzione uniforme sull'intero mese, che qui non ha nulla da cedere");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8]), "i primi 8 giorni CONSECUTIVI: senza la spaziatura §3.7 (rimossa) nulla forza più un'alternanza, e senza cessione (tetto = vittorie naturali) la distribuzione non ha nulla da fare");
   const scoperte = [];
   schema.forEach((g) => { const t = g.turni.find((x) => x.id === "N"); if (!t.slots[0]) scoperte.push(g.giorno); });
   suite.eq(scoperte.length, 0, "nessuna notte resta scoperta: ZURLO copre tutte le notti non vinte da BERTUZZI");
@@ -51,7 +54,7 @@ suite.test("più siti disponibili (nessuna scarsità artificiale): stesso princi
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 8, "8 vittorie nel mese, pari al proprio tetto implicito: nessuna cessione necessaria");
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 4, 6, 8, 10, 12, 14]), "pattern diverso dal caso a sede singola per via delle diverse dinamiche di FASE1/spaziatura con 3 concorrenti e 2 sedi, ma comunque un esito valido della sola gerarchia esistente");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8]), "stesso identico pattern: i primi 8 giorni consecutivi, anche con più concorrenti e più sedi disponibili");
   let scoperte = 0;
   schema.forEach((g) => g.turni.forEach((t) => { if (t.id === "N" && t.slots.filter((s) => s).length < 2) scoperte++; }));
   suite.eq(scoperte, 0, "entrambe le sedi (Maniago e Spilimbergo) restano sempre coperte ogni notte del mese");
@@ -89,7 +92,7 @@ suite.test("Max turni mese più restrittivo del monte ore: il tetto (3) è infer
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 3, "con un tetto mensile di 3, BERTUZZI vince solo 3 notti nell'intero mese (non le 8 del monte ore, mai di più: tetto rigido)");
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 4, 6]), "sottoinsieme equidistanziato scelto tra le 8 vittorie EFFETTIVE del pass 1 ([1,3,5,7,9,11,13,15], lo stesso pattern del primo test qui sopra), non tra tutti i 31 giorni disponibili: la finestra resta quella naturale della gerarchia");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 5, 8]), "sottoinsieme equidistanziato scelto tra le 8 vittorie EFFETTIVE del pass 1 ([1,2,...,8], gli stessi primi 8 giorni consecutivi del primo test qui sopra), non tra tutti i 31 giorni disponibili: la finestra resta quella naturale della gerarchia");
   const scoperte = [];
   schema.forEach((g) => { const t = g.turni.find((x) => x.id === "N"); if (!t.slots[0]) scoperte.push(g.giorno); });
   suite.eq(scoperte.length, 0, "nessuna notte scoperta: ZURLO copre sempre le notti cedute da BERTUZZI");

@@ -176,9 +176,8 @@ suite.test("nessun preferito dichiarato nel mese → nessun avviso relativo ai p
 });
 
 suite.test("avvisi ordinati cronologicamente per giorno", () => {
-  // Giorni volutamente NON consecutivi (distanza > 1), per isolare l'ordinamento degli avvisi
-  // dalla regola di spaziatura temporale (§3.7): su giorni consecutivi BERTUZZI, spaziato via
-  // dopo aver vinto Maniago il giorno prima, cederebbe la sede allo sfidante del giorno dopo.
+  // Giorni volutamente NON consecutivi: scelta ereditata da quando esisteva ancora la regola di
+  // spaziatura temporale (§3.7, oggi rimossa — CONTEXT.md §10), innocua qui, mantenuta per leggibilità.
   const [g1, g2, g3] = [GIORNI_FERIALI_SEMPLICI[0], GIORNI_FERIALI_SEMPLICI[4], GIORNI_FERIALI_SEMPLICI[8]];
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(g3)] = turnoDisp(["Maniago"]);

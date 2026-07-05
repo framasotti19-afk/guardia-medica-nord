@@ -1,10 +1,11 @@
-// Test sulla regola di spaziatura temporale (CONTEXT.md §3.7) e sul tetto settimanale
-// dichiarabile dal medico (CONTEXT.md §3.8).
-//
-// Spaziatura: tra i turni disponibili di un medico, il motore preferisce sempre quello più
-// distante dall'ultimo turno fisico già assegnato. Non decide MAI chi vince un conflitto (tra
-// eventuali alternativi decide sempre la gerarchia normale) e non lascia MAI una sede scoperta
-// per questo motivo: se non esiste un'alternativa valida, il medico più recente resta dov'è.
+// Test sul tetto settimanale dichiarabile dal medico (CONTEXT.md §3.8), più un residuo di test
+// storici su `giorniTra`/`settimanaDi` (utility di date generiche, ancora usate da §3.8) e sulla
+// regola di spaziatura temporale (CONTEXT.md §3.7) — RIMOSSA (vedi CONTEXT.md §10): un medico che
+// vince un turno per gerarchia lo mantiene sempre, anche se ha lavorato il giorno prima o vince
+// anche l'altro turno dello stesso giorno. I test §3.7 originali che dimostravano la cessione
+// automatica sono stati rimossi (il comportamento che testavano non esiste più); quelli tuttora
+// validi ("nessuna alternativa → copertura vince comunque", "alternativa su un'altra sede non
+// conta") sono rimasti, dato che il loro esito non cambia.
 //
 // Tetto settimanale: il medico dichiara dispo[mid]["SETT:" + lunedì] = { maxTurni: N }. Una volta
 // raggiunto il tetto quella settimana, il motore non lo considera più candidato — le sedi che
@@ -12,9 +13,9 @@
 import { MEDICI, dk, elaboraSchema, settimanaDi, giorniTra } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
 
-const suite = makeSuite("test_spaziatura_settimana — spaziatura temporale e tetto settimanale");
+const suite = makeSuite("test_spaziatura_settimana — tetto settimanale (§3.7 rimossa, vedi intro)");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-const BERTUZZI = 1, CAMPANER = 2, TRIGODKO = 3, GHIZZO = 5, FOSCHIANI = 8, WANG = 12;
+const BERTUZZI = 1, CAMPANER = 2, FOSCHIANI = 8, WANG = 12;
 
 function unicoTurno(dispo, giorno, extraOre = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
@@ -43,33 +44,33 @@ suite.test("settimanaDi raggruppa i giorni della stessa settimana (lun-dom) sott
 });
 
 // ---------------------------------------------------------------------------
-// SPAZIATURA — copertura vince sempre se non c'è alternativa
+// §3.7 RIMOSSA: chi vince un turno per gerarchia lo mantiene sempre, anche a giorni consecutivi
 // ---------------------------------------------------------------------------
-suite.test("unico candidato su due notti consecutive: le ottiene entrambe, nessuna resta scoperta per spaziatura", () => {
+suite.test("unico candidato su due notti consecutive: le ottiene entrambe (nessuna alternativa comunque presente)", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G4)] = turnoDisp(["Maniago"]);
   const t1 = unicoTurno(d, G3);
   const t2 = unicoTurno(d, G4); // stesso oggetto dispo, nuova elaborazione indipendente per isolare il test
   suite.eq(t1.slots[0], BERTUZZI);
-  suite.eq(t2.slots[0], BERTUZZI, "senza alternativa, la spaziatura non lascia mai la sede scoperta");
+  suite.eq(t2.slots[0], BERTUZZI, "nessuna alternativa presente: la sede è comunque sua");
 });
 
-// ---------------------------------------------------------------------------
-// SPAZIATURA — con un'alternativa valida, il vincitore di ieri cede il posto oggi
-// ---------------------------------------------------------------------------
-suite.test("con un'alternativa valida, il medico che ha lavorato ieri cede la sede oggi", () => {
+suite.test("anche con un'alternativa valida disponibile, il medico che ha lavorato ieri MANTIENE la sede oggi (§3.7 rimossa)", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]); // unico candidato il giorno 3: vince a mani basse
   d[BERTUZZI][N(G4)] = turnoDisp(["Maniago"]);
-  d[CAMPANER][N(G4)] = turnoDisp(["Maniago"]); // alternativa valida, stessa sede, il giorno 4
-  // CAMPANER quasi a debito esaurito: senza la regola di spaziatura, BERTUZZI vincerebbe comunque
-  // il giorno 4 per debito residuo maggiore (96-12=84 contro 6) — isola l'effetto della spaziatura.
-  const { schema } = schemaCompleto(d, { [CAMPANER]: -90 });
+  d[CAMPANER][N(G4)] = turnoDisp(["Maniago"]); // alternativa valida, stessa sede, il giorno 4 — ma non entra più in gioco
+  // +12h di recupero a BERTUZZI: compensa esattamente le 12h consumate vincendo il giorno 3, così
+  // il giorno 4 il debito residuo è di nuovo pari a CAMPANER (mai lavorato) — isola l'effetto da
+  // testare (nessuna cessione per "aver lavorato ieri") dal normale auto-bilanciamento del debito
+  // (§3.4, che altrimenti farebbe vincere CAMPANER il giorno 4 per debito residuo maggiore: un
+  // meccanismo diverso e preesistente, non la spaziatura rimossa qui).
+  const { schema } = schemaCompleto(d, { [BERTUZZI]: 12 });
   const t1 = schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N");
   const t2 = schema.find((g) => g.giorno === G4).turni.find((t) => t.id === "N");
   suite.eq(t1.slots[0], BERTUZZI, "giorno 3: BERTUZZI unico candidato");
-  suite.eq(t2.slots[0], CAMPANER, "giorno 4: BERTUZZI ha lavorato ieri, CAMPANER (alternativa valida) prende il suo posto");
+  suite.eq(t2.slots[0], BERTUZZI, "giorno 4: BERTUZZI ha vinto per gerarchia (categoria/debito) anche ieri, quindi se lo tiene — nessuna cessione automatica per aver lavorato il giorno prima");
 });
 
 suite.test("senza alternativa valida per QUELLA sede specifica, il medico recente resta anche se un altro medico è presente altrove", () => {
@@ -83,41 +84,14 @@ suite.test("senza alternativa valida per QUELLA sede specifica, il medico recent
   suite.eq(t2.slots[1], CAMPANER, "CAMPANER ottiene comunque la sua sede, Spilimbergo");
 });
 
-suite.test("distanza superiore a 1 giorno: nessun intervento della spaziatura, vince la gerarchia normale", () => {
+suite.test("giorni consecutivi, ma la gerarchia (non un'euristica di distanza) decide comunque tutto normalmente", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G5)] = turnoDisp(["Maniago"]); // giorno 5, distanza 2 dal giorno 3
   d[CAMPANER][N(G5)] = turnoDisp(["Maniago"]);
   const { schema } = schemaCompleto(d, { [CAMPANER]: -90 });
   const t2 = schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N");
-  suite.eq(t2.slots[0], BERTUZZI, "distanza 2 è già sufficiente: nessuna spaziatura forzata, decide solo il debito residuo");
-});
-
-suite.test("tra più alternative, a decidere chi subentra è SEMPRE la gerarchia normale, non un ordine arbitrario", () => {
-  const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]); // unico il giorno 3
-  d[BERTUZZI][N(G4)] = turnoDisp(["Maniago"]);
-  d[GHIZZO][N(G4)] = turnoDisp(["Maniago"]);   // DET36 grad91
-  d[TRIGODKO][N(G4)] = turnoDisp(["Maniago"]); // DET36 grad4, priorità migliore di GHIZZO
-  const { schema } = schemaCompleto(d);
-  const t2 = schema.find((g) => g.giorno === G4).turni.find((t) => t.id === "N");
-  suite.eq(t2.slots[0], TRIGODKO, "tra le alternative disponibili, subentra quella con priorità migliore in gerarchia (TRIGODKO, non GHIZZO)");
-});
-
-suite.test("la spaziatura considera la data di calendario reale, non l'ordine di elaborazione interno (conPref/resto)", () => {
-  // WANG ha un preferito il giorno 4 (elaborato PRIMA in ordine cronologico, fase conPref) e vince
-  // sempre (unico candidato). FOSCHIANI ha un debito enorme e vince il giorno 3 (resto, elaborato
-  // dopo). I due giorni sono comunque consecutivi in calendario: se la spaziatura calcolasse la
-  // distanza sbagliando il segno per via del riordino, potrebbe interferire qui erroneamente — ma
-  // WANG e FOSCHIANI sono medici DIVERSI, quindi la spaziatura (per-medico) non deve mai attivarsi.
-  const d = dispoBase(MEDICI);
-  d[WANG][N(G4)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
-  d[FOSCHIANI][N(G3)] = turnoDisp(["Maniago"]);
-  const { schema } = schemaCompleto(d);
-  const t3 = schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N");
-  const t4 = schema.find((g) => g.giorno === G4).turni.find((t) => t.id === "N");
-  suite.eq(t4.slots[0], WANG);
-  suite.eq(t3.slots[0], FOSCHIANI, "medici diversi: nessuna interferenza di spaziatura tra loro");
+  suite.eq(t2.slots[0], BERTUZZI, "decide solo il debito residuo, nessuna euristica di distanza in gioco");
 });
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,10 @@
 // Dichiarata come dispo[mid]["TURNOPREF:" + dataStr] = "G" | "N", decide SOLO quale dei due turni
 // il medico mantiene se li vince ENTRAMBI fisicamente lo stesso giorno. Non cambia mai CHI vince
 // un conflitto, non anticipa l'elaborazione, e non lascia mai una sede scoperta per questo motivo:
-// se non esiste un'alternativa valida per il turno non preferito, il medico resta su entrambi
-// (la copertura vince sempre, esattamente come per la spaziatura temporale — CONTEXT.md §3.7).
+// se non esiste un'alternativa valida per il turno non preferito, il medico resta su entrambi (la
+// copertura vince sempre). Senza una preferenza dichiarata, nessuna cessione avviene MAI: il
+// medico mantiene entrambi i turni (la regola di spaziatura temporale §3.7, che un tempo cedeva
+// per default il turno elaborato per secondo, è stata rimossa — CONTEXT.md §10).
 import { MEDICI, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
 
@@ -145,39 +147,31 @@ suite.test("l'alternativo scelto è sempre quello con priorità migliore anche c
 });
 
 // ---------------------------------------------------------------------------
-// Non anticipa l'elaborazione né cambia CHI vince: solo quale turno il vincitore mantiene
+// Non anticipa l'elaborazione né cambia CHI vince: solo quale turno il vincitore mantiene.
+// Senza una preferenza dichiarata, nessun meccanismo cede più nulla: chi vince un turno per
+// gerarchia se lo tiene, anche se ha vinto anche l'altro turno dello stesso giorno (la regola di
+// spaziatura temporale §3.7, che faceva questo per default, è stata rimossa: vedi CONTEXT.md §10).
 // ---------------------------------------------------------------------------
-suite.test("senza preferenza dichiarata, resta in vigore la spaziatura temporale ordinaria (comportamento preesistente, invariato)", () => {
-  // NON è il nuovo meccanismo di preferenza turno: è la regola di spaziatura temporale
-  // preesistente (§3.7), che di norma cede il turno elaborato per SECONDO (qui il notturno,
-  // dato che il diurno viene sempre elaborato prima) a un'alternativa se ne esiste una — a
-  // prescindere da qualsiasi preferenza. La preferenza di turno serve esattamente a poter
-  // scegliere diversamente da questo comportamento di default (vedi i test sullo scambio sopra).
+suite.test("senza preferenza dichiarata, il vincitore mantiene ENTRAMBI i turni: nessuna cessione automatica (§3.7 rimossa)", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]);
-  d[TRIGODKO][N(G8)] = turnoDisp(["Maniago"]);
+  d[TRIGODKO][N(G8)] = turnoDisp(["Maniago"]); // alternativa disponibile, ma senza preferenza dichiarata non entra in gioco
   const { schema } = schemaCompleto(d);
   const { tG, tN } = turniGiorno(schema, G8);
   suite.eq(tG.slots[0], BERTUZZI);
-  suite.eq(tN.slots[0], TRIGODKO, "senza preferenza dichiarata, la spaziatura ordinaria cede comunque il notturno all'alternativa");
+  suite.eq(tN.slots[0], BERTUZZI, "senza preferenza dichiarata, BERTUZZI mantiene anche il notturno: nessuna rotazione automatica verso TRIGODKO");
 });
 
-// ---------------------------------------------------------------------------
-// Caso reale che ha motivato la funzionalità: un ★ preferito sul NOTTURNO fa sì che venga
-// elaborato per PRIMO (fase conPref, CONTEXT.md §3.5), invertendo quale dei due turni la
-// spaziatura temporale considera "a rischio" — senza una preferenza di turno esplicita, il
-// medico finirebbe per mantenere il notturno e perdere il diurno che invece preferiva.
-// ---------------------------------------------------------------------------
-suite.test("★ preferito sul notturno + nessuna preferenza di turno: la spaziatura cede il DIURNO (il notturno è stato elaborato per primo)", () => {
+suite.test("★ preferito sul notturno + nessuna preferenza di turno: mantiene ENTRAMBI, l'ordine conPref/resto non ha più alcun effetto collaterale sulla spaziatura (rimossa)", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // ★ sul notturno: elaborato per primo
+  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // ★ sul notturno: elaborato per primo (§3.5)
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
-  d[TRIGODKO][G(G8)] = turnoDisp(["Maniago"]); // alternativa valida solo sul diurno
+  d[TRIGODKO][G(G8)] = turnoDisp(["Maniago"]); // alternativa disponibile, ma senza preferenza dichiarata non entra in gioco
   const { schema } = schemaCompleto(d);
   const { tG, tN } = turniGiorno(schema, G8);
-  suite.eq(tN.slots[0], BERTUZZI, "il notturno, elaborato per primo grazie al ★, resta suo");
-  suite.eq(tG.slots[0], TRIGODKO, "senza una preferenza di turno esplicita, il diurno (elaborato per secondo) va all'alternativa — anche se BERTUZZI lo preferiva");
+  suite.eq(tN.slots[0], BERTUZZI, "il notturno resta suo");
+  suite.eq(tG.slots[0], BERTUZZI, "senza una preferenza di turno esplicita, mantiene anche il diurno: nessuna cessione automatica, indipendentemente da quale dei due è stato elaborato per primo");
 });
 
 suite.test("★ preferito sul notturno + preferenza di turno ☀️ diurno: la preferenza esplicita prevale sull'ordine conPref/resto", () => {
