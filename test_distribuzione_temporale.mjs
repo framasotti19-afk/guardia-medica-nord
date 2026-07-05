@@ -13,6 +13,14 @@
 // spaziatura temporale (§3.7, RIMOSSA — CONTEXT.md §10), quella finestra naturale è semplicemente
 // i primi N giorni CONSECUTIVI in cui il medico è disponibile, dato che nulla forza più
 // un'alternanza giorno per giorno.
+//
+// Selezione CROSS-LIVELLO (§3.11): quando un livello di sede peggiore deve anch'esso essere
+// ridotto (dopo che tutti i livelli migliori sono stati riempiti per intero — la priorità di sede
+// resta sempre assoluta, mai un livello peggiore "ruba" spazio a uno migliore), la scelta di quali
+// turni tenere in quel livello considera ANCHE la distanza dai giorni già fissati dai livelli
+// migliori (farthest-point greedy, scegliConRiferimento), non solo l'equidistanza al proprio
+// interno — così i gruppi di livelli diversi si incastrano invece di sovrapporsi in giorni
+// consecutivi.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
 
@@ -139,6 +147,35 @@ suite.test("priorità di sede ASSOLUTA sull'equidistanza (CONTEXT.md §3.11): tr
   });
   const giornoScartatoLiv1 = schema.find((x) => x.giorno === 10).turni.find((x) => x.id === "N");
   suite.eq(giornoScartatoLiv1.slots.includes(ZURLO), true, "giorno 10 (livello 1, ma scartato dall'equidistanza): ceduto normalmente a ZURLO, nessun buco");
+});
+
+suite.test("selezione CROSS-LIVELLO (CONTEXT.md §3.11): quando anche il livello 2 deve essere ridotto, la scelta tiene conto della distanza dai giorni GIÀ FISSATI dal livello 1 (farthest-point), non solo dell'equidistanza interna al livello 2", () => {
+  const d = dispoBase(MEDICI);
+  // BERTUZZI: livello 1 (Maniago) SOLO il giorno 1 — un'unica vittoria, tenuta per intero (nessuna
+  // riduzione possibile con un solo candidato). Livello 2 (Spilimbergo) sui giorni 3,5,7,28,29,30
+  // (6 candidati) — ZURLO copre sempre entrambe le sedi da backup.
+  d[BERTUZZI][N(1)] = turnoDisp(["Maniago"]);
+  d[ZURLO][N(1)] = turnoDisp(["Maniago", "Spilimbergo"]);
+  const liv2 = [3, 5, 7, 28, 29, 30];
+  liv2.forEach((g) => {
+    d[BERTUZZI][N(g)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 2 } });
+    d[ZURLO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
+  });
+  // Tetto esplicito di 3: il livello 1 (1 vittoria) viene riempito per intero (residuo 3→2), poi il
+  // livello 2 (6 vittorie) va ridotto a 2. La pura equidistanza POSIZIONALE tra i 6 candidati di
+  // livello 2 ([3,5,7,28,29,30], indici 0..5) sceglierebbe gli estremi [3,30] — ignorando che il
+  // giorno 3 è vicinissimo al giorno 1 già fissato dal livello 1. La selezione CROSS-LIVELLO usa
+  // invece il giorno 1 come riferimento aggiuntivo: sceglie prima il giorno più lontano da esso
+  // (30, distanza 29), poi il più lontano dal riferimento aggiornato {1,30} tra i rimanenti (7,
+  // distanza 6 da entrambi — più di quanto darebbe 3, a sole 2 di distanza dal giorno 1) — tenendo
+  // [7,30] al posto di [3,30]: il livello 2 si incastra con il livello 1 invece di sovrapporglisi.
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
+  const notti = vincitoriNotte(schema, BERTUZZI);
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 7, 30]), "tiene il giorno 1 (livello 1, intero) più i giorni 7 e 30 (livello 2, scelti anche in base alla distanza dal giorno 1 già fissato) — NON il giorno 3, che la pura equidistanza posizionale (ignara del livello 1) avrebbe scelto al suo posto");
+  [3, 5, 28, 29].forEach((g) => {
+    const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
+    suite.eq(t.slots.includes(ZURLO), true, `giorno ${g} (livello 2, scartato dalla selezione cross-livello): ceduto a ZURLO, nessun buco di copertura`);
+  });
 });
 
 suite.finish();

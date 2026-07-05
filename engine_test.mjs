@@ -250,6 +250,38 @@ function scegliIndiciEquidistanti(k, n) {
   return [...idx].sort((a, b) => a - b);
 }
 
+// Sceglie n turni da tenere tra candidati (array di {slotKey, giorno}, in ordine cronologico) di
+// un livello di sede che deve essere ridotto, tenendo conto ANCHE della distanza dai giorni già
+// fissati da livelli di sede migliori (giorniFissi, §3.11) — la priorità di sede resta assoluta
+// sull'equidistanza: questa funzione agisce SOLO sulla selezione dentro il livello corrente, mai
+// sostituendo un turno di un livello migliore. Senza giorni di riferimento (nessun livello migliore
+// fissato, o questo è l'unico/primo livello con vittorie per il medico) ricade sulla pura
+// equidistanza posizionale (scegliIndiciEquidistanti), comportamento invariato. Con dei giorni di
+// riferimento, sceglie greedily un turno alla volta preferendo sempre quello con la distanza minima
+// (dal più vicino tra riferimento + scelte già fatte in questo livello) più ALTA possibile — un
+// "farthest-point": ogni scelta si aggiunge essa stessa al riferimento per la successiva, così il
+// livello si distribuisce bene sia rispetto ai livelli migliori sia al proprio interno, incastrandosi
+// con essi invece di sovrapporsi. A parità di distanza, vince il candidato cronologicamente più
+// vicino tra quelli rimasti (determinismo, nessuna scelta arbitraria).
+function scegliConRiferimento(candidati, n, giorniFissi) {
+  if (n >= candidati.length) return candidati.map((c) => c.slotKey);
+  if (!giorniFissi.length) return scegliIndiciEquidistanti(candidati.length, n).map((i) => candidati[i].slotKey);
+  const riferimento = [...giorniFissi];
+  const rimanenti = [...candidati];
+  const scelti = [];
+  for (let k = 0; k < n; k++) {
+    let bestIdx = 0, bestDist = -1;
+    rimanenti.forEach((c, idx) => {
+      const dist = Math.min(...riferimento.map((g) => Math.abs(c.giorno - g)));
+      if (dist > bestDist) { bestDist = dist; bestIdx = idx; }
+    });
+    scelti.push(rimanenti[bestIdx].slotKey);
+    riferimento.push(rimanenti[bestIdx].giorno);
+    rimanenti.splice(bestIdx, 1);
+  }
+  return scelti;
+}
+
 // Livello della sede VERDE effettivamente vinta da un medico in un turno (1 = più desiderata),
 // usato per raggruppare i turni vinti per qualità di sede prima di scegliere quali cedere in
 // eccesso al proprio tetto mensile (§3.11): la priorità di sede dichiarata dal medico è ASSOLUTA
@@ -626,11 +658,11 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const out = risultatiP1[`${d}|${turno.id}`];
     if (turno.extra) {
       const mid = out.slots[0];
-      if (mid) vintiDi[mid].push({ slotKey, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+      if (mid) vintiDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
     } else {
       out.fis.forEach((si) => {
         const mid = out.slots[si];
-        if (mid) vintiDi[mid].push({ slotKey, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
+        if (mid) vintiDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
       });
     }
   });
@@ -638,10 +670,14 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // Per ogni medico che supera il proprio tetto: raggruppa i turni EFFETTIVAMENTE vinti per
   // livello della sede verde ottenuta (1 = più desiderata) e riempie il tetto residuo partendo
   // dal livello migliore, esaurendo interamente ogni livello prima di considerare il successivo —
-  // la priorità di sede è ASSOLUTA sull'equidistanza. Solo quando un livello non entra per intero
-  // nel tetto residuo se ne sceglie il sottoinsieme più equidistanziato (stessa logica di prima,
-  // ma applicata dentro il singolo livello); il resto di quel livello e tutti i livelli peggiori
-  // successivi sono interamente marcati "da cedere" (§3.11).
+  // la priorità di sede è ASSOLUTA sull'equidistanza: un livello viene anche solo toccato SOLO dopo
+  // che tutti i livelli migliori sono stati riempiti per intero. Solo quando un livello non entra
+  // per intero nel tetto residuo se ne sceglie il sottoinsieme da tenere: il PRIMO livello mai
+  // ridotto (nessun livello migliore fissato prima) usa la pura equidistanza posizionale
+  // (scegliIndiciEquidistanti, comportamento invariato); un livello successivo ridotto tiene conto
+  // ANCHE della distanza dai giorni già fissati dai livelli migliori (scegliConRiferimento) — così i
+  // gruppi si incastrano invece di sovrapporsi in giorni consecutivi. Il resto di quel livello e
+  // tutti i livelli peggiori successivi sono interamente marcati "da cedere" (§3.11).
   const cessioniPerSlot = new Map(); // slotKey -> Set<mid> di chi cede QUEL turno specifico
   MEDICI.forEach((m) => {
     const cap = tetto[m.id];
@@ -651,19 +687,20 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const perLivello = new Map();
     vinti.forEach((v) => {
       if (!perLivello.has(v.livello)) perLivello.set(v.livello, []);
-      perLivello.get(v.livello).push(v.slotKey);
+      perLivello.get(v.livello).push(v); // già in ordine cronologico (vinti costruito su voci)
     });
     const livelliOrdinati = [...perLivello.keys()].sort((a, b) => a - b);
     const kept = new Set();
+    const giorniFissi = []; // giorni già tenuti dai livelli migliori già processati (interi o ridotti)
     let residuo = cap;
     livelliOrdinati.forEach((liv) => {
       if (residuo <= 0) return;
-      const gruppo = perLivello.get(liv); // già in ordine cronologico (vinti costruito su voci)
+      const gruppo = perLivello.get(liv);
       if (gruppo.length <= residuo) {
-        gruppo.forEach((slotKey) => kept.add(slotKey));
+        gruppo.forEach((v) => { kept.add(v.slotKey); giorniFissi.push(v.giorno); });
         residuo -= gruppo.length;
       } else {
-        scegliIndiciEquidistanti(gruppo.length, residuo).forEach((i) => kept.add(gruppo[i]));
+        scegliConRiferimento(gruppo, residuo, giorniFissi).forEach((slotKey) => kept.add(slotKey));
         residuo = 0;
       }
     });
