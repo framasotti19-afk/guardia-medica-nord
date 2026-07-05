@@ -1574,6 +1574,15 @@ CASO SPECIALE MATTINA/SERA:
 • il X ho il notturno di un'altra struttura → NO per N, sì per G
 • il X di mattina non ce la faccio, solo tardo pomeriggio/sera → NO per G, sì per N
 
+ECCEZIONI CON "TRANNE" / "ECCETTO" / "SALVO" / "A PARTE" / "ESCLUSO":
+Queste parole introducono un'eccezione dentro una frase di disponibilità: tutto ciò che viene DOPO la parola (fino alla fine della frase o della proposizione) indica giorni di INDISPONIBILITÀ (dispo_no), anche se la parte PRIMA della parola dichiara una disponibilità ampia (tutto il mese, un intervallo, una sede generica). Non invertire mai la direzione: la parte dopo "tranne"/"eccetto"/"salvo"/"a parte"/"escluso" è SEMPRE l'eccezione (indisponibilità), mai una conferma o un rinforzo della disponibilità generale che la precede.
+• sono disponibile tutto il mese tranne dal 1 al 7 → disponibile tutto il mese (regole ordinarie), MA dispo_no per ogni giorno dall'1 al 7
+• disponibile tutte le notti eccetto il 12 e il 13 → disponibile tutte le notti, NO per il 12 e il 13
+• ci sono tutto agosto salvo la settimana di ferragosto → disponibile tutto agosto, NO per i giorni di quella settimana
+• disponibile a Maniago tutti i giorni, a parte dal 20 al 25 che sono in ferie → disponibile a Maniago tutti i giorni, NO dal 20 al 25
+• disponibile tutto il mese escluso il weekend del 15-16 → disponibile tutto il mese, NO per il 15 e il 16
+Se la disponibilità generale e l'eccezione riguardano lo stesso intervallo di giorni, l'eccezione vince sempre per quei giorni specifici (dispo_no); il resto del mese resta disponibile secondo le regole ordinarie di questa sezione.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DISPONIBILITÀ GENERICA — TUTTE LE SEDI PARI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

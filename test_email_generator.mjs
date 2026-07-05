@@ -160,6 +160,25 @@ times(43, () => {
   });
 });
 
+// ============ 6bis. ECCEZIONI "TRANNE"/"ECCETTO"/... IN DISPONIBILITÀ (regressione bug: i giorni
+// dopo il connettivo NON devono mai risultare disponibili — l'AI aveva invertito la logica su una
+// frase reale "disponibile tutto il mese tranne dal 1 al 7", inserendo disponibilità invece di NO) ============
+times(30, (i) => {
+  const connettori = ["tranne", "eccetto", "salvo", "a parte", "escluso", "fuori da"];
+  const connettivo = connettori[i % connettori.length];
+  const da = pick(GIORNI_FERIALI.slice(0, 12));
+  const a = Math.min(31, da + randInt(2, 5));
+  const m = pick(contrattualizzati);
+  const giorniEsclusi = []; for (let g = da; g <= a; g++) if (GIORNI_FERIALI.includes(g)) giorniEsclusi.push(g);
+  if (!giorniEsclusi.length) return;
+  const email = `Sono disponibile tutto il mese a Maniago, ${connettivo} dal ${da} al ${a}.`;
+  aggiungi("eccezione_tranne_disponibilita", m, giorniEsclusi, email, {
+    azioniRichieste: giorniEsclusi.map((giorno) => ({ az: "dispo_no", match: { medico: m.nome, giorno, turno: "N" } })),
+    azioniVietate: giorniEsclusi.map((giorno) => ({ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N" } })),
+    nessunaAzione: false,
+  });
+});
+
 // ============ 7. RECUPERO ORE — DIRETTO IN ORE ============
 times(65, () => {
   const ore = pick([6, 12, 18, 24, 30, 36, 42, 48, 54, 60]);
