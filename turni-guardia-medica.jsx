@@ -2542,19 +2542,34 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     return out;
   }, [dati.schema]);
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
-  const btn = { padding: "8px 12px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 };
-  // Palette della "cornice" (restyling grafico, solo stile, nessun impatto sulla logica). Verde
-  // principale in versione più moderna/meno cupa, testi in grigi leggibili, bordi morbidi.
-  // Riutilizzabile dalle singole schermate quando verranno ristilizzate una alla volta.
+  // Palette condivisa del restyling grafico (solo stile, nessun impatto sulla logica). Verde
+  // principale moderno/meno cupo, testi in grigi leggibili, bordi morbidi, rossi tenui per
+  // "non disponibile / scoperto", blu per "copertura a distanza". I colori DELLE CATEGORIE
+  // restano quelli di CAT_INFO (letti sempre via CAT_INFO[...], mai da questa palette).
   const T = {
     bg: "#f5f7f6",          // sfondo pagina, chiaro e ariato
+    surface: "#ffffff",     // riquadri/card
+    surfaceAlt: "#f1f4f2",  // header di tabella, celle neutre
     primary: "#1c8066",     // verde principale moderno (meno cupo del vecchio #12312a)
-    primaryDark: "#14664f", // verde per hover/stati premuti
-    primaryTint: "#e7f3ef", // verde tenue per il tab attivo (pill)
+    primaryDark: "#14664f", // verde per hover/stati premuti/testi su tinta
+    primaryTint: "#e7f3ef", // verde tenue (tab attivo, celle coperte tenui)
     text: "#2c3733",        // testo principale, grigio-verde scuro (non nero pieno)
-    textMuted: "#6a7671",   // testo secondario / tab inattivi
+    textMuted: "#6a7671",   // testo secondario
+    textFaint: "#9aa39d",   // testo terziario/etichette leggere
     border: "#e5e9e6",      // bordi morbidi e sottili
+    borderStrong: "#d3dad6",// bordi header tabella
+    divider: "#eef1ee",     // separatori interni leggerissimi
+    danger: "#bf4d3d",      // rosso tenue: non disponibile / scoperto
+    dangerText: "#bf4d3d",  // testo rosso tenue
+    dangerBg: "#fbeceb",    // sfondo rosso tenue (cella coperta scoperta)
+    dangerBorder: "#eecac4",// bordo rosso tenue
+    blu: "#3a6fd9",         // copertura a distanza (blu)
+    bluDark: "#2853ad",     // blu scuro (testi su tinta)
+    bluTint: "#e8eefb",     // blu tenue (sfondi)
   };
+  const btn = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 12 };
+  const btnPrimary = { ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 };
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
@@ -2583,13 +2598,13 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           <select value={mese} onChange={(e) => vaiAMese(anno, Number(e.target.value))}
             style={{ fontSize: 14, fontWeight: 700, minWidth: 100, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 4px", cursor: "pointer" }}>
             {mesiDelAnno.map((m) => (
-              <option key={m} value={m} style={{ color: "#22252a", background: "#fff" }}>{MESI_IT[m]}</option>
+              <option key={m} value={m} style={{ color: T.text, background: "#fff" }}>{MESI_IT[m]}</option>
             ))}
           </select>
           <select value={anno} onChange={(e) => vaiAMese(Number(e.target.value), mese)}
             style={{ fontSize: 14, fontWeight: 700, minWidth: 68, textAlign: "center", textAlignLast: "center", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 4px", cursor: "pointer" }}>
             {anniDisponibili.map((a) => (
-              <option key={a} value={a} style={{ color: "#22252a", background: "#fff" }}>{a}</option>
+              <option key={a} value={a} style={{ color: T.text, background: "#fff" }}>{a}</option>
             ))}
           </select>
           <button onClick={() => setMeseIdx((i) => Math.min(MESI_DISPONIBILI.length - 1, i + 1))} disabled={meseIdx === MESI_DISPONIBILI.length - 1} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>›</button>
@@ -2604,7 +2619,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, padding: "8px 0", flexWrap: "wrap" }}>
           <button onClick={annulla} disabled={!hPast} title="Annulla ultima azione" style={{ ...btn, opacity: hPast ? 1 : 0.4, fontWeight: 700 }}>↶ Annulla</button>
           <button onClick={ripeti} disabled={!hFut} title="Ripeti azione annullata" style={{ ...btn, opacity: hFut ? 1 : 0.4, fontWeight: 700 }}>↷ Ripeti</button>
-          <button onClick={elabora} style={{ ...btn, background: "#1a5c4a", color: "#fff", border: "none", fontWeight: 600 }}>Elabora schema</button>
+          <button onClick={elabora} style={{ ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 }}>Elabora schema</button>
           <button onClick={() => esporta(false)} style={btn}>Esporta mese</button>
           <button onClick={() => esporta(true)} style={btn}>Esporta anno</button>
         </div>
@@ -2615,34 +2630,34 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         <div style={{ flex: 1, padding: 16, minWidth: 0 }}>
           {tab === "dispo" && (
             <div>
-              <p style={{ fontSize: 12, color: "#5b5f59", margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:"#a03030"}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:"#1a5c4a"}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:"#1a56c4"}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
+              <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
+Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
                   style={{ padding: "7px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700,
-                    border: confermaAzzera ? "2px solid #a03030" : "1px solid #e0b8b8",
-                    background: confermaAzzera ? "#a03030" : "#fff",
-                    color: confermaAzzera ? "#fff" : "#a03030" }}>
+                    border: confermaAzzera ? "2px solid #bf4d3d" : "1px solid #eecac4",
+                    background: confermaAzzera ? T.danger : "#fff",
+                    color: confermaAzzera ? "#fff" : T.danger }}>
                   {confermaAzzera ? "⚠ Confermi? Tocca di nuovo per CANCELLARE tutto il mese" : "🗑 Azzera mese da capo"}
                 </button>
-                <button onClick={() => setRapidoOpen((o) => !o)} style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #1a5c4a", background: rapidoOpen ? "#1a5c4a" : "#fff", color: rapidoOpen ? "#fff" : "#1a5c4a", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>⚡ Inserimento rapido per intervallo</button>
+                <button onClick={() => setRapidoOpen((o) => !o)} style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #1c8066", background: rapidoOpen ? T.primary : "#fff", color: rapidoOpen ? "#fff" : T.primary, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>⚡ Inserimento rapido per intervallo</button>
               </div>
               {rapidoOpen && (
-                <div style={{ background: "#fff", border: "2px solid #1a5c4a", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+                <div style={{ background: "#fff", border: "2px solid #1c8066", borderRadius: 10, padding: 14, marginBottom: 10 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Inserimento rapido</div>
-                  <div style={{ fontSize: 11, color: "#5b5f59", marginBottom: 10 }}>Dichiara il periodo di riferimento e le sedi: tutto il periodo diventa disponibile, tranne gli eventuali periodi non disponibili che elenchi sotto.</div>
+                  <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 10 }}>Dichiara il periodo di riferimento e le sedi: tutto il periodo diventa disponibile, tranne gli eventuali periodi non disponibili che elenchi sotto.</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
-                    <label style={{ fontSize: 11, color: "#5b5f59" }}>Medico<br />
-                      <select value={rapMedico} onChange={(e) => setRapMedico(Number(e.target.value))} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }}>
+                    <label style={{ fontSize: 11, color: T.textMuted }}>Medico<br />
+                      <select value={rapMedico} onChange={(e) => setRapMedico(Number(e.target.value))} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }}>
                         {[...MEDICI].sort((a, b) => a.nome.localeCompare(b.nome)).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                       </select>
                     </label>
-                    <label style={{ fontSize: 11, color: "#5b5f59" }}>Dal<br />
-                      <input type="date" min="2026-08-01" max="2027-12-31" value={rapInizio} onChange={(e) => setRapInizio(e.target.value)} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }} />
+                    <label style={{ fontSize: 11, color: T.textMuted }}>Dal<br />
+                      <input type="date" min="2026-08-01" max="2027-12-31" value={rapInizio} onChange={(e) => setRapInizio(e.target.value)} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }} />
                     </label>
-                    <label style={{ fontSize: 11, color: "#5b5f59" }}>Al<br />
-                      <input type="date" min="2026-08-01" max="2027-12-31" value={rapFine} onChange={(e) => setRapFine(e.target.value)} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }} />
+                    <label style={{ fontSize: 11, color: T.textMuted }}>Al<br />
+                      <input type="date" min="2026-08-01" max="2027-12-31" value={rapFine} onChange={(e) => setRapFine(e.target.value)} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }} />
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 12 }}>
@@ -2650,7 +2665,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     <label style={{ cursor: "pointer" }}><input type="checkbox" checked={rapGiorno} onChange={(e) => setRapGiorno(e.target.checked)} /> Diurno (solo weekend/festivi)</label>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: "#8a8f88", marginBottom: 6 }}>Sedi per i giorni <b style={{color:"#1a5c4a"}}>disponibili</b> del periodo (tutte a livello 1) — tocca: verde fisica → blu a distanza → togli</div>
+                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>Sedi per i giorni <b style={{color:T.primary}}>disponibili</b> del periodo (tutte a livello 1) — tocca: verde fisica → blu a distanza → togli</div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {SEDI5.map((s) => {
                         const stato = rapSedi[s] || "off";
@@ -2663,8 +2678,8 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                             return np;
                           })}
                             style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 700, userSelect: "none",
-                              background: stato === "verde" ? "#1a5c4a" : stato === "blu" ? "#3a6fd9" : "#eceee9",
-                              color: stato === "verde" ? "#fff" : stato === "blu" ? "#fff" : "#a9ada5" }}>
+                              background: stato === "verde" ? T.primary : stato === "blu" ? T.blu : T.surfaceAlt,
+                              color: stato === "verde" ? "#fff" : stato === "blu" ? "#fff" : T.textFaint }}>
                             {SEDI_BREVI[s]}
                           </span>
                         );
@@ -2672,52 +2687,52 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     </div>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: "#8a8f88", marginBottom: 6 }}>
-                      Periodi <b style={{color:"#a03030"}}>non disponibili</b> dentro l'intervallo (es. ferie) — tutto il resto del periodo sopra diventa disponibile automaticamente. Un giorno già segnato non disponibile in precedenza (fuori da questi periodi) resta protetto e non viene toccato.
+                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>
+                      Periodi <b style={{color:T.danger}}>non disponibili</b> dentro l'intervallo (es. ferie) — tutto il resto del periodo sopra diventa disponibile automaticamente. Un giorno già segnato non disponibile in precedenza (fuori da questi periodi) resta protetto e non viene toccato.
                     </div>
                     {rapIndisp.map((r, i) => (
                       <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
-                        <label style={{ fontSize: 11, color: "#5b5f59" }}>Dal<br />
+                        <label style={{ fontSize: 11, color: T.textMuted }}>Dal<br />
                           <input type="date" min="2026-08-01" max="2027-12-31" value={r.inizio}
                             onChange={(e) => setRapIndisp((prev) => prev.map((x, xi) => xi === i ? { ...x, inizio: e.target.value } : x))}
-                            style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }} />
+                            style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }} />
                         </label>
-                        <label style={{ fontSize: 11, color: "#5b5f59" }}>Al<br />
+                        <label style={{ fontSize: 11, color: T.textMuted }}>Al<br />
                           <input type="date" min="2026-08-01" max="2027-12-31" value={r.fine}
                             onChange={(e) => setRapIndisp((prev) => prev.map((x, xi) => xi === i ? { ...x, fine: e.target.value } : x))}
-                            style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }} />
+                            style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }} />
                         </label>
                         <button onClick={() => setRapIndisp((prev) => prev.filter((_, xi) => xi !== i))}
-                          style={{ padding: "7px 10px", borderRadius: 6, border: "1px solid #e0b8b8", background: "#fdecec", color: "#a03030", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✕</button>
+                          style={{ padding: "7px 10px", borderRadius: 6, border: "1px solid #eecac4", background: T.dangerBg, color: T.danger, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✕</button>
                       </div>
                     ))}
                     <button onClick={() => setRapIndisp((prev) => [...prev, { inizio: "", fine: "" }])}
-                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px dashed #a03030", background: "#fff", color: "#a03030", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Aggiungi periodo non disponibile</button>
+                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px dashed #bf4d3d", background: "#fff", color: T.danger, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Aggiungi periodo non disponibile</button>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, color: "#5b5f59", display: "flex", alignItems: "center", gap: 8 }}>
+                    <label style={{ fontSize: 11, color: T.textMuted, display: "flex", alignItems: "center", gap: 8 }}>
                       Tetto turni/settimana (opzionale)
                       <input type="number" min="0" step="1" placeholder="nessun limite" value={rapMaxSettimana}
                         onChange={(e) => setRapMaxSettimana(e.target.value)}
-                        style={{ width: 90, fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6" }} />
+                        style={{ width: 90, fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6" }} />
                     </label>
-                    <div style={{ fontSize: 10, color: "#8a8f88", marginTop: 4 }}>Se impostato, il medico non verrà mai considerato candidato oltre questo numero di turni per ciascuna settimana (lun-dom) coperta dal periodo sopra — anche se disponibile su altri giorni. Nessuna copertura automatica di ripiego: le sedi oltre il tetto restano scoperte se nessun altro medico è disponibile.</div>
+                    <div style={{ fontSize: 10, color: T.textFaint, marginTop: 4 }}>Se impostato, il medico non verrà mai considerato candidato oltre questo numero di turni per ciascuna settimana (lun-dom) coperta dal periodo sopra — anche se disponibile su altri giorni. Nessuna copertura automatica di ripiego: le sedi oltre il tetto restano scoperte se nessun altro medico è disponibile.</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={applicaRapido} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Applica</button>
-                    <button onClick={() => setRapidoOpen(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Chiudi</button>
+                    <button onClick={applicaRapido} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: T.primary, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Applica</button>
+                    <button onClick={() => setRapidoOpen(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Chiudi</button>
                   </div>
-                  <div style={{ fontSize: 10, color: "#8a8f88", marginTop: 8 }}>Dopo puoi correggere le singole eccezioni toccando le celle nella griglia sotto — es. per marcare un giorno come preferito.</div>
+                  <div style={{ fontSize: 10, color: T.textFaint, marginTop: 8 }}>Dopo puoi correggere le singole eccezioni toccando le celle nella griglia sotto — es. per marcare un giorno come preferito.</div>
                 </div>
               )}
-              <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e5e0", overflow: "auto", maxHeight: "68vh", position: "relative" }}>
+              <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", overflow: "auto", maxHeight: "68vh", position: "relative" }}>
                 <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
                   <thead>
                     <tr>
-                      <th style={{ position: "sticky", left: 0, top: 0, zIndex: 3, background: "#f0f2ee", padding: "5px 8px", textAlign: "left", minWidth: 160, borderBottom: "2px solid #d6dad3" }}>Medico</th>
+                      <th style={{ position: "sticky", left: 0, top: 0, zIndex: 3, background: T.surfaceAlt, padding: "5px 8px", textAlign: "left", minWidth: 160, borderBottom: "2px solid #d3dad6" }}>Medico</th>
                       {colonne.map((c, i) => (
-                        <th key={i} style={{ position: "sticky", top: 0, zIndex: 2, padding: "3px 2px", minWidth: 30, background: c.festivo || c.prefestivo ? "#fbe9e0" : c.weekend ? "#eef3ea" : "#f0f2ee", borderBottom: "2px solid #d6dad3" }}>
-                          <div style={{ fontSize: 8, color: "#8a8f88" }}>{GIORNI_BREVI[c.dow]}</div>
+                        <th key={i} style={{ position: "sticky", top: 0, zIndex: 2, padding: "3px 2px", minWidth: 30, background: c.festivo || c.prefestivo ? "#fbe9e0" : c.weekend ? "#eef3ea" : T.surfaceAlt, borderBottom: "2px solid #d3dad6" }}>
+                          <div style={{ fontSize: 8, color: T.textFaint }}>{GIORNI_BREVI[c.dow]}</div>
                           <div style={{ fontWeight: 700 }}>{c.giorno}</div>
                           <div style={{ fontSize: 8 }}>{iconaT[c.turno.id]}</div>
                         </th>
@@ -2727,9 +2742,9 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                   <tbody>
                     {mediciOrd.map((m) => (
                       <tr key={m.id}>
-                        <td style={{ position: "sticky", left: 0, zIndex: 1, background: "#fff", padding: "4px 8px", borderBottom: "1px solid #eef0ec", whiteSpace: "nowrap" }}>
+                        <td style={{ position: "sticky", left: 0, zIndex: 1, background: "#fff", padding: "4px 8px", borderBottom: "1px solid #eef1ee", whiteSpace: "nowrap" }}>
                           <div style={{ fontWeight: 600, fontSize: 10.5 }}>{m.nome}</div>
-                          <div style={{ fontSize: 8.5, color: CAT_INFO[m.cat].color, fontWeight: 600 }}>{CAT_INFO[m.cat].label}</div>
+                          <span style={{ display: "inline-block", marginTop: 2, fontSize: 8.5, fontWeight: 700, color: CAT_INFO[m.cat].color, background: CAT_INFO[m.cat].bg, borderRadius: 5, padding: "1px 6px" }}>{CAT_INFO[m.cat].label}</span>
                         </td>
                         {colonne.map((c, i) => {
                           const sk = `${c.key}|${c.turno.id}`;
@@ -2740,10 +2755,10 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                           // (rosso). "Non specificato" e "NO esplicito" appaiono identici: la distinzione
                           // interna esiste solo per proteggere le indisponibilità dichiarate dall'inserimento
                           // rapido, non è mai mostrata all'utente.
-                          const bg = inEdit ? "#8a5a00" : on ? "#1a5c4a" : "#fdecec";
-                          const fg = inEdit ? "#fff" : on ? "#fff" : "#c65b5b";
+                          const bg = inEdit ? "#8a5a00" : on ? T.primary : T.dangerBg;
+                          const fg = inEdit ? "#fff" : on ? "#fff" : T.dangerText;
                           return (
-                            <td key={i} style={{ borderBottom: "1px solid #eef0ec", borderLeft: "1px solid #f4f6f2", textAlign: "center", cursor: "pointer", background: bg, color: fg, padding: "5px 0", userSelect: "none", position: "relative", fontWeight: 700 }}
+                            <td key={i} style={{ borderBottom: "1px solid #eef1ee", borderLeft: "1px solid #eef1ee", textAlign: "center", cursor: "pointer", background: bg, color: fg, padding: "5px 0", userSelect: "none", position: "relative", fontWeight: 700 }}
                               onClick={() => {
                                 if (inEdit) setEditCella(null);
                                 else setEditCella({ mid: m.id, slotKey: sk, giorno: c.giorno, turno: c.turno.label });
@@ -2778,21 +2793,21 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                 const hasEntrambiTurni = !!giorniMese[editCella.giorno - 1]?.turni.some((t) => t.id === "G");
                 const turnoPref = turnoPrefDi(dati.dispo, editCella.mid, dataStrCella);
                 return (
-                  <div style={{ position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", background: "#fff", border: "1px solid #c8ccc6", borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,.25)", padding: 14, zIndex: 50, minWidth: 290, maxWidth: "92vw" }}>
+                  <div style={{ position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", background: "#fff", border: "1px solid #e5e9e6", borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,.25)", padding: 14, zIndex: 50, minWidth: 290, maxWidth: "92vw" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>{byId[editCella.mid].nome}</div>
-                    <div style={{ fontSize: 11, color: "#6b7068", marginBottom: 8 }}>Giorno {editCella.giorno} · {editCella.turno}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 8 }}>Giorno {editCella.giorno} · {editCella.turno}</div>
 
                     {hasEntrambiTurni && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 10, color: "#8a8f88" }}>Se vince sia diurno che notturno, preferisce:</span>
+                        <span style={{ fontSize: 10, color: T.textFaint }}>Se vince sia diurno che notturno, preferisce:</span>
                         <span onClick={() => setTurnoPref(editCella.mid, dataStrCella, "G")}
                           title={turnoPref === "G" ? "Preferisce il diurno: tocca per togliere" : "Preferisce il diurno se vince entrambi i turni"}
-                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "G" ? "#fdf0d5" : "#f0f2ee", border: turnoPref === "G" ? "1px solid #cf9a1a" : "1px solid transparent" }}>
+                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "G" ? "#fdf0d5" : T.surfaceAlt, border: turnoPref === "G" ? "1px solid #cf9a1a" : "1px solid transparent" }}>
                           ☀️
                         </span>
                         <span onClick={() => setTurnoPref(editCella.mid, dataStrCella, "N")}
                           title={turnoPref === "N" ? "Preferisce il notturno: tocca per togliere" : "Preferisce il notturno se vince entrambi i turni"}
-                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "N" ? "#e3ebfa" : "#f0f2ee", border: turnoPref === "N" ? "1px solid #3a6fd9" : "1px solid transparent" }}>
+                          style={{ cursor: "pointer", fontSize: 15, padding: "3px 7px", borderRadius: 6, userSelect: "none", background: turnoPref === "N" ? T.bluTint : T.surfaceAlt, border: turnoPref === "N" ? "1px solid #3a6fd9" : "1px solid transparent" }}>
                           🌙
                         </span>
                       </div>
@@ -2800,22 +2815,22 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
 
                     <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
                       <span onClick={() => setNoCella(editCella.mid, editCella.slotKey, false)}
-                        style={{ flex: 1, textAlign: "center", padding: "8px 6px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, userSelect: "none", background: !sedi.no ? "#1a5c4a" : "#eceee9", color: !sedi.no ? "#fff" : "#8a8f88" }}>
+                        style={{ flex: 1, textAlign: "center", padding: "8px 6px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, userSelect: "none", background: !sedi.no ? T.primary : T.surfaceAlt, color: !sedi.no ? "#fff" : T.textFaint }}>
                         Disponibile
                       </span>
                       <span onClick={() => setNoCella(editCella.mid, editCella.slotKey, true)}
-                        style={{ flex: 1, textAlign: "center", padding: "8px 6px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, userSelect: "none", background: sedi.no ? "#a03030" : "#eceee9", color: sedi.no ? "#fff" : "#8a8f88" }}>
+                        style={{ flex: 1, textAlign: "center", padding: "8px 6px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, userSelect: "none", background: sedi.no ? T.danger : T.surfaceAlt, color: sedi.no ? "#fff" : T.textFaint }}>
                         Non disponibile
                       </span>
                     </div>
 
                     {sedi.no ? (
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => setEditCella(null)} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "none", background: "#12312a", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Chiudi</button>
+                        <button onClick={() => setEditCella(null)} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "none", background: T.primaryDark, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Chiudi</button>
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 10, color: "#8a8f88", marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: "#1a5c4a" }}>Sede principale 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: "#1a56c4" }}>Copertura a distanza 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
+                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: T.primary }}>Sede principale 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: T.blu }}>Copertura a distanza 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
@@ -2824,9 +2839,9 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                               <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, minWidth: 24 }}>{SEDI_BREVI[s]}</span>
                                 <select value={valore} onChange={(e) => setSedeOpzione(editCella.mid, editCella.slotKey, s, e.target.value)}
-                                  style={{ flex: 1, fontSize: 12, padding: "5px 4px", borderRadius: 5, border: "1px solid #c8ccc6",
-                                    background: valore.startsWith("V") ? "#e3f2ec" : valore.startsWith("B") ? "#e3ebfa" : "#fff",
-                                    color: valore.startsWith("V") ? "#1a5c4a" : valore.startsWith("B") ? "#1a3d8f" : "#5b5f59" }}>
+                                  style={{ flex: 1, fontSize: 12, padding: "5px 4px", borderRadius: 5, border: "1px solid #e5e9e6",
+                                    background: valore.startsWith("V") ? T.primaryTint : valore.startsWith("B") ? T.bluTint : "#fff",
+                                    color: valore.startsWith("V") ? T.primary : valore.startsWith("B") ? T.bluDark : T.textMuted }}>
                                   <option value="">Non disponibile</option>
                                   {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Sede principale {l}</option>)}
                                   {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Copertura a distanza {l}</option>)}
@@ -2834,7 +2849,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                                 {isVerde && (
                                   <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}
                                     title={sedi.preferito === s ? "Sede preferita: tocca per togliere" : "Marca come sede preferita"}
-                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#8a5a00" : "#c8ccc6", userSelect: "none" }}>
+                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#8a5a00" : T.border, userSelect: "none" }}>
                                     {sedi.preferito === s ? "★" : "☆"}
                                   </span>
                                 )}
@@ -2843,7 +2858,7 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                           })}
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button onClick={() => setEditCella(null)} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "none", background: "#12312a", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Chiudi</button>
+                          <button onClick={() => setEditCella(null)} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "none", background: T.primaryDark, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Chiudi</button>
                         </div>
                       </>
                     )}
@@ -2854,12 +2869,12 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
           )}
 
           {tab === "mmg" && (
-            <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e5e0", padding: 16 }}>
-              <p style={{ fontSize: 12, color: "#5b5f59", marginTop: 0 }}>Attiva Mattina 8-14 / Pomeriggio 14-20 nei giorni con copertura MMG richiesta.</p>
+            <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16 }}>
+              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>Attiva Mattina 8-14 / Pomeriggio 14-20 nei giorni con copertura MMG richiesta.</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 6 }}>
                 {giorniMese.map((g, i) => (
-                  <div key={i} style={{ border: "1px solid #e2e5e0", borderRadius: 8, padding: "6px 8px", background: g.festivo || g.prefestivo ? "#fdf5f0" : "#fff" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>{i + 1} <span style={{ fontWeight: 400, color: "#8a8f88" }}>{GIORNI_BREVI[g.dow]}</span></div>
+                  <div key={i} style={{ border: "1px solid #e5e9e6", borderRadius: 8, padding: "6px 8px", background: g.festivo || g.prefestivo ? "#fdf5f0" : "#fff" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{i + 1} <span style={{ fontWeight: 400, color: T.textFaint }}>{GIORNI_BREVI[g.dow]}</span></div>
                     <label style={{ display: "block", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.M} onChange={() => toggleExtra(g.key, "M")} /> Mattina</label>
                     <label style={{ display: "block", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.P} onChange={() => toggleExtra(g.key, "P")} /> Pomeriggio</label>
                   </div>
@@ -2869,8 +2884,8 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
           )}
 
           {tab === "medici" && (
-            <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e5e0", padding: 16, maxWidth: 860, overflow: "auto" }}>
-              <p style={{ fontSize: 12, color: "#5b5f59", marginTop: 0 }}>
+            <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16, maxWidth: 860, overflow: "auto" }}>
+              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>
                 Le <b>ore da recuperare</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
                 I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore da recuperare, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
                 Il <b>Max turni mese</b> è un tetto superiore al numero di turni nel mese, valido per QUALSIASI categoria (anche senza incarico): il motore si ferma su quel numero anche se resta debito residuo. È indipendente dal monte ore e può essere anche inferiore ad esso.
@@ -2879,12 +2894,12 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
-                <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d6dad3" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: "#5b5f59" }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
+                <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d3dad6" }}>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => (
-                    <tr key={m.id} style={{ borderBottom: "1px solid #eef0ec" }}>
+                    <tr key={m.id} style={{ borderBottom: "1px solid #eef1ee" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 600 }}>{m.nome}</td>
                       <td style={{ padding: "6px 8px" }}>
                         <select value={m.cat} onChange={(e) => {
@@ -2898,20 +2913,20 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                           else if (!m.sedeContratto) patch.sedeContratto = "Maniago";
                           aggiornaMedico(m.id, patch);
                         }}
-                          style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6", background: CAT_INFO[m.cat].bg, color: CAT_INFO[m.cat].color, fontWeight: 600 }}>
+                          style={{ fontSize: 11, padding: "4px 8px", borderRadius: 999, border: `1px solid ${CAT_INFO[m.cat].color}33`, background: CAT_INFO[m.cat].bg, color: CAT_INFO[m.cat].color, fontWeight: 700, cursor: "pointer" }}>
                           {Object.entries(CAT_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                         </select>
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <input type="number" min={0} value={m.grad}
                           onChange={(e) => aggiornaMedico(m.id, { grad: Number(e.target.value) })}
-                          style={{ width: 58, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                          style={{ width: 58, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         {isContrattualizzato(m.id) ? (
                           <select value={m.sedeContratto || "Maniago"} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value })}
                             title="Sede di titolarità (obbligatoria): vince sempre quella sede tra tutti i contrattualizzati, prima della categoria"
-                            style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }}>
+                            style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }}>
                             {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
                           </select>
                         ) : "—"}
@@ -2921,67 +2936,67 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                         {CAT_INFO[m.cat].ore !== null ? (
                           <input type="number" min={0} step={6} value={dati.extraOre[m.id] || 0}
                             onChange={(e) => setDati({ extraOre: { ...dati.extraOre, [m.id]: Number(e.target.value) }, schema: null })}
-                            style={{ width: 64, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                            style={{ width: 64, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                         ) : "—"}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         {CAT_INFO[m.cat].ore !== null ? (
                           <input type="number" min={0} step={1} value={(dati.turniExtra || {})[m.id] || 0}
                             onChange={(e) => setDati({ turniExtra: { ...(dati.turniExtra || {}), [m.id]: Math.max(0, Number(e.target.value) || 0) }, schema: null })}
-                            style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                            style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                         ) : "—"}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <input type="number" min={0} step={1} placeholder="—" value={(dati.maxTurniMese || {})[m.id] ?? ""}
                           onChange={(e) => { const v = e.target.value; const nd = { ...(dati.maxTurniMese || {}) }; if (v === "") delete nd[m.id]; else nd[m.id] = Math.max(0, Number(v) || 0); setDati({ maxTurniMese: nd, schema: null }); }}
-                          style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
+                          style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                       </td>
-                      <td style={{ padding: "6px 8px", color: "#5b5f59" }}>
+                      <td style={{ padding: "6px 8px", color: T.textMuted }}>
                         {dati.schema ? `${oreAssegnateDi[m.id] || 0}h` : "—"}
                       </td>
-                      <td style={{ padding: "6px 8px", color: "#5b5f59" }}>
+                      <td style={{ padding: "6px 8px", color: T.textMuted }}>
                         {dati.schema && CAT_INFO[m.cat].ore !== null
                           ? `${(CAT_INFO[m.cat].ore + (dati.extraOre[m.id] || 0)) - (oreAssegnateDi[m.id] || 0)}h`
                           : "—"}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <button onClick={() => rimuoviMedico(m.id)} title="Rimuovi medico dall'elenco"
-                          style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #e0b8b8", background: "#fff", color: "#a03030", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✕</button>
+                          style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #eecac4", background: "#fff", color: T.danger, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✕</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div style={{ marginTop: 14, padding: 12, border: "1px dashed #1a5c4a", borderRadius: 8, background: "#f7faf8" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: "#1a5c4a" }}>+ Aggiungi nuovo medico</div>
+              <div style={{ marginTop: 14, padding: 12, border: "1px dashed #1c8066", borderRadius: 8, background: T.primaryTint }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: T.primary }}>+ Aggiungi nuovo medico</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <label style={{ fontSize: 11, color: "#5b5f59" }}>Cognome<br />
+                  <label style={{ fontSize: 11, color: T.textMuted }}>Cognome<br />
                     <input type="text" value={nuovoMedico.nome} placeholder="es. ROSSI"
                       onChange={(e) => setNuovoMedico((p) => ({ ...p, nome: e.target.value }))}
-                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3, width: 150 }} />
+                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3, width: 150 }} />
                   </label>
-                  <label style={{ fontSize: 11, color: "#5b5f59" }}>Categoria<br />
+                  <label style={{ fontSize: 11, color: T.textMuted }}>Categoria<br />
                     <select value={nuovoMedico.cat} onChange={(e) => setNuovoMedico((p) => ({ ...p, cat: e.target.value }))}
-                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }}>
+                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }}>
                       {Object.entries(CAT_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
                   </label>
                   {nuovoMedico.cat !== "SENZA" && (
-                    <label style={{ fontSize: 11, color: "#5b5f59" }}>Titolarità<br />
+                    <label style={{ fontSize: 11, color: T.textMuted }}>Titolarità<br />
                       <select value={nuovoMedico.sedeContratto || "Maniago"} onChange={(e) => setNuovoMedico((p) => ({ ...p, sedeContratto: e.target.value }))}
                         title="Sede di titolarità (obbligatoria per ogni contrattualizzato)"
-                        style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }}>
+                        style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }}>
                         {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
                       </select>
                     </label>
                   )}
-                  <label style={{ fontSize: 11, color: "#5b5f59" }}>Graduatoria<br />
+                  <label style={{ fontSize: 11, color: T.textMuted }}>Graduatoria<br />
                     <input type="number" min={0} value={nuovoMedico.grad} placeholder="es. 88"
                       onChange={(e) => setNuovoMedico((p) => ({ ...p, grad: e.target.value }))}
-                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3, width: 80 }} />
+                      style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3, width: 80 }} />
                   </label>
                   <button onClick={aggiungiMedico}
-                    style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Aggiungi</button>
+                    style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: T.primary, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Aggiungi</button>
                 </div>
               </div>
             </div>
@@ -2989,38 +3004,38 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
 
           {tab === "schema" && (
             !dati.schema ? (
-              <div style={{ background: "#fff", border: "1px dashed #c8ccc6", borderRadius: 10, padding: 36, textAlign: "center", color: "#7a7f78" }}>Inserisci le disponibilità e premi <b>Elabora schema</b>.</div>
+              <div style={{ background: "#fff", border: "1px dashed #e5e9e6", borderRadius: 10, padding: 36, textAlign: "center", color: T.textMuted }}>Inserisci le disponibilità e premi <b>Elabora schema</b>.</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                <p style={{ fontSize: 12, color: "#5b5f59", margin: "0 0 4px" }}>
+                <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 4px" }}>
                   Tutte le 5 sedi sono modificabili. <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export diventa "*coperto da …"). Ogni modifica è annullabile con ↶.
                 </p>
                 {dati.schema.map((g, gi) => (
-                  <div key={gi} style={{ background: "#fff", border: "1px solid #e2e5e0", borderRadius: 8, padding: "8px 12px" }}>
+                  <div key={gi} style={{ background: "#fff", border: "1px solid #e5e9e6", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 16, fontWeight: 700 }}>{g.giorno}</span>
-                      <span style={{ fontSize: 10, color: "#8a8f88" }}>{GIORNI_IT[g.dow]}</span>
+                      <span style={{ fontSize: 10, color: T.textFaint }}>{GIORNI_IT[g.dow]}</span>
                       {g.festivo && <span style={{ fontSize: 9, background: "#fbe0d5", color: "#a04010", padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>{g.festivo}</span>}
                       {g.prefestivo && <span style={{ fontSize: 9, background: "#fdf0d5", color: "#8a5a00", padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>PREFESTIVO</span>}
                     </div>
                     {g.turni.map((t, ti) => {
                       const vuoto = !t.slots.some(Boolean);
                       return (
-                        <div key={ti} style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 0", borderTop: ti > 0 ? "1px solid #f2f4f0" : "none", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, minWidth: 140, color: "#4a5048", paddingTop: 4 }}>{t.label}</span>
-                          {vuoto && <span style={{ color: "#b03030", fontWeight: 700, fontSize: 11, paddingTop: 4 }}>SCOPERTO</span>}
+                        <div key={ti} style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 0", borderTop: ti > 0 ? "1px solid #eef1ee" : "none", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, minWidth: 140, color: T.text, paddingTop: 4 }}>{t.label}</span>
+                          {vuoto && <span style={{ background: T.dangerBg, color: T.danger, border: `1px solid ${T.dangerBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .3, padding: "2px 8px", borderRadius: 999 }}>SCOPERTO</span>}
                           {(t.extra ? ["Copertura"] : SEDI5).map((sede, si) => {
                             const nota = t.extra ? { testo: "", tipo: "primaria" } : notaSlot(t.slots, si, t.fis);
                             return (
-                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: nota.tipo === "copertura" ? "#eef3ea" : "#f4f6f2", borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: nota.tipo === "copertura" ? "#eef3ea" : T.divider, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                                   <b style={{ fontSize: 10 }}>{sede}</b>
-                                  <select value={t.slots[si] || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d6dad3", borderRadius: 4, padding: "1px 2px", maxWidth: 110 }}>
+                                  <select value={t.slots[si] || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 110 }}>
                                     <option value="">—</option>
                                     {MEDICI.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                                   </select>
                                 </span>
-                                {nota.testo && <span style={{ color: "#6b7068", fontSize: 9 }}>{nota.testo}</span>}
+                                {nota.testo && <span style={{ color: T.textMuted, fontSize: 9 }}>{nota.testo}</span>}
                               </span>
                             );
                           })}
@@ -3035,17 +3050,17 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
         </div>
 
         {aiOpen && (
-          <div style={{ width: 480, borderLeft: "1px solid #dde0dc", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef0ec", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: "#8a8f88" }}>— risponde solo se interpellata</span></div>
-              <button onClick={nuovaConversazione} disabled={aiBusy} title="Svuota la chat e il registro delle azioni già eseguite" style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>Nuova conversazione</button>
+          <div style={{ width: 480, borderLeft: "1px solid #e5e9e6", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef1ee", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: T.textFaint }}>— risponde solo se interpellata</span></div>
+              <button onClick={nuovaConversazione} disabled={aiBusy} title="Svuota la chat e il registro delle azioni già eseguite" style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>Nuova conversazione</button>
             </div>
             <div style={{ flex: 1, overflow: "auto", padding: 12, display: "grid", gap: 8, alignContent: "start" }}>
-              {aiMsgs.length === 0 && <div style={{ fontSize: 12, color: "#8a8f88" }}>Chiedimi es.: "ci sono turni scoperti?", "chi lavora a Ferragosto?", "riassumi lo schema".</div>}
+              {aiMsgs.length === 0 && <div style={{ fontSize: 12, color: T.textFaint }}>Chiedimi es.: "ci sono turni scoperti?", "chi lavora a Ferragosto?", "riassumi lo schema".</div>}
               {aiMsgs.map((m, i) => (
-                <div key={i} style={{ background: m.role === "user" ? "#12312a" : "#f0f2ee", color: m.role === "user" ? "#fff" : "#22252a", borderRadius: 8, padding: "8px 10px", fontSize: 12, whiteSpace: "pre-wrap", justifySelf: m.role === "user" ? "end" : "start", maxWidth: "90%" }}>{m.content}</div>
+                <div key={i} style={{ background: m.role === "user" ? T.primaryDark : T.surfaceAlt, color: m.role === "user" ? "#fff" : T.text, borderRadius: 8, padding: "8px 10px", fontSize: 12, whiteSpace: "pre-wrap", justifySelf: m.role === "user" ? "end" : "start", maxWidth: "90%" }}>{m.content}</div>
               ))}
-              {aiBusy && <div style={{ fontSize: 12, color: "#8a8f88" }}>Sto ragionando…</div>}
+              {aiBusy && <div style={{ fontSize: 12, color: T.textFaint }}>Sto ragionando…</div>}
               {proposta && (
                 <div style={{ border: "2px solid #8a5a00", background: "#fdf3dd", borderRadius: 10, padding: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Sto per applicare:</div>
@@ -3069,8 +3084,8 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     })}
                   </ul>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={applicaProposta} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Conferma</button>
-                    <button onClick={rifiutaProposta} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Annulla</button>
+                    <button onClick={applicaProposta} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: T.primary, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Conferma</button>
+                    <button onClick={rifiutaProposta} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Annulla</button>
                   </div>
                 </div>
               )}
@@ -3078,32 +3093,32 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                 const giornoSett = d.giorno ? ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"][new Date(anno, mese, d.giorno).getDay()] : "";
                 const contesto = d.citazione ? `ha scritto "${d.citazione}"` : (d.situazione || "");
                 return (
-                  <div key={i} style={{ border: "2px solid #1a5c4a", background: "#eaf5ef", borderRadius: 10, padding: 10 }}>
+                  <div key={i} style={{ border: "2px solid #1c8066", background: T.primaryTint, borderRadius: 10, padding: 10 }}>
                     <div style={{ fontSize: 12, marginBottom: 6 }}>
                       ❓ {d.medico ? `${d.medico} ` : ""}{d.giorno ? `${d.giorno} ${MESI_IT[mese].toLowerCase()}${giornoSett ? ` (${giornoSett})` : ""}` : ""}{(d.medico || d.giorno) ? ": " : ""}{contesto}{contesto && d.domanda ? " — " : ""}{d.domanda}
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => rispondiDomanda(i, "si")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: "#1a5c4a", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button>
-                      <button onClick={() => rispondiDomanda(i, "no")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 }}>No</button>
+                      <button onClick={() => rispondiDomanda(i, "si")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: T.primary, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button>
+                      <button onClick={() => rispondiDomanda(i, "no")} disabled={aiBusy} style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 12 }}>No</button>
                     </div>
                   </div>
                 );
               })}
               {!proposta && !domande.length && azioniRestanti && (
                 <button onClick={() => chiediAI(troncato ? `[la tua risposta precedente è stata troncata per lunghezza, non è stata applicata alcuna modifica] ${ultimaDomandaRef.current}` : "continua")} disabled={aiBusy}
-                  style={{ padding: "8px 10px", borderRadius: 8, border: "2px solid #1a5c4a", background: "#f0f7f4", color: "#1a5c4a", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
+                  style={{ padding: "8px 10px", borderRadius: 8, border: "2px solid #1c8066", background: T.primaryTint, color: T.primary, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
                   Continua →
                 </button>
               )}
               {!proposta && !domande.length && completato && (
-                <div style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #1a5c4a", background: "#eaf5ef", color: "#1a5c4a", fontWeight: 700, fontSize: 12, textAlign: "center" }}>
+                <div style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #1c8066", background: T.primaryTint, color: T.primary, fontWeight: 700, fontSize: 12, textAlign: "center" }}>
                   Completato ✓
                 </div>
               )}
             </div>
-            <div style={{ padding: 10, borderTop: "1px solid #eef0ec", display: "flex", gap: 6 }}>
-              <input value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && chiediAI()} placeholder="Scrivi qui…" style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "1px solid #c8ccc6", fontSize: 12 }} />
-              <button onClick={() => chiediAI()} disabled={aiBusy} style={{ ...btn, background: "#1a5c4a", color: "#fff", border: "none", fontWeight: 600 }}>Invia</button>
+            <div style={{ padding: 10, borderTop: "1px solid #eef1ee", display: "flex", gap: 6 }}>
+              <input value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && chiediAI()} placeholder="Scrivi qui…" style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e9e6", fontSize: 12 }} />
+              <button onClick={() => chiediAI()} disabled={aiBusy} style={{ ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 }}>Invia</button>
             </div>
           </div>
         )}
