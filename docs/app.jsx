@@ -342,6 +342,67 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, 
   return [...conDeb, ...senza]; // già in ordine di gerarchia ufficiale
 }
 
+// Risoluzione della copertura a distanza (blu) di un turno (CONTEXT.md §3.1a, FASE 2). Dato
+// l'insieme dei medici FISICAMENTE presenti nel turno (fisMids) e le sedi già coperte
+// fisicamente (sitiCoperti), assegna a ciascun fisico al massimo UNA sede blu dichiarata (la
+// prima disponibile nel suo ordine blu), risolvendo i conflitti sulla stessa sede con la STESSA
+// gerarchia del fisico: bucket debito → titolarità sede → categoria → debito → graduatoria.
+// Ritorna una mappa siteIndex -> mid; non tocca gli slot fisici. Isolata a livello di modulo
+// perché serve in DUE punti con la stessa identica logica: durante l'elaborazione del turno
+// (sotto), e di nuovo dopo lo scambio preferenza-turno §3.9 in elaboraSchema — dove il rilascio
+// di uno slot fisico cambia l'insieme dei presenti e la copertura a distanza va rifatta da capo.
+function risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra) {
+  const bucketOf = (mid) => (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) ? 1 : 0;
+  const isTitolareDi = (mid, sede) => isContrattualizzato(mid) && byId[mid].sedeContratto === sede;
+  const isBetterPriority = (aId, bId, sede) => {
+    const ba = bucketOf(aId), bb = bucketOf(bId);
+    if (ba !== bb) return ba < bb;
+    if (ba !== 0) return byId[aId].grad < byId[bId].grad;
+    const A = byId[aId], B = byId[bId];
+    if (isContrattualizzato(aId) && isContrattualizzato(bId)) {
+      const titA = isTitolareDi(aId, sede), titB = isTitolareDi(bId, sede);
+      if (titA !== titB) return titA;
+    }
+    const pa = CAT_INFO[A.cat].prio, pb = CAT_INFO[B.cat].prio;
+    if (pa !== pb) return pa < pb;
+    if (debiti[aId] !== debiti[bId]) return debiti[aId] > debiti[bId];
+    return A.grad < B.grad;
+  };
+  // Stesso ordine di gerarchia usato da candidatiOrdinati (bucket → categoria → debito → grad):
+  // determina solo l'ordine in cui i fisici "prenotano" la loro sede blu; i conflitti veri sono
+  // comunque risolti da isBetterPriority. Idempotente su una lista già ordinata (grad univoca).
+  const ordine = [...fisMids].sort((a, b) =>
+    bucketOf(a) - bucketOf(b) ||
+    (bucketOf(a) === 1
+      ? byId[a].grad - byId[b].grad
+      : (CAT_INFO[byId[a].cat].prio - CAT_INFO[byId[b].cat].prio || debiti[b] - debiti[a] || byId[a].grad - byId[b].grad)));
+  const accBluDi = (mid) => {
+    const v = normDispo(dispo[mid]?.[slotKey]);
+    return ordinaPerLivello(v.blu, v.bluLiv, MAX_LIV_BLU);
+  };
+  const sedeBluDi = {};
+  const provaBlu = (mid, visitate) => {
+    const acc = accBluDi(mid);
+    for (const sede of acc) {
+      const si = SEDI5.indexOf(sede);
+      if (sitiCoperti.has(si) || visitate.has(si)) continue;
+      visitate.add(si);
+      const occ = sedeBluDi[si];
+      if (occ === undefined) { sedeBluDi[si] = mid; return true; }
+      if (occ === mid) continue;
+      if (isBetterPriority(mid, occ, sede)) {
+        delete sedeBluDi[si];
+        if (provaBlu(occ, visitate)) { sedeBluDi[si] = mid; return true; }
+        sedeBluDi[si] = mid;
+        return true;
+      }
+    }
+    return false;
+  };
+  ordine.forEach((mid) => provaBlu(mid, new Set()));
+  return sedeBluDi;
+}
+
 // Elabora un singolo turno (giorno+fascia): assegna le sedi, scala i debiti (mutando l'oggetto
 // passato), e restituisce sia l'esito sia l'eventuale avviso. Isolata così può essere richiamata
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti e
@@ -537,30 +598,8 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
     const sitiCoperti = new Set(Object.values(sedeDi));
-    const accBluDi = (mid) => {
-      const v = normDispo(dispo[mid]?.[slotKey]);
-      return ordinaPerLivello(v.blu, v.bluLiv, MAX_LIV_BLU);
-    };
-    const sedeBluDi = {};
-    const provaBlu = (mid, visitate) => {
-      const acc = accBluDi(mid);
-      for (const sede of acc) {
-        const si = SEDI5.indexOf(sede);
-        if (sitiCoperti.has(si) || visitate.has(si)) continue;
-        visitate.add(si);
-        const occ = sedeBluDi[si];
-        if (occ === undefined) { sedeBluDi[si] = mid; return true; }
-        if (occ === mid) continue;
-        if (isBetterPriority(mid, occ, sede)) {
-          delete sedeBluDi[si];
-          if (provaBlu(occ, visitate)) { sedeBluDi[si] = mid; return true; }
-          sedeBluDi[si] = mid;
-          return true;
-        }
-      }
-      return false;
-    };
-    ordinati.filter((m) => sedeDi[m.id] !== undefined).forEach((m) => provaBlu(m.id, new Set()));
+    const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
+    const sedeBluDi = risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
@@ -807,12 +846,38 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // conflitto, solo quale dei due turni il vincitore mantiene. Eseguita dopo che tutti i turni
   // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno
   // indipendentemente dall'ordine conPref/resto in cui sono stati processati.
+  //
+  // GUARDIA TITOLARITÀ per l'alternativa (§3.1a): l'alternativa che rileva il turno ceduto viene
+  // introdotta FISICAMENTE nel turno con un'assegnazione diretta che NON passa dalla correzione di
+  // titolarità della FASE1 (correggiTitolarita gira solo dentro elaboraTurno). Va quindi esclusa
+  // ogni alternativa che, piazzata sulla sede ceduta, resterebbe fisicamente fuori dalla PROPRIA
+  // sede di titolarità mentre quella è tenuta da un altro determinato non titolare di essa — cioè
+  // esattamente il furto di titolarità che §3.1a vieta (bug reale emerso solo esercitando lo
+  // scambio dalla simulazione, §10 voce 22, caso 3). Esclusa la sola alternativa "colpevole": lo
+  // scambio ne cerca un'altra o, se non ce n'è, il medico resta su entrambi i turni (stato
+  // legittimo pre-scambio — lo scambio è facoltativo, la correttezza vince sempre). I titolari con
+  // turni extra dichiarati NON sono protetti, coerentemente con §3.1a (il turno extra li fa
+  // competere come senza incarico una volta esaurito il debito ordinario, perdendo la titolarità).
+  const rompeTitolarita = (oId, sedeCeduta, target, tsk) => {
+    if (!isDeterminato(oId) || turniExtra[oId]) return false;
+    const S2 = byId[oId].sedeContratto;
+    if (!S2 || S2 === sedeCeduta) return false; // non titolare, o proprio la sede che gli daremmo
+    const vo = normDispo(dispo[oId]?.[tsk]);
+    if (vo.no || !vo.verde.includes(S2)) return false;
+    if (ordinaPerLivello(vo.verde, vo.verdeLiv, MAX_LIV_VERDE)[0] !== S2) return false; // oggi la sua prima scelta non è la sua sede: non forziamo
+    const siS2 = SEDI5.indexOf(S2);
+    const occ2 = target.slots[siS2];
+    if (occ2 == null || occ2 === oId) return false; // sua sede libera o già sua: nessuna violazione
+    if (!isDeterminato(occ2) || byId[occ2].sedeContratto === S2) return false; // occupante non determinato, o titolare della stessa sede: legittimo
+    return true;
+  };
   for (let d = 1; d <= nGiorni; d++) {
     const dataStr = dk(anno, mese, d);
     const outG = risultati[`${d}|G`];
     const outN = risultati[`${d}|N`];
     if (!outG || !outN) continue; // giorno feriale semplice: niente diurno, nessun doppio turno possibile
     const doppiFisici = outG.fis.map((si) => outG.slots[si]).filter((mid) => mid !== null && outN.fis.some((si2) => outN.slots[si2] === mid));
+    const turniScambiati = new Set(); // turni (outG/outN) il cui insieme di fisici è cambiato per uno scambio
     doppiFisici.forEach((mid) => {
       const pref = turnoPrefDi(dispo, mid, dataStr);
       if (!pref) return;
@@ -825,7 +890,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       // L'alternativa non può già aver raggiunto il proprio tetto di distribuzione (§3.11): questo
       // scambio le farebbe vincere un turno IN PIÙ quel giorno, e il tetto non si supera mai.
       const alternativa = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, targetSlotKey)
-        .find((o) => o.id !== mid && !target.slots.includes(o.id) && (tetto[o.id] === null || contoMensile[o.id] < tetto[o.id]) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede));
+        .find((o) => o.id !== mid && !target.slots.includes(o.id) && (tetto[o.id] === null || contoMensile[o.id] < tetto[o.id]) && normDispo(dispo[o.id]?.[targetSlotKey]).verde.includes(sede) && !rompeTitolarita(o.id, sede, target, targetSlotKey));
       if (!alternativa) return; // nessuna alternativa: la copertura vince, resta assegnato a entrambi
       target.slots[si] = alternativa.id;
       // Storna/scala lo stesso pool (debito ordinario o extra) che il turno aveva effettivamente
@@ -844,6 +909,22 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       settimanaCount[alternativa.id][wk] = (settimanaCount[alternativa.id][wk] || 0) + 1;
       contoMensile[mid] = Math.max(0, contoMensile[mid] - 1);
       contoMensile[alternativa.id] = (contoMensile[alternativa.id] || 0) + 1;
+      turniScambiati.add(target);
+    });
+    // Dopo lo scambio §3.9 l'insieme dei medici FISICAMENTE presenti nel turno ceduto è cambiato:
+    // il medico uscito potrebbe aver lasciato orfana una sua copertura a distanza (blu) in quel
+    // turno, e l'entrato potrebbe averne una da offrire. La copertura a distanza va quindi rifatta
+    // da capo con il nuovo insieme di presenti — coerente con la filosofia "la copertura vince"
+    // (§3.7): la sede passa a un altro fisico che l'abbia dichiarata blu, e resta scoperta solo se
+    // davvero non c'è nessuno. Rispetta gli stessi vincoli del fisico (gerarchia, max 1 blu/medico)
+    // perché usa la STESSA identica risoluzione (risolviBlu) della FASE 2 dell'elaborazione.
+    turniScambiati.forEach((out) => {
+      const skRic = `${dataStr}|${out.id}`;
+      for (let i = 0; i < out.slots.length; i++) if (!out.fis.includes(i)) out.slots[i] = null; // azzera la vecchia copertura a distanza
+      const sitiCoperti = new Set(out.fis.filter((i) => out.slots[i] !== null));
+      const fisMids = out.fis.map((i) => out.slots[i]).filter((x) => x !== null && x !== undefined);
+      const sedeBluDi = risolviBlu(fisMids, sitiCoperti, skRic, dispo, debiti, debitiExtra);
+      Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }
 
