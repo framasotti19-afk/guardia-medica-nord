@@ -69,6 +69,12 @@ function generaScenario(seed, anno, mese) {
     const blu = []; const bluLiv = {};
     for (let i = 0; i < nBlu; i++) { const s = pick(altre); if (!blu.includes(s)) { blu.push(s); bluLiv[s] = 1 + Math.floor(rnd() * MAX_LIV_BLU); } }
     const verde2 = chance(0.2) ? pick(SEDI_MAGGIORI.filter((s) => s !== casa)) : null;
+    // #23 (censimento): ogni tanto la seconda sede verde è a un LIVELLO DIVERSO dalla prima (casa),
+    // invece che sempre a pari livello — così la scelta tra sedi verdi di priorità diversa
+    // (ordinaPerLivello / livelloVerdeDi / rami "liv > maxLiv" e ricollocazione "a livello peggiore"
+    // in provaFisica) viene finalmente esercitata dalla simulazione. Il livello di verde2 viene poi
+    // rerollato per-giorno (vedi sotto), così a volte casa è migliore, a volte verde2.
+    const verde2DiffLiv = verde2 !== null && chance(0.4);
 
     for (let d = 1; d <= nGiorni; d++) {
       const info = turniDelGiorno(anno, mese, d, extras);
@@ -85,7 +91,17 @@ function generaScenario(seed, anno, mese) {
           return;
         }
         const verde = [casa]; const verdeLiv = { [casa]: 1 + Math.floor(rnd() * MAX_LIV_VERDE) };
-        if (verde2) { verde.push(verde2); verdeLiv[verde2] = verdeLiv[casa]; } // pari livello: indifferenti
+        if (verde2) {
+          verde.push(verde2);
+          if (verde2DiffLiv && MAX_LIV_VERDE > 1) {
+            // livello diverso da casa (a volte migliore, a volte peggiore): esercita la scelta tra
+            // sedi verdi di priorità diversa (#23)
+            let lv; do { lv = 1 + Math.floor(rnd() * MAX_LIV_VERDE); } while (lv === verdeLiv[casa]);
+            verdeLiv[verde2] = lv;
+          } else {
+            verdeLiv[verde2] = verdeLiv[casa]; // pari livello: indifferenti (comportamento storico)
+          }
+        }
         dispo[m.id][slotKey] = {
           verde, verdeLiv, blu: [...blu], bluLiv: { ...bluLiv },
           no: false, preferito: chance(0.03) ? pick(verde) : null,
