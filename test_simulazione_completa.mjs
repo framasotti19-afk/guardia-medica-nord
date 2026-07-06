@@ -3,7 +3,7 @@
 // È il test più importante del pacchetto: non verifica un caso puntuale, ma che il
 // motore non violi mai le sue garanzie fondamentali qualunque combinazione di
 // disponibilità verde/blu, titolarità, turni extra e tetti mensili gli venga data in pasto.
-import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, debitoOrdinarioIniziale, tettoDistribuzioneDi, settimanaDi } from './engine_test.mjs';
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, debitoOrdinarioIniziale, tettoDistribuzioneDi, settimanaDi, capSettimanale } from './engine_test.mjs';
 
 function mulberry32(seed) {
   return function () {
@@ -130,10 +130,16 @@ console.log("=== test_simulazione_completa — scenari randomici × mesi × semi
 let scenari = 0;
 // contatori globali per verificare a fine mese l'invariante "Max turni mese mai superato"
 let meseCountPerScenario = {};
+// Conteggio turni (fisici + extra) per medico E per settimana (chiave `${mid}|${wk}`, wk = lunedì
+// della settimana lun-dom): usato da INV-TETTO-SETTIMANALE (§3.8, censimento #11). Stesso criterio
+// del monte mensile — la copertura a distanza (blu) NON conta, esattamente come non conta per il
+// tetto mensile né per il conteggio settimanale interno del motore (settimanaCount).
+let settimanaCountPerScenario = {};
 
 function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
   if (!t) return;
   const slotKey = `${slotKeyBase}|${t.id}`;
+  const wk = settimanaDi(slotKeyBase); // lunedì della settimana lun-dom del turno (§3.8)
   const pfx = contesto ? contesto + " " : "";
   if (t.extra) {
     const mid = t.slots[0];
@@ -143,6 +149,7 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       if (v.no) violazioni.push(`${pfx}g${giorno} ${t.label}: NO assegnato a extra (INV2)`);
       if (!v.verde.length) violazioni.push(`${pfx}g${giorno} ${t.label}: extra senza disponibilità verde dichiarata (INV1)`);
       meseCountPerScenario[mid] = (meseCountPerScenario[mid] || 0) + 1;
+      settimanaCountPerScenario[`${mid}|${wk}`] = (settimanaCountPerScenario[`${mid}|${wk}`] || 0) + 1;
     }
     return;
   }
@@ -157,6 +164,7 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       const site = SEDI5[si];
       if (!v.verde.includes(site)) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} fisico a ${site} senza averla dichiarata come verde (INV1)`);
       meseCountPerScenario[mid] = (meseCountPerScenario[mid] || 0) + 1; // solo la presenza FISICA consuma il tetto mensile (§3.11), mai la copertura blu
+      settimanaCountPerScenario[`${mid}|${wk}`] = (settimanaCountPerScenario[`${mid}|${wk}`] || 0) + 1; // e il tetto settimanale (§3.8), stesso criterio
     } else {
       // INV3: la copertura a distanza deve provenire da un fisico DI QUESTO turno
       const presenteAltrove = t.fis.some((fi) => t.slots[fi] === mid);
@@ -254,8 +262,23 @@ for (const seedBase of SEMI) {
       continue;
     }
     meseCountPerScenario = {};
+    settimanaCountPerScenario = {};
     const contesto = `seme=${seedBase} mese=${anno}-${mese + 1}`;
     schema.forEach((g) => g.turni.forEach((t) => verificaTurno(g.giorno, t, dispo, g.key, turniExtra, contesto)));
+    // INV-TETTO-SETTIMANALE (censimento #11, §3.8): il tetto settimanale dichiarato dal medico non è
+    // MAI superato. Per ogni medico e ogni settimana (lun-dom), i turni assegnati (fisici + extra, la
+    // copertura a distanza non conta) non superano capSettimanale. Vincolo RIGIDO applicato live in
+    // candidatiOrdinati (settimanaCount) → nessuna eccezione legittima, nessun falso positivo. Ora
+    // che la generazione lo esercita (#21, §10 voce 22) ha senso verificarlo a scala.
+    Object.entries(settimanaCountPerScenario).forEach(([key, usati]) => {
+      const sep = key.lastIndexOf("|");
+      const mid = Number(key.slice(0, sep));
+      const wk = key.slice(sep + 1);
+      const cap = capSettimanale(dispo, mid, wk);
+      if (cap === null) return; // nessun tetto dichiarato per quella settimana: nessun limite
+      checkCount++;
+      if (usati > cap) violazioni.push(`${contesto}: ${byId[mid]?.nome} ha ${usati} turni nella settimana ${wk}, oltre il tetto settimanale di ${cap} (INV-TETTO-SETTIMANALE)`);
+    });
     // INV-MAXTURNI (§3.11, punto 1): il tetto mensile dichiarato non è MAI superato, per nessuna
     // categoria (contrattualizzato o senza incarico), qualunque debito residuo o priorità.
     Object.entries(maxTurniMese).forEach(([midStr, cap]) => {
