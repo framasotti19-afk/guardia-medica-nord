@@ -10,7 +10,7 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_S
 const suite = makeSuite("test_stesso_cat2 — conflitti stessa categoria");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
-// DET36, titolari Spilimbergo: FOSCHIANI grad3, CERVESATO grad63
+// DET38, titolari Spilimbergo: FOSCHIANI grad3, CERVESATO grad63
 const FOSCHIANI = 2, CERVESATO = 9;
 // DET24, titolari Spilimbergo: MARTINETTI grad5, PRESSACCO grad57, DE CANDIDO grad83
 const MARTINETTI = 4, PRESSACCO = 8, DE_CANDIDO = 11;
@@ -27,7 +27,7 @@ function comeSenza(id) {
   return (m) => (m.id === id ? { ...m, cat: "SENZA", sedeContratto: null } : m);
 }
 
-suite.test("stessa categoria (DET36), nessuno titolare della sede contesa: vince il grad più basso", () => {
+suite.test("stessa categoria (DET38), nessuno titolare della sede contesa: vince il grad più basso", () => {
   const d = dispoBase(MEDICI);
   // FOSCHIANI (grad3) e CERVESATO (grad63), entrambi titolari di Spilimbergo: contesa su Maniago,
   // nessuno dei due titolare lì.

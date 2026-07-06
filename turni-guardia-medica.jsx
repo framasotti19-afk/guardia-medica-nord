@@ -3,23 +3,23 @@ import { useState, useMemo, useRef, useEffect } from "react";
 // ============ DATI SIMULAZIONE ============
 // MEDICI è modificabile dall'interfaccia (tab Medici): la lista di default viene
 // sovrascritta da quella salvata nello store, tramite setMediciGlobal.
-// sedeContratto: OBBLIGATORIA per ogni contrattualizzato (INDET, DET36, DET24, DET12ASAP, DET12) —
+// sedeContratto: OBBLIGATORIA per ogni contrattualizzato (INDET, DET38, DET24, DET12ASAP, DET12) —
 // "Maniago" | "Spilimbergo", mai null per loro. Solo i senza incarico (SENZA) non hanno titolarità
 // (sedeContratto sempre null). Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
-  { id: 1, nome: "ZURLO", grad: 2, cat: "DET36", sedeContratto: "Maniago" },
-  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 1, nome: "ZURLO", grad: 2, cat: "DET38", sedeContratto: "Maniago" },
+  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET38", sedeContratto: "Spilimbergo" },
   { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
   { id: 4, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
   { id: 5, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
-  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET38", sedeContratto: "Maniago" },
   { id: 7, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
   { id: 8, nome: "PRESSACCO", grad: 57, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET38", sedeContratto: "Spilimbergo" },
   { id: 10, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
   { id: 11, nome: "DE CANDIDO", grad: 83, cat: "DET24", sedeContratto: "Spilimbergo" },
   { id: 12, nome: "MERLINO", grad: 105, cat: "DET12ASAP", sedeContratto: "Maniago" },
-  { id: 13, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 13, nome: "IENGO", grad: 107, cat: "DET38", sedeContratto: "Maniago" },
   { id: 14, nome: "BERTUZZI", grad: 666, cat: "INDET", sedeContratto: "Spilimbergo" },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
@@ -36,13 +36,13 @@ const setMediciGlobal = (list) => {
 // con debito → graduatoria, esattamente come tra due medici della stessa categoria (CONTEXT.md §3.1).
 const CAT_INFO = {
   INDET:    { label: "Indet.",        prio: 1, ore: 96,  color: "#1a5c4a", bg: "#e3f2ec" },
-  DET36:    { label: "Det. 36h",      prio: 2, ore: 156, color: "#8a5a00", bg: "#fdf3dd" },
+  DET38:    { label: "Det. 38h",      prio: 2, ore: 168, color: "#8a5a00", bg: "#fdf3dd" },
   DET24:    { label: "Det. 24h",      prio: 3, ore: 104, color: "#a06b00", bg: "#fef7e8" },
   DET12ASAP:{ label: "Det. 12h ASAP", prio: 3, ore: 52,  color: "#6b4c9a", bg: "#efe8f7" },
   DET12:    { label: "Det. 12h",      prio: 4, ore: 52,  color: "#4a708a", bg: "#e8eff5" },
   SENZA:    { label: "Senza inc.",    prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
-const isDeterminato = (mid) => ["DET36", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
+const isDeterminato = (mid) => ["DET38", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
 // Contrattualizzato = ha un monte ore (tutte le categorie tranne SENZA incarico) — INDET incluso.
 // Usato per la titolarità di sede (§3.1a): OBBLIGATORIA e universale tra tutti i contrattualizzati,
 // non solo tra i determinati (isDeterminato resta distinto, usato altrove per il solo confronto
@@ -213,7 +213,7 @@ const capMensileDi = (maxTurniMese, mid) => {
 };
 
 // Tetto di distribuzione temporale (CONTEXT.md §3.11) per un medico: il più restrittivo tra il
-// monte ore implicito (arrotondato a turni da 12h — INDET≈8, DET36≈13, DET24≈9, DET12ASAP/DET12≈4
+// monte ore implicito (arrotondato a turni da 12h — INDET≈8, DET38≈14, DET24≈9, DET12ASAP/DET12≈4
 // — Math.round(debito/12): un residuo inferiore a 6h arrotonda a 0 turni in meno, un medico con
 // debito residuo così piccolo è considerato esaurito ai fini del tetto e il resto va perso — non
 // è un difetto da correggere, è il comportamento voluto) e l'eventuale Max turni mese dichiarato
@@ -573,13 +573,15 @@ function slotHaPreferiti(dispo, slotKey) {
 }
 
 // Aggiustamento mensile del monte ore (bilanciamento turni annui, §3.11): il monte ore BASE resta
-// sempre quello di CAT_INFO, ma per DET24 e DET12/DET12ASAP viene aggiustato di ±8h in mesi
-// specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione — DET24 perde 8h
-// (104→96h, 9→8 turni impliciti) a Febbraio/Aprile/Settembre/Novembre; DET12 e DET12ASAP guadagnano
-// 8h (52→60h, 4→5 turni impliciti) a Marzo/Maggio/Agosto/Dicembre. Compensato sugli altri 8 mesi
-// dell'anno: 104 turni/anno per DET24 (8×9 + 4×8), 52 per DET12/DET12ASAP (8×4 + 4×5). INDET e
-// DET36 non hanno mai aggiustamento. "mese" è l'indice 0-based usato ovunque (Gennaio=0, MESI_IT).
+// sempre quello di CAT_INFO, ma per DET38, DET24 e DET12/DET12ASAP viene aggiustato di ±8h/±12h in
+// mesi specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione — DET38 perde
+// 12h (168→156h, 14→13 turni impliciti) a Febbraio/Aprile/Settembre; DET24 perde 8h (104→96h, 9→8
+// turni impliciti) a Febbraio/Aprile/Settembre/Novembre; DET12 e DET12ASAP guadagnano 8h (52→60h,
+// 4→5 turni impliciti) a Marzo/Maggio/Agosto/Dicembre. Compensato sugli altri mesi dell'anno: 165
+// turni/anno per DET38 (9×14 + 3×13), 104 per DET24 (8×9 + 4×8), 52 per DET12/DET12ASAP (8×4 +
+// 4×5). INDET non ha mai aggiustamento. "mese" è l'indice 0-based usato ovunque (Gennaio=0, MESI_IT).
 const AGGIUSTAMENTO_MESE_ORE = {
+  DET38: { mesi: [1, 3, 8], delta: -12 },
   DET24: { mesi: [1, 3, 8, 10], delta: -8 },
   DET12ASAP: { mesi: [2, 4, 7, 11], delta: 8 },
   DET12: { mesi: [2, 4, 7, 11], delta: 8 },
@@ -1597,23 +1599,23 @@ Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dich
 
 == GERARCHIA CATEGORIE (priorità decrescente) ==
 1. INDET (indeterminato, qualunque orario) → spareggio: titolarità sede → debito orario → graduatoria
-2. Determinato 36h/sett → spareggio: titolarità sede → debito orario → graduatoria
+2. Determinato 38h/sett → spareggio: titolarità sede → debito orario → graduatoria
 3. Determinato 24h/sett = Determinato 12h/sett ASAP (DET12ASAP) → STESSO livello di priorità, non sono in relazione
    gerarchica tra loro: uno spareggio diretto tra i due si risolve con titolarità sede → debito orario →
    graduatoria, esattamente come tra due medici della stessa categoria
 4. Determinato 12h/sett (DET12) → spareggio: titolarità sede → debito orario → graduatoria; perde sempre contro
-   INDET, Determinato 36h, Determinato 24h e DET12ASAP, batte solo i medici senza incarico
+   INDET, Determinato 38h, Determinato 24h e DET12ASAP, batte solo i medici senza incarico
 5. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore, nessuna titolarità
 La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo positivo — ECCETTO quando la titolarità di sede decide prima (vedi sotto).
 
 == TITOLARITÀ DI SEDE (OBBLIGATORIA per ogni contrattualizzato, INDET incluso) ==
-Ogni medico contrattualizzato (INDET, Determinato 36h, 24h, 12h ASAP o 12h) ha SEMPRE un contratto di titolarità per Maniago o Spilimbergo — mai "nessuna" per loro. Solo i senza incarico non hanno titolarità.
+Ogni medico contrattualizzato (INDET, Determinato 38h, 24h, 12h ASAP o 12h) ha SEMPRE un contratto di titolarità per Maniago o Spilimbergo — mai "nessuna" per loro. Solo i senza incarico non hanno titolarità.
 Su QUALSIASI sede contesa, la titolarità di QUELLA sede specifica decide PRIMA di tutto il resto, sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu): chi è titolare della sede contesa batte chi non lo è, qualunque sia la categoria di entrambi. Tra due medici PARI rispetto a quella sede specifica (entrambi titolari di essa, oppure nessuno dei due — es. uno titolare di Maniago e l'altro di Spilimbergo, in conflitto su Maniago: solo il primo è titolare LÌ), decide poi normalmente categoria → debito → graduatoria.
 Esempio: un Determinato 24h titolare di Maniago batte un INDET titolare di Spilimbergo nel conflitto su Maniago (la titolarità vince prima della categoria); sulla stessa coppia, su Spilimbergo vince invece l'INDET. Due titolari della STESSA sede (es. entrambi titolari di Maniago): la titolarità è a parità tra loro, quindi decide categoria → debito → graduatoria, esattamente come se nessuno dei due fosse titolare.
 
 == FRAMEWORK DEBITO ORARIO ==
 Conteggio mensile in ore effettive (NON settimanale, NON in numero di turni).
-Monte ore mensile: INDET → 96 ore | Determinato 36h/sett → ~156 ore | Determinato 24h/sett → ~104 ore | Determinato 12h/sett (ASAP o no) → 52 ore.
+Monte ore mensile: INDET → 96 ore | Determinato 38h/sett → ~168 ore | Determinato 24h/sett → ~104 ore | Determinato 12h/sett (ASAP o no) → 52 ore.
 Risoluzione conflitto turno per turno in ordine cronologico:
 - Debito diverso → vince chi ha debito residuo MAGGIORE
 - Debito identico → vince chi è PIÙ ALTO in graduatoria (numero più basso = posizione migliore)

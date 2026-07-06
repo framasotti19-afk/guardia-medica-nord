@@ -81,10 +81,10 @@ suite.test("una sede non dichiarata (né verde né blu) resta sempre inaccessibi
 suite.test("una sede dichiarata come blu resta comunque di priorità inferiore a qualunque sede verde", () => {
   resetMedici();
   const d = dispoBase();
-  d[IENGO][N(G1)] = turnoDisp(["Meduno"], ["Spilimbergo"], { bluLiv: { Spilimbergo: 1 } }); // DET36
+  d[IENGO][N(G1)] = turnoDisp(["Meduno"], ["Spilimbergo"], { bluLiv: { Spilimbergo: 1 } }); // DET38
   d[MARTINETTI][N(G1)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 1 } }); // DET24, titolare SP, fisico lì
   const t = unicoTurno(d);
-  // IENGO (DET36) ha priorità superiore a MARTINETTI (DET24): anche arrivandoci in blu (a
+  // IENGO (DET38) ha priorità superiore a MARTINETTI (DET24): anche arrivandoci in blu (a
   // distanza), scalza comunque MARTINETTI dalla sua sede fisica? NO — il blu non è una forma di
   // presenza fisica: IENGO è fisico a Meduno, e prova a COPRIRE Spilimbergo a distanza SOLO se non
   // è già fisicamente occupata. MARTINETTI è fisico lì: niente scalzamento, il blu può solo
@@ -98,10 +98,10 @@ suite.test("una sede dichiarata come blu resta comunque di priorità inferiore a
 suite.test("il titolare di Maniago vince anche contro categoria superiore (dati di default, nessun override necessario)", () => {
   resetMedici();
   const d = dispoBase();
-  d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET36, titolare Spilimbergo (non Maniago)
+  d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET38, titolare Spilimbergo (non Maniago)
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET24, titolare Maniago
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], TRIGODKO, "il titolare di Maniago vince anche contro un DET36 non titolare lì");
+  suite.eq(t.slots[0], TRIGODKO, "il titolare di Maniago vince anche contro un DET38 non titolare lì");
 });
 
 suite.test("azzerare la titolarità (sedeContratto → null) ripristina la normale gerarchia di categoria", () => {
@@ -119,7 +119,7 @@ suite.test("azzerare la titolarità (sedeContratto → null) ripristina la norma
   // isTitolareDi lo tratta semplicemente come "non titolare", senza eccezioni.
   const senzaTitolarita = MEDICI_DEFAULT.map((m) => (m.id === TRIGODKO ? { ...m, sedeContratto: null } : m));
   setMediciGlobal(senzaTitolarita);
-  suite.eq(unicoTurno(d, {}, senzaTitolarita).slots[0], CERVESATO, "senza titolarità, torna a vincere CERVESATO (DET36 > DET24)");
+  suite.eq(unicoTurno(d, {}, senzaTitolarita).slots[0], CERVESATO, "senza titolarità, torna a vincere CERVESATO (DET38 > DET24)");
   resetMedici();
 });
 
@@ -139,10 +139,10 @@ suite.test("cambiare la categoria di un medico ne cambia la priorità nel motore
   const listaModificata = MEDICI_DEFAULT.map((m) => (m.id === PRESSACCO ? { ...m, cat: "INDET" } : m));
   const d = dispoBase();
   d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
-  d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET36, normalmente batterebbe un DET24
+  d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET38, normalmente batterebbe un DET24
   setMediciGlobal(listaModificata);
   const t = unicoTurno(d, {}, listaModificata);
-  suite.eq(t.slots[0], PRESSACCO, "PRESSACCO promosso a INDET deve ora battere CERVESATO (DET36)");
+  suite.eq(t.slots[0], PRESSACCO, "PRESSACCO promosso a INDET deve ora battere CERVESATO (DET38)");
   resetMedici();
 });
 

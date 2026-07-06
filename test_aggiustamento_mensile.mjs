@@ -1,17 +1,19 @@
-// Test sull'aggiustamento mensile del monte ore per DET24 e DET12/DET12ASAP (bilanciamento turni
-// annui, §3.11): il monte ore BASE resta sempre quello di CAT_INFO, ma viene aggiustato di ±8h in
-// mesi specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione
+// Test sull'aggiustamento mensile del monte ore per DET38, DET24 e DET12/DET12ASAP (bilanciamento
+// turni annui, §3.11): il monte ore BASE resta sempre quello di CAT_INFO, ma viene aggiustato di
+// ±8h/±12h in mesi specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione
 // (Math.round(debito/12)) — nessuna modifica alla gerarchia, ai conflitti o all'assegnazione.
+// DET38 (168h/14 turni base): -12h (→156h/13 turni) a Febbraio, Aprile, Settembre.
 // DET24 (104h/9 turni base): -8h (→96h/8 turni) a Febbraio, Aprile, Settembre, Novembre.
 // DET12 e DET12ASAP (52h/4 turni base): +8h (→60h/5 turni) a Marzo, Maggio, Agosto, Dicembre.
-// Totali annui: DET24 = 8×9 + 4×8 = 104 turni/anno; DET12(ASAP) = 8×4 + 4×5 = 52 turni/anno.
-// INDET e DET36 non sono mai aggiustati (monte ore fisso ogni mese).
+// Totali annui: DET38 = 9×14 + 3×13 = 165 turni/anno; DET24 = 8×9 + 4×8 = 104 turni/anno;
+// DET12(ASAP) = 8×4 + 4×5 = 52 turni/anno.
+// Solo INDET non è mai aggiustato (monte ore fisso ogni mese).
 import { MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST } from './test_utils.mjs';
 
-const suite = makeSuite("test_aggiustamento_mensile — monte ore variabile per mese (DET24/DET12)");
+const suite = makeSuite("test_aggiustamento_mensile — monte ore variabile per mese (DET38/DET24/DET12)");
 const BERTUZZI = 14; // INDET, 96h/8 turni fissi
-const IENGO = 13; // DET36, 156h/13 turni fissi
+const IENGO = 13; // DET38 di default
 const PRESSACCO = 8; // DET24 di default
 const MERLINO = 12; // DET12ASAP di default, promosso a DET12 in alcuni test
 const ZURLO = 5; // override "senza incarico", backup di riserva sempre disponibile (mai in gara per titolarità)
@@ -37,6 +39,34 @@ function nottiVinte(mid, anno, mese) {
   const { schema } = elaboraSchema(d, {}, anno, mese, {});
   return schema.filter((g) => g.turni.find((t) => t.id === "N" && t.slots.includes(mid))).length;
 }
+
+suite.test("DET38 (IENGO): tetto di 13 turni a Febbraio (168h-12h=156h, mese aggiustato)", () => {
+  setMediciGlobal(listaConZurloSenza());
+  suite.eq(nottiVinte(IENGO, ANNO_TEST, 1), 13, "Febbraio (indice 1): monte ore aggiustato a 156h → tetto 13 turni");
+  resetMedici();
+});
+
+suite.test("DET38 (IENGO): tetto di 14 turni a Gennaio (168h, mese NON aggiustato)", () => {
+  setMediciGlobal(listaConZurloSenza());
+  suite.eq(nottiVinte(IENGO, ANNO_TEST, 0), 14, "Gennaio (indice 0): monte ore invariato a 168h → tetto 14 turni");
+  resetMedici();
+});
+
+suite.test("DET38 (IENGO): aggiustato anche ad Aprile e Settembre (13 turni)", () => {
+  setMediciGlobal(listaConZurloSenza());
+  [3, 8].forEach((mese) => {
+    suite.eq(nottiVinte(IENGO, ANNO_TEST, mese), 13, `mese indice ${mese}: monte ore aggiustato a 156h → tetto 13 turni`);
+  });
+  resetMedici();
+});
+
+suite.test("DET38 (IENGO): NON aggiustato negli altri 9 mesi (14 turni)", () => {
+  setMediciGlobal(listaConZurloSenza());
+  [0, 2, 4, 5, 6, 7, 9, 10, 11].forEach((mese) => {
+    suite.eq(nottiVinte(IENGO, ANNO_TEST, mese), 14, `mese indice ${mese}: monte ore invariato a 168h → tetto 14 turni`);
+  });
+  resetMedici();
+});
 
 suite.test("DET24 (PRESSACCO): tetto di 8 turni a Febbraio (104h-8h=96h, mese aggiustato)", () => {
   setMediciGlobal(listaConZurloSenza());
@@ -94,12 +124,19 @@ suite.test("DET12/DET12ASAP: NON aggiustati negli altri 8 mesi (4 turni)", () =>
   resetMedici();
 });
 
-suite.test("INDET (BERTUZZI) e DET36 (IENGO): nessun aggiustamento mensile, monte ore fisso in ogni mese", () => {
+suite.test("INDET (BERTUZZI): nessun aggiustamento mensile, monte ore fisso in ogni mese", () => {
   setMediciGlobal(listaConZurloSenza());
   [0, 1, 2, 3, 4, 7, 8, 10, 11].forEach((mese) => {
     suite.eq(nottiVinte(BERTUZZI, ANNO_TEST, mese), 8, `INDET (BERTUZZI): 8 turni fissi anche nel mese indice ${mese}`);
-    suite.eq(nottiVinte(IENGO, ANNO_TEST, mese), 13, `DET36 (IENGO): 13 turni fissi anche nel mese indice ${mese}`);
   });
+  resetMedici();
+});
+
+suite.test("totale annuo DET38: 9 mesi da 14 + 3 da 13 = 165 turni/anno", () => {
+  setMediciGlobal(listaConZurloSenza());
+  let totale = 0;
+  for (let mese = 0; mese < 12; mese++) totale += nottiVinte(IENGO, ANNO_TEST, mese);
+  suite.eq(totale, 165, "165 turni/anno per DET38, coerente con 9×14 + 3×13");
   resetMedici();
 });
 

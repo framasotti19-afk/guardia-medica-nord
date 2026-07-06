@@ -77,19 +77,20 @@ suite.test("più siti disponibili (nessuna scarsità artificiale): stesso princi
 });
 
 suite.test("un titolare di sede segue le stesse regole di tutti (CONTEXT.md §3.11 punto C): nessuna esenzione dal proprio tetto, ma qui il tetto implicito coincide comunque con le vittorie naturali", () => {
-  // DET36 titolare Maniago: 156h di monte ore = 13 notti. Essendo l'unico candidato con priorità
-  // vera su Maniago (titolarità), vince le prime 13 notti consecutive finché il monte ore non si
-  // esaurisce (blocco rigido §3.4) — il tetto implicito (13) coincide esattamente con queste
-  // vittorie naturali, quindi nessuna cessione scatta: la titolarità non è "esente" per regola
-  // speciale, semplicemente qui il tetto e le vittorie naturali sono lo stesso numero.
-  const lista = MEDICI_TEST.map((m) => (m.id === BERTUZZI ? { ...m, cat: "DET36", sedeContratto: "Maniago" } : m));
+  // DET38 titolare Maniago: 168h di monte ore (agosto non è mese aggiustato per DET38, §3.11
+  // punto 3) = 14 notti. Essendo l'unico candidato con priorità vera su Maniago (titolarità),
+  // vince le prime 14 notti consecutive finché il monte ore non si esaurisce (blocco rigido §3.4)
+  // — il tetto implicito (14) coincide esattamente con queste vittorie naturali, quindi nessuna
+  // cessione scatta: la titolarità non è "esente" per regola speciale, semplicemente qui il tetto
+  // e le vittorie naturali sono lo stesso numero.
+  const lista = MEDICI_TEST.map((m) => (m.id === BERTUZZI ? { ...m, cat: "DET38", sedeContratto: "Maniago" } : m));
   setMediciGlobal(lista);
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]), "il titolare vince i primi 13 giorni CONSECUTIVI (156h/12h): tetto implicito = vittorie naturali, nessuna cessione");
-  const notteZurlo14 = schema.find((g) => g.giorno === 14).turni.find((t) => t.id === "N");
-  suite.eq(notteZurlo14.slots[0], ZURLO, "esaurito il monte ore del titolare (blocco rigido preesistente §3.4), la sede passa al senza incarico dal giorno 14 in poi");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]), "il titolare vince i primi 14 giorni CONSECUTIVI (168h/12h): tetto implicito = vittorie naturali, nessuna cessione");
+  const notteZurlo15 = schema.find((g) => g.giorno === 15).turni.find((t) => t.id === "N");
+  suite.eq(notteZurlo15.slots[0], ZURLO, "esaurito il monte ore del titolare (blocco rigido preesistente §3.4), la sede passa al senza incarico dal giorno 15 in poi");
   setMediciGlobal(MEDICI_TEST);
 });
 

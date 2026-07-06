@@ -1,5 +1,5 @@
 // Test sulle categorie DET12ASAP e DET12 (CONTEXT.md §3.1). Gerarchia completa aggiornata:
-// INDET → DET36 → DET24 = DET12ASAP → DET12 → SENZA INCARICO.
+// INDET → DET38 → DET24 = DET12ASAP → DET12 → SENZA INCARICO.
 // DET24 e DET12ASAP condividono lo STESSO livello di priorità (prio 3): non sono in relazione
 // gerarchica tra loro, uno spareggio diretto si risolve con titolarità → debito → graduatoria,
 // esattamente come tra due medici della stessa categoria.
@@ -15,12 +15,12 @@ const suite = makeSuite("test_categorie_12h — DET12ASAP e DET12");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
 const BERTUZZI = 14; // INDET, titolare Spilimbergo
-const FOSCHIANI = 2, CERVESATO = 9; // DET36, titolari Spilimbergo
+const FOSCHIANI = 2, CERVESATO = 9; // DET38, titolari Spilimbergo
 const MARTINETTI = 4, PRESSACCO = 8; // DET24, titolari Spilimbergo
 const VALERI = 7; // DET12ASAP nativo, titolare Spilimbergo, grad25
 const MERLINO = 12; // DET12ASAP nativo, titolare Maniago, grad105
 const MORANO = 10; // DET12 nativo, titolare Maniago, grad72
-const ZURLO = 1; // DET36 di default, usato come override "senza incarico" in un test
+const ZURLO = 1; // DET38 di default, usato come override "senza incarico" in un test
 
 function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
 function dispoBase() { const d = {}; MEDICI_DEFAULT.forEach((m) => (d[m.id] = {})); return d; }
@@ -42,9 +42,9 @@ suite.test("DET12ASAP e DET12 hanno monte ore mensile base 52h", () => {
 suite.test("DET24 e DET12ASAP condividono lo stesso prio: non sono in relazione gerarchica tra loro", () => {
   suite.eq(CAT_INFO.DET24.prio, CAT_INFO.DET12ASAP.prio);
 });
-suite.test("gerarchia completa dei prio: INDET < DET36 < DET24 = DET12ASAP < DET12 < SENZA", () => {
-  suite.assert(CAT_INFO.INDET.prio < CAT_INFO.DET36.prio, "INDET prima di DET36");
-  suite.assert(CAT_INFO.DET36.prio < CAT_INFO.DET24.prio, "DET36 prima di DET24");
+suite.test("gerarchia completa dei prio: INDET < DET38 < DET24 = DET12ASAP < DET12 < SENZA", () => {
+  suite.assert(CAT_INFO.INDET.prio < CAT_INFO.DET38.prio, "INDET prima di DET38");
+  suite.assert(CAT_INFO.DET38.prio < CAT_INFO.DET24.prio, "DET38 prima di DET24");
   suite.assert(CAT_INFO.DET24.prio < CAT_INFO.DET12.prio, "DET24 prima di DET12");
   suite.assert(CAT_INFO.DET12ASAP.prio < CAT_INFO.DET12.prio, "DET12ASAP prima di DET12");
   suite.assert(CAT_INFO.DET12.prio < CAT_INFO.SENZA.prio, "DET12 prima di SENZA");
@@ -105,10 +105,10 @@ suite.test("DET12ASAP batte sempre DET12, anche a parità di debito e con grad p
   resetMedici();
 });
 
-suite.test("DET12 perde contro INDET, DET36, DET24 e DET12ASAP", () => {
+suite.test("DET12 perde contro INDET, DET38, DET24 e DET12ASAP", () => {
   const casi = [
     { avversario: BERTUZZI, nome: "INDET" },
-    { avversario: FOSCHIANI, nome: "DET36" },
+    { avversario: FOSCHIANI, nome: "DET38" },
     { avversario: MARTINETTI, nome: "DET24" },
   ];
   casi.forEach(({ avversario, nome }) => {
@@ -149,9 +149,9 @@ suite.test("DET12 batte i medici senza incarico, anche di graduatoria molto migl
 // ---------------------------------------------------------------------------
 // TITOLARITÀ ANCHE PER DET12/DET12ASAP (MORANO, nativo DET12 titolare Maniago)
 // ---------------------------------------------------------------------------
-suite.test("un DET12 titolare di una sede vince anche contro un DET36 non titolare", () => {
+suite.test("un DET12 titolare di una sede vince anche contro un DET38 non titolare", () => {
   const d = dispoBase();
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET36, titolare Spilimbergo (non Maniago)
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]); // DET38, titolare Spilimbergo (non Maniago)
   d[MORANO][N(G1)] = turnoDisp(["Maniago"]); // DET12, titolare di Maniago
   const t = unicoTurno(d);
   suite.eq(t.slots[0], MORANO, "la titolarità di sede vince prima ancora del confronto di categoria, anche per un DET12");

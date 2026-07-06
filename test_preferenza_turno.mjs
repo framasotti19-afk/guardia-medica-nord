@@ -17,7 +17,7 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_S
 
 const suite = makeSuite("test_preferenza_turno — preferenza diurno/notturno stesso giorno");
 const BERTUZZI = 14; // INDET, titolare Spilimbergo
-const FOSCHIANI = 2, CERVESATO = 9; // DET36, titolari Spilimbergo (grad3, grad63)
+const FOSCHIANI = 2, CERVESATO = 9; // DET38, titolari Spilimbergo (grad3, grad63)
 const PRESSACCO = 8; // DET24, titolare Spilimbergo, grad57
 const PITAU = 5; // DET24 di default, usato come override "senza incarico" (grad14)
 
@@ -77,7 +77,7 @@ suite.test("vince solo UNO dei due turni: la preferenza dichiarata non ha alcun 
 suite.test("preferisce il diurno (☀️): con un'alternativa valida, il notturno passa a lei", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]); // unico candidato sul diurno
-  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]); // BERTUZZI (INDET) batte CERVESATO (DET36) sul notturno
+  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]); // BERTUZZI (INDET) batte CERVESATO (DET38) sul notturno
   d[CERVESATO][N(G8)] = turnoDisp(["Maniago"]); // alternativa valida, presente solo sul notturno
   d[BERTUZZI][TURNOPREF(G8)] = "G";
   const { schema } = schemaCompleto(d);
@@ -132,8 +132,8 @@ suite.test("tra più alternative possibili, subentra sempre quella con priorità
   const d = dispoBase(MEDICI);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]);
-  d[CERVESATO][N(G8)] = turnoDisp(["Maniago"]); // DET36 grad63
-  d[FOSCHIANI][N(G8)] = turnoDisp(["Maniago"]); // DET36 grad3, priorità migliore di CERVESATO
+  d[CERVESATO][N(G8)] = turnoDisp(["Maniago"]); // DET38 grad63
+  d[FOSCHIANI][N(G8)] = turnoDisp(["Maniago"]); // DET38 grad3, priorità migliore di CERVESATO
   d[BERTUZZI][TURNOPREF(G8)] = "G";
   const { schema } = schemaCompleto(d);
   const { tG, tN } = turniGiorno(schema, G8);

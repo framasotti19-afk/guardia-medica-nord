@@ -28,7 +28,7 @@ let violazioni = [];
 function generaMediciConTitolarita(seed) {
   const rnd = mulberry32(seed);
   return MEDICI_DEFAULT.map((m) => {
-    if (!isDeterminato(m.id) && m.cat !== "DET36" && m.cat !== "DET24") return { ...m };
+    if (!isDeterminato(m.id) && m.cat !== "DET38" && m.cat !== "DET24") return { ...m };
     const haTitolarita = rnd() < 0.25;
     return { ...m, sedeContratto: haTitolarita ? (rnd() < 0.5 ? "Maniago" : "Spilimbergo") : null };
   });

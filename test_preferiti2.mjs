@@ -18,7 +18,7 @@ const BERTUZZI = 14; // INDET, titolare Spilimbergo
 const TRIGODKO = 3; // DET24, titolare Maniago, grad4
 const MARTINETTI = 4; // DET24, titolare Spilimbergo, grad5
 const PRESSACCO = 8; // DET24, titolare Spilimbergo, grad57
-const CERVESATO = 9; // DET36, titolare Spilimbergo, grad63
+const CERVESATO = 9; // DET38, titolare Spilimbergo, grad63
 const DE_CANDIDO = 11; // DET24, titolare Spilimbergo, grad83
 
 function elabora(dispo, extraOre = {}) {

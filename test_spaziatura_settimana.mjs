@@ -7,7 +7,7 @@
 // validi ("nessuna alternativa → copertura vince comunque", "alternativa su un'altra sede non
 // conta") sono rimasti, dato che il loro esito non cambia.
 //
-// BERTUZZI (INDET, titolare Spilimbergo) e CERVESATO (DET36, titolare Spilimbergo) sono usati
+// BERTUZZI (INDET, titolare Spilimbergo) e CERVESATO (DET38, titolare Spilimbergo) sono usati
 // come coppia "pura" per i test di gerarchia/spaziatura, contesi su Maniago (dove nessuno dei due
 // è titolare) per isolare l'effetto dalla titolarità universale (§3.1a).
 //
@@ -19,7 +19,7 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_ut
 
 const suite = makeSuite("test_spaziatura_settimana — tetto settimanale (§3.7 rimossa, vedi intro)");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-const BERTUZZI = 14, CERVESATO = 9; // INDET tit.Spilimbergo, DET36 tit.Spilimbergo
+const BERTUZZI = 14, CERVESATO = 9; // INDET tit.Spilimbergo, DET38 tit.Spilimbergo
 const PRESSACCO = 8, MERLINO = 12; // DET24 tit.Spilimbergo, DET12ASAP tit.Maniago
 
 function unicoTurno(dispo, giorno, extraOre = {}) {

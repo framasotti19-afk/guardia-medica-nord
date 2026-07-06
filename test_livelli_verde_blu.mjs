@@ -14,7 +14,7 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_S
 const suite = makeSuite("test_livelli_verde_blu — livelli verde 1-5 e blu 1-4");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
-const ZURLO = 1, IENGO = 13, BERTUZZI = 14; // DET36 tit.Maniago, DET36 tit.Maniago, INDET tit.Spilimbergo
+const ZURLO = 1, IENGO = 13, BERTUZZI = 14; // DET38 tit.Maniago, DET38 tit.Maniago, INDET tit.Spilimbergo
 const MARTINETTI = 4, PITAU = 5, DE_CANDIDO = 11; // DET24: tit.Spilimbergo, tit.Maniago, tit.Spilimbergo
 
 function unicoTurno(dispo, extraOre = {}) {
@@ -92,7 +92,7 @@ suite.test("conflitto sullo stesso blu su Maniago: vince categoria/grad tra due 
 
 suite.test("se il vincitore del blu preferito viene scalzato, riprova con il suo blu successivo", () => {
   const d = dispoBase(MEDICI);
-  // Conflitto su Meduno (mai sede di titolarità): ZURLO e IENGO, entrambi DET36, decide il grad.
+  // Conflitto su Meduno (mai sede di titolarità): ZURLO e IENGO, entrambi DET38, decide il grad.
   d[ZURLO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad2
   d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad107
   const t = unicoTurno(d);

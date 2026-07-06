@@ -1,14 +1,14 @@
-// Test runtime del motore: gerarchia categorie (INDET/DET36/DET24/DET12ASAP/DET12/SENZA),
+// Test runtime del motore: gerarchia categorie (INDET/DET38/DET24/DET12ASAP/DET12/SENZA),
 // titolarità di sede OBBLIGATORIA e universale tra tutti i contrattualizzati (INDET incluso,
 // non solo tra determinati), tie-break debito/graduatoria, scenari di copertura verde/blu
 // (1-4 medici), invarianti. Basato sulle regole di CONTEXT.md §3.
 //
 // MEDICI_DEFAULT (14 medici reali, tutti i contrattualizzati con titolarità obbligatoria — vedi
-// turni-guardia-medica.jsx): ZURLO(1,DET36,tit.Maniago) FOSCHIANI(2,DET36,tit.Spilimbergo)
+// turni-guardia-medica.jsx): ZURLO(1,DET38,tit.Maniago) FOSCHIANI(2,DET38,tit.Spilimbergo)
 // TRIGODKO(3,DET24,tit.Maniago) MARTINETTI(4,DET24,tit.Spilimbergo) PITAU(5,DET24,tit.Maniago)
-// BEKAEVA(6,DET36,tit.Maniago) VALERI(7,DET12ASAP,tit.Spilimbergo) PRESSACCO(8,DET24,tit.Spilimbergo)
-// CERVESATO(9,DET36,tit.Spilimbergo) MORANO(10,DET12,tit.Maniago) DE_CANDIDO(11,DET24,tit.Spilimbergo)
-// MERLINO(12,DET12ASAP,tit.Maniago) IENGO(13,DET36,tit.Maniago) BERTUZZI(14,INDET,tit.Spilimbergo).
+// BEKAEVA(6,DET38,tit.Maniago) VALERI(7,DET12ASAP,tit.Spilimbergo) PRESSACCO(8,DET24,tit.Spilimbergo)
+// CERVESATO(9,DET38,tit.Spilimbergo) MORANO(10,DET12,tit.Maniago) DE_CANDIDO(11,DET24,tit.Spilimbergo)
+// MERLINO(12,DET12ASAP,tit.Maniago) IENGO(13,DET38,tit.Maniago) BERTUZZI(14,INDET,tit.Spilimbergo).
 // Nessun SENZA incarico di default: dove serve un test double, si usa comeSenza() per
 // sovrascrivere temporaneamente la categoria di un medico esistente (stesso pattern già usato
 // altrove per DET12/DET12ASAP).
@@ -43,9 +43,9 @@ function comeSenza(lista, id) {
 // ---------------------------------------------------------------------------
 // A. GERARCHIA CATEGORIE (§3.1) — conflitti "puri", senza interferenza di titolarità
 // ---------------------------------------------------------------------------
-suite.test("INDET batte DET36 sulla stessa sede contesa (nessuno dei due titolare lì)", () => {
+suite.test("INDET batte DET38 sulla stessa sede contesa (nessuno dei due titolare lì)", () => {
   const d = dispoBase(MEDICI);
-  // BERTUZZI (INDET, titolare Spilimbergo) e FOSCHIANI (DET36, titolare Spilimbergo): nessuno dei
+  // BERTUZZI (INDET, titolare Spilimbergo) e FOSCHIANI (DET38, titolare Spilimbergo): nessuno dei
   // due titolare di Maniago, la sede contesa — puro confronto di categoria.
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
@@ -53,9 +53,9 @@ suite.test("INDET batte DET36 sulla stessa sede contesa (nessuno dei due titolar
   suite.eq(t.slots[0], BERTUZZI);
 });
 
-suite.test("stessa categoria (DET36), nessuno titolare della sede contesa: a parità di debito decide il grad", () => {
+suite.test("stessa categoria (DET38), nessuno titolare della sede contesa: a parità di debito decide il grad", () => {
   const d = dispoBase(MEDICI);
-  // FOSCHIANI (grad3) e CERVESATO (grad63), entrambi DET36 titolari di Spilimbergo: contesa su
+  // FOSCHIANI (grad3) e CERVESATO (grad63), entrambi DET38 titolari di Spilimbergo: contesa su
   // Maniago, nessuno dei due titolare lì.
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]);
@@ -63,9 +63,9 @@ suite.test("stessa categoria (DET36), nessuno titolare della sede contesa: a par
   suite.eq(t.slots[0], FOSCHIANI);
 });
 
-suite.test("DET36 batte DET24 anche con grad numerico peggiore, nessuno titolare della sede contesa", () => {
+suite.test("DET38 batte DET24 anche con grad numerico peggiore, nessuno titolare della sede contesa", () => {
   const d = dispoBase(MEDICI);
-  // IENGO (DET36, grad107, titolare Maniago) e TRIGODKO (DET24, grad4, titolare Maniago): contesa
+  // IENGO (DET38, grad107, titolare Maniago) e TRIGODKO (DET24, grad4, titolare Maniago): contesa
   // su Spilimbergo, nessuno dei due titolare lì — puro confronto di categoria.
   d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"]);
@@ -87,7 +87,7 @@ suite.test("DET24 batte SENZA anche con grad numerico peggiore", () => {
 
 suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche pochissime ore residue)", () => {
   const d = dispoBase(MEDICI);
-  // BERTUZZI (INDET, titolare Spilimbergo) e FOSCHIANI (DET36, titolare Spilimbergo): contesa su
+  // BERTUZZI (INDET, titolare Spilimbergo) e FOSCHIANI (DET38, titolare Spilimbergo): contesa su
   // Maniago, nessuno dei due titolare lì.
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
@@ -97,7 +97,7 @@ suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche poch
   // resto va perso), non testato qui. Con 7h il tetto arrotonda a 1 (round(7/12)=1): resta un
   // candidato valido per QUESTO turno, isolando la sola regola di gerarchia/categoria (§3.1).
   const t = unicoTurno(d, { [BERTUZZI]: -89 });
-  suite.eq(t.slots[0], BERTUZZI, "INDET con 7h di debito deve battere DET36 con debito pieno");
+  suite.eq(t.slots[0], BERTUZZI, "INDET con 7h di debito deve battere DET38 con debito pieno");
 });
 
 // ---------------------------------------------------------------------------
@@ -105,23 +105,23 @@ suite.test("categoria prevale SEMPRE finché il medico ha debito > 0 (anche poch
 // ---------------------------------------------------------------------------
 suite.test("il titolare della sede vince l'assegnazione FISICA anche contro categoria superiore", () => {
   const d = dispoBase(MEDICI);
-  // TRIGODKO (DET24, titolare Maniago) contro CERVESATO (DET36, titolare Spilimbergo, categoria
+  // TRIGODKO (DET24, titolare Maniago) contro CERVESATO (DET38, titolare Spilimbergo, categoria
   // normalmente superiore): su Maniago vince il titolare, nonostante la categoria inferiore.
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], TRIGODKO, "il titolare di Maniago deve vincere anche contro un DET36 non titolare lì");
+  suite.eq(t.slots[0], TRIGODKO, "il titolare di Maniago deve vincere anche contro un DET38 non titolare lì");
 });
 
 suite.test("la titolarità di un'ALTRA sede non aiuta: sulla sede contesa (dove nessuno dei due è titolare) decide la categoria", () => {
   const d = dispoBase(MEDICI);
-  // CERVESATO (DET36, titolare Spilimbergo) contro MARTINETTI (DET24, titolare Spilimbergo, grad
+  // CERVESATO (DET38, titolare Spilimbergo) contro MARTINETTI (DET24, titolare Spilimbergo, grad
   // migliore): contesa su MANIAGO, nessuno dei due titolare lì — la titolarità di Spilimbergo di
   // entrambi è irrilevante, decide solo la categoria.
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]);
   d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], CERVESATO, "la titolarità di Spilimbergo non aiuta su Maniago: decide la categoria (DET36 > DET24)");
+  suite.eq(t.slots[0], CERVESATO, "la titolarità di Spilimbergo non aiuta su Maniago: decide la categoria (DET38 > DET24)");
 });
 
 suite.test("la titolarità decide ANCHE contro un INDET: su Maniago vince il titolare, sulla stessa coppia su Spilimbergo vince l'INDET", () => {
@@ -144,8 +144,8 @@ suite.test("la titolarità decide ANCHE contro un INDET: su Maniago vince il tit
 
 suite.test("due titolari della STESSA sede: la titolarità è a parità, decide categoria → debito → graduatoria", () => {
   const d = dispoBase(MEDICI);
-  // TRIGODKO (DET24, titolare Maniago) e IENGO (DET36, titolare Maniago): entrambi titolari di
-  // Maniago, quindi pari — decide la categoria, IENGO (DET36) batte TRIGODKO (DET24).
+  // TRIGODKO (DET24, titolare Maniago) e IENGO (DET38, titolare Maniago): entrambi titolari di
+  // Maniago, quindi pari — decide la categoria, IENGO (DET38) batte TRIGODKO (DET24).
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[IENGO][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
@@ -165,7 +165,7 @@ suite.test("la titolarità NON si applica contro un senza incarico (mai contratt
 
 suite.test("nelle coperture a DISTANZA (blu), la titolarità vince PRIMA della categoria, esattamente come per il fisico", () => {
   resetMedici();
-  // CERVESATO (DET36, titolare Spilimbergo) vs MARTINETTI (DET24, titolare Spilimbergo di
+  // CERVESATO (DET38, titolare Spilimbergo) vs MARTINETTI (DET24, titolare Spilimbergo di
   // default, qui reso titolare di Meduno per isolare il meccanismo generico di isTitolareDi):
   // entrambi dichiarano blu su Meduno, MARTINETTI vince nonostante la categoria inferiore.
   const lista = MEDICI_DEFAULT.map((m) => (m.id === MARTINETTI ? { ...m, sedeContratto: "Meduno" } : m));
@@ -174,7 +174,7 @@ suite.test("nelle coperture a DISTANZA (blu), la titolarità vince PRIMA della c
   d[CERVESATO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } });
   d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } });
   const t = unicoTurno(d);
-  suite.eq(t.slots[2], MARTINETTI, "il titolare di Meduno vince il blu su Meduno anche contro un DET36 non titolare");
+  suite.eq(t.slots[2], MARTINETTI, "il titolare di Meduno vince il blu su Meduno anche contro un DET38 non titolare");
   resetMedici();
 });
 
@@ -182,13 +182,13 @@ suite.test("nelle coperture a distanza, a parità di categoria la titolarità de
   resetMedici();
   const d = dispoBase(MEDICI);
   // n=3: fisici a Spilimbergo (FOSCHIANI) e Meduno (IENGO); nessuno dichiara Maniago come verde,
-  // quindi resta fisicamente scoperta. Entrambi (stessa categoria DET36) la dichiarano come blu:
+  // quindi resta fisicamente scoperta. Entrambi (stessa categoria DET38) la dichiarano come blu:
   // titolare naturale di Maniago è IENGO (grad107, peggiore), non FOSCHIANI (grad3, migliore).
   d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad3, non titolare MA
   d[IENGO][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad107, titolare Maniago
   d[VALERI][N(G1)] = turnoDisp(["Claut"]); // 3° candidato presente, ma il suo verde non rientra nel target (MA,SP,ME)
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], IENGO, "a parità di categoria (DET36), il titolare di Maniago vince il blu su Maniago nonostante grad peggiore");
+  suite.eq(t.slots[0], IENGO, "a parità di categoria (DET38), il titolare di Maniago vince il blu su Maniago nonostante grad peggiore");
 });
 
 // ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ suite.test("ordine fascia 2: senza incarico battono i contrattualizzati con debi
 });
 
 suite.test("fascia 3 (esauriti CON turni extra dichiarati): competono solo per grad tra loro", () => {
-  // Monte ore ordinario esaurito per entrambi (extraOre: -156/-104) MA con turni extra dichiarati
+  // Monte ore ordinario esaurito per entrambi (extraOre: -104/-104) MA con turni extra dichiarati
   // (§3.10): senza turni extra, il blocco rigido (§3.4) li escluderebbe del tutto (vedi test
   // successivo e test_stesso_cat2.mjs) — qui invece restano candidati, in fascia 3, e competono
   // solo per graduatoria come tra medici della stessa categoria (bucket dominante: titolarità e
@@ -366,10 +366,10 @@ suite.test("n=2 medici: fisici nelle 2 CDC, nessuna copertura automatica delle a
 
 suite.test("n=2 medici, conflitto sullo stesso blu su una sede senza titolarità in gioco (Meduno): decide la categoria", () => {
   const d = dispoBase(MEDICI);
-  d[IENGO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // DET36
+  d[IENGO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // DET38
   d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // DET24
   const t = unicoTurno(d);
-  suite.eq(t.slots[2], IENGO, "DET36 batte DET24 anche nel conflitto blu");
+  suite.eq(t.slots[2], IENGO, "DET38 batte DET24 anche nel conflitto blu");
 });
 
 suite.test("n=3 medici: fisici a Maniago, Spilimbergo, Meduno; il resto dipende dal blu", () => {
@@ -474,14 +474,14 @@ suite.test("livello verde migliore = diritto di tenere la sede contro chi non su
 suite.test("scalzamento fisico consentito solo se il richiedente ha vera priorità superiore (titolarità inclusa)", () => {
   const d = dispoBase(MEDICI);
   // Con solo 2 candidati il target fisico è sempre [Maniago, Spilimbergo] (Meduno non è
-  // raggiungibile): TRIGODKO (titolare di Maniago, sua unica scelta) resiste a CERVESATO (DET36,
+  // raggiungibile): TRIGODKO (titolare di Maniago, sua unica scelta) resiste a CERVESATO (DET38,
   // categoria nominalmente superiore, ma titolare di Spilimbergo — non di Maniago). Fallito il
   // tentativo su Maniago (livello 1 per lui), CERVESATO ripiega sulla propria titolarità
   // (Spilimbergo, livello 2), libera.
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET24, titolare Maniago, unica scelta
-  d[CERVESATO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 2 } }); // DET36, titolare Spilimbergo
+  d[CERVESATO][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 2 } }); // DET38, titolare Spilimbergo
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], TRIGODKO, "TRIGODKO (titolare di Maniago) resiste anche a un DET36 (categoria nominalmente superiore) che non ha titolarità lì");
+  suite.eq(t.slots[0], TRIGODKO, "TRIGODKO (titolare di Maniago) resiste anche a un DET38 (categoria nominalmente superiore) che non ha titolarità lì");
   suite.eq(t.slots[1], CERVESATO, "CERVESATO, fallito il tentativo su Maniago, ottiene comunque Spilimbergo (la propria titolarità, libera)");
 });
 
@@ -571,7 +571,7 @@ suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo g
   d[FOSCHIANI][M] = turnoDisp(["Maniago"]);
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, extras);
   const t = schema.find((g) => g.giorno === giorno).turni.find((x) => x.id === "M");
-  suite.eq(t.slots[0], BERTUZZI, "INDET deve battere DET36 anche sul turno extra (nessuno dei due titolare di Maniago)");
+  suite.eq(t.slots[0], BERTUZZI, "INDET deve battere DET38 anche sul turno extra (nessuno dei due titolare di Maniago)");
   suite.eq(t.slots.length, 1);
 });
 

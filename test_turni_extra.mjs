@@ -5,7 +5,7 @@
 // anche il budget extra, il medico torna al comportamento attuale di "debito esaurito" (perde
 // sempre contro un senza incarico vero, può solo coprire turni rimasti completamente scoperti).
 //
-// PRESSACCO e CERVESATO (entrambi DET24/DET36 titolari di Spilimbergo) sono i protagonisti,
+// PRESSACCO e CERVESATO (entrambi DET24/DET38 titolari di Spilimbergo) sono i protagonisti,
 // contesi sempre su Maniago (dove nessuno dei due è titolare) per isolare i confronti di
 // debito/bucket dalla titolarità universale (§3.1a). I "senza incarico" sono ottenuti per
 // override da MARTINETTI/DE CANDIDO (nessun SENZA di default nella nuova lista medici).
@@ -16,7 +16,7 @@ const suite = makeSuite("test_turni_extra — turni extra volontari oltre il mon
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 // DET24, titolare Spilimbergo: PRESSACCO grad57 (104h monte ore)
 const PRESSACCO = 8;
-// DET36, titolare Spilimbergo: CERVESATO grad63 (156h monte ore)
+// DET38, titolare Spilimbergo: CERVESATO grad63 (168h monte ore, agosto non è mese aggiustato)
 const CERVESATO = 9;
 // Override "senza incarico": MARTINETTI grad5 (migliore), DE CANDIDO grad83 (peggiore)
 const MARTINETTI = 4, DE_CANDIDO = 11;
@@ -61,7 +61,7 @@ suite.test("a parità di bucket, un turno-extra con grad peggiore di un vero sen
   const d = dispoBase(lista);
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // grad63, ma qui esaurito + turni extra
   d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"]); // grad5, senza incarico vero — grad migliore
-  const t = unicoTurno(d, { [CERVESATO]: -156 }, { [CERVESATO]: 1 });
+  const t = unicoTurno(d, { [CERVESATO]: -168 }, { [CERVESATO]: 1 });
   suite.eq(t.slots[0], MARTINETTI, "stesso bucket (senza incarico): decide il grad puro, MARTINETTI (grad5) batte CERVESATO (grad63) anche se CERVESATO ha turni extra disponibili");
   resetMedici();
 });
