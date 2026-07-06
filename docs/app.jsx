@@ -998,6 +998,26 @@ function notaSlot(slots, si, fis) {
 
 // ============ COMPONENTE ============
 
+// ---- Indicatore "iniquità percepita" sui turni extra (tab Medici) — SOLO VISUALIZZAZIONE ----
+// Nessun impatto su motore/assegnazione/calcoli: usa soltanto lo schema già prodotto. Soglie
+// facilmente tarabili a mano dopo averle viste sul campo. Il "divario" è la differenza (in punti
+// percentuali) tra la soddisfazione più alta e la più bassa (ottenuti ÷ richiesti) tra i medici
+// che hanno chiesto turni extra; viene tradotto in un'etichetta secondo queste soglie crescenti.
+const INIQUITA_SOGLIE = [
+  { maxDivario: 15, label: "Nessuna" },       // divario ≤ 15 punti
+  { maxDivario: 35, label: "Bassa" },         // 16–35
+  { maxDivario: 55, label: "Media" },         // 36–55
+  { maxDivario: 75, label: "Alta" },          // 56–75
+  { maxDivario: Infinity, label: "Altissima" },// > 75
+];
+// Correttivo "chi sta peggio", PESATO sul numero di penalizzati (§10 voce 29): un medico è
+// "penalizzato" se la sua soddisfazione è sotto questa soglia. Se c'è disparità reale (max > min)
+// e almeno un penalizzato, l'etichetta sale di UNO scatto; se i penalizzati sono almeno la metà dei
+// richiedenti, sale di DUE scatti (il risentimento nasce da chi sta peggio, e pesa quanti stanno
+// peggio). Il conteggio "N penalizzati" viene mostrato in etichetta solo da "Media" in su, con lo
+// stesso criterio (< questa soglia). Frazione 0..1 (0.25 = 25%).
+const INIQUITA_SOGLIA_RISENTIMENTO = 0.25;
+
 // Estrae il primo oggetto JSON valido e "riconoscibile" (con un campo "tipo") da un testo che
 // potrebbe contenere un preambolo prima o dopo il JSON (es. un ragionamento scritto per errore
 // dal modello, in violazione delle istruzioni "RISPONDI SOLO con JSON"). Più robusto di una
@@ -2664,6 +2684,57 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     });
     return out;
   }, [dati.schema]);
+  // Equità sui turni extra (tab Medici) — SOLO VISUALIZZAZIONE, derivata dallo schema già prodotto,
+  // senza mai toccare elaboraSchema. Per ogni medico che ha CHIESTO turni extra (turniExtra > 0):
+  // X = extra OTTENUTI = turni assegnati oltre il monte ore ordinario. Il monte ore ordinario è
+  // debitoOrdinarioIniziale (monte ore AGGIUSTATO per mese §3.11 + eventuale recupero) — la stessa
+  // soglia oltre cui il motore inizia a consumare il budget extra (§3.10); i turni coperti da quel
+  // budget ordinario sono ceil(monteOrd / 12) turni da 12h (esatto per i turni ordinari G/N).
+  // Ritorna anche l'etichetta di "iniquità percepita" (vedi INIQUITA_SOGLIE in cima al componente).
+  const equitaExtra = useMemo(() => {
+    const perMedico = {};
+    if (!dati.schema) return { perMedico, label: null };
+    // turni assegnati per medico (una volta per turno, stesso criterio di oreAssegnateDi)
+    const turniAssegnati = {};
+    dati.schema.forEach((g) => g.turni.forEach((t) => {
+      if (!t) return;
+      const contati = new Set();
+      t.fis.forEach((si) => {
+        const mid = t.slots[si];
+        if (mid !== null && mid !== undefined && !contati.has(mid)) { contati.add(mid); turniAssegnati[mid] = (turniAssegnati[mid] || 0) + 1; }
+      });
+    }));
+    const soddisf = []; // soddisfazione (0..1 = ottenuti/richiesti) dei medici che hanno chiesto extra
+    MEDICI.forEach((m) => {
+      const y = (dati.turniExtra || {})[m.id] || 0;
+      if (y <= 0) return; // solo chi ha dichiarato turni extra
+      const monteOrd = debitoOrdinarioIniziale(m.id, dati.extraOre, mese);
+      if (monteOrd === null) return; // senza incarico: nessun monte ore (non dovrebbe avere extra)
+      const ordinari = Math.ceil(monteOrd / 12); // turni coperti dal solo monte ore ordinario
+      const x = Math.max(0, Math.min(y, (turniAssegnati[m.id] || 0) - ordinari)); // extra ottenuti, in [0, y]
+      perMedico[m.id] = x;
+      soddisf.push(x / y);
+    });
+    let label = null, testo = null;
+    if (soddisf.length === 1) {
+      label = "Nessuna"; testo = "Nessuna"; // un solo medico ha chiesto extra: nessun confronto possibile
+    } else if (soddisf.length >= 2) {
+      const maxP = Math.max(...soddisf), minP = Math.min(...soddisf);
+      const n = soddisf.length;
+      const penalizzati = soddisf.filter((s) => s < INIQUITA_SOGLIA_RISENTIMENTO).length;
+      const divario = (maxP - minP) * 100;
+      let idx = INIQUITA_SOGLIE.findIndex((s) => divario <= s.maxDivario);
+      // correttivo "chi sta peggio" PESATO sul numero di penalizzati: scatta solo se c'è disparità
+      // reale (max > min); +1 con almeno un penalizzato, +2 se sono almeno la metà dei richiedenti.
+      if (maxP > minP && penalizzati >= 1) idx = Math.min(idx + (penalizzati * 2 >= n ? 2 : 1), INIQUITA_SOGLIE.length - 1);
+      label = INIQUITA_SOGLIE[idx].label;
+      // "N penalizzati" mostrato SOLO da Media in su (idx >= 2) e con disparità reale: a Nessuna/Bassa
+      // si mostra il solo livello (scelta di visualizzazione — coerente col Modo 1 concordato).
+      const mostraNumero = penalizzati >= 1 && maxP > minP && idx >= 2;
+      testo = mostraNumero ? `${label} — ${penalizzati} medic${penalizzati === 1 ? "o" : "i"} penalizzat${penalizzati === 1 ? "o" : "i"}` : label;
+    }
+    return { perMedico, label, testo };
+  }, [dati.schema, dati.turniExtra, dati.extraOre, mese]);
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
   // Palette condivisa del restyling grafico (solo stile, nessun impatto sulla logica). Verde
   // principale moderno/meno cupo, testi in grigi leggibili, bordi morbidi, rossi tenui per
@@ -3016,6 +3087,19 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
               </p>
+              {dati.schema && equitaExtra.label && (() => {
+                const colore = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primary
+                  : equitaExtra.label === "Media" ? "#c17d0f" : T.danger;
+                const sfondo = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primaryTint
+                  : equitaExtra.label === "Media" ? "#fbf1df" : T.dangerBg;
+                return (
+                  <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: sfondo, border: `1px solid ${colore}44`, display: "flex", alignItems: "center", gap: 8, fontSize: 13, flexWrap: "wrap" }}
+                    title="Divario tra la soddisfazione più alta e la più bassa (turni extra ottenuti ÷ richiesti) tra i medici che hanno chiesto turni extra. Solo indicativo — non influenza l'assegnazione.">
+                    <span style={{ fontWeight: 700, color: T.textMuted }}>Iniquità percepita sui turni extra:</span>
+                    <span style={{ fontWeight: 800, color: colore }}>{equitaExtra.testo}</span>
+                  </div>
+                );
+              })()}
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d3dad6" }}>
                   <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
@@ -3068,6 +3152,12 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                             onChange={(e) => setDati({ turniExtra: { ...(dati.turniExtra || {}), [m.id]: Math.max(0, Number(e.target.value) || 0) }, schema: null })}
                             style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                         ) : "—"}
+                        {dati.schema && ((dati.turniExtra || {})[m.id] || 0) > 0 && (
+                          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}
+                            title="Extra ottenuti / richiesti: turni assegnati oltre il monte ore ordinario, sui turni extra dichiarati">
+                            Extra: <b style={{ color: (equitaExtra.perMedico[m.id] || 0) >= ((dati.turniExtra || {})[m.id] || 0) ? T.primary : T.danger }}>{equitaExtra.perMedico[m.id] || 0}/{(dati.turniExtra || {})[m.id] || 0}</b>
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <input type="number" min={0} step={1} placeholder="—" value={(dati.maxTurniMese || {})[m.id] ?? ""}
