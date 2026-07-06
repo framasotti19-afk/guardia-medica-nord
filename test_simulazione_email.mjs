@@ -1,4 +1,4 @@
-// Simula un mese reale: 26 medici "ipotetici" che mandano le loro disponibilità
+// Simula un mese reale: i 14 medici che mandano le loro disponibilità
 // (come se arrivassero via email), con NO, sedi verdi/blu a più livelli, preferiti,
 // turni extra (M/P) e scenari a 1-5 medici presenti per notte. Elabora lo schema
 // e verifica che il risultato sia coerente con le regole di CONTEXT.md:
