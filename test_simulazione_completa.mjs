@@ -3,7 +3,7 @@
 // È il test più importante del pacchetto: non verifica un caso puntuale, ma che il
 // motore non violi mai le sue garanzie fondamentali qualunque combinazione di
 // disponibilità verde/blu, titolarità, turni extra e tetti mensili gli venga data in pasto.
-import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, MESI_DISPONIBILI } from './engine_test.mjs';
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, MESI_DISPONIBILI, debitoOrdinarioIniziale, tettoDistribuzioneDi } from './engine_test.mjs';
 
 function mulberry32(seed) {
   return function () {
@@ -145,6 +145,16 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
   Object.entries(bluDaMedico).forEach(([mid, n]) => {
     if (n > 1) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${n} sedi a distanza, il massimo consentito è 1`);
   });
+  // INV-FISICO-UNICO (censimento #10): un medico non può essere FISICAMENTE presente in due sedi
+  // diverse dello stesso turno (una persona non si sdoppia). Vincolo rigido, nessuna eccezione
+  // legittima → nessun falso positivo possibile. La copertura a distanza (blu) NON conta: è una
+  // presenza logica da un'unica sede fisica, già limitata a 1 dal check sopra.
+  checkCount++;
+  const fisConteggio = {};
+  t.fis.forEach((si) => { const id = t.slots[si]; if (id != null) fisConteggio[id] = (fisConteggio[id] || 0) + 1; });
+  Object.entries(fisConteggio).forEach(([id, n]) => {
+    if (n > 1) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[id]?.nome} fisico in ${n} sedi diverse nello stesso turno (INV-FISICO-UNICO)`);
+  });
 
   // INV-TITOLARE (§3.1a, §3.11): un titolare di sede che oggi dichiara quella sede come sua
   // PRIMA scelta verde (non "no") e la sede risulta comunque coperta da qualcun altro, non può
@@ -214,6 +224,38 @@ for (const seedBase of SEMI) {
       const usati = meseCountPerScenario[mid] || 0;
       if (usati > cap) violazioni.push(`seme=${seedBase} mese=${anno}-${mese + 1}: ${byId[mid]?.nome} ha ${usati} turni assegnati, oltre il tetto mensile di ${cap} (INV-MAXTURNI)`);
     });
+    // INV-TETTO-IMPLICITO (censimento #9, §3.11): estende INV-MAXTURNI a OGNI medico contrattualizzato,
+    // non solo a quelli con Max turni mese dichiarato. Nessun medico supera il proprio tetto di
+    // distribuzione = min(monte-ore-implicito, Max turni mese): il monte ore fa SEMPRE da tetto per un
+    // contrattualizzato, anche senza cap dichiarato. Budget calcolato STATICAMENTE con le stesse
+    // funzioni-dato del motore (debitoOrdinarioIniziale = monte ore AGGIUSTATO per mese §3.11 p.3 +
+    // recupero; poi tettoDistribuzioneDi coi turni extra ×12), indipendente dal consumo effettivo
+    // durante l'assegnazione — è la via indipendente da ciò che si testa (l'ASSEGNAZIONE rispetta il
+    // tetto; la correttezza del tetto in sé è coperta dagli unit test aggiustamento/max_turni). Vincolo
+    // rigido applicato live nel passaggio 2 → nessuna eccezione legittima, nessun falso positivo.
+    MEDICI.forEach((m) => {
+      const debOrd = debitoOrdinarioIniziale(m.id, extraOre, mese);
+      const debExtra = debOrd === null ? null : (turniExtra[m.id] || 0) * 12;
+      const tetto = tettoDistribuzioneDi(m.id, debOrd, debExtra, maxTurniMese);
+      if (tetto === null) return; // senza incarico senza cap dichiarato: nessun tetto, nessuna distribuzione
+      checkCount++;
+      const usati = meseCountPerScenario[m.id] || 0;
+      if (usati > tetto) violazioni.push(`${contesto}: ${m.nome} ha ${usati} turni, oltre il tetto di distribuzione ${tetto} (min tra monte ore implicito e Max turni mese) (INV-TETTO-IMPLICITO)`);
+    });
+    // INV-DETERMINISMO (censimento #20): stesso input → stesso output. Campiono ~5% degli scenari
+    // (rieseguire tutti raddoppierebbe il tempo); un non-determinismo si manifesterebbe comunque
+    // stabilmente, quindi un campione basta. Cloniamo TUTTI gli input per la seconda chiamata, così
+    // il confronto isola il puro determinismo (funzione pura degli input + stato MEDICI del seme,
+    // invariato tra le due chiamate) da un'eventuale mutazione degli input. Vincolo rigido → nessun
+    // falso positivo: se differiscono c'è non-determinismo o mutazione degli input da indagare.
+    if (scenari % 20 === 0) {
+      checkCount++;
+      const clone = (o) => JSON.parse(JSON.stringify(o));
+      const { schema: schema2 } = elaboraSchema(clone(dispo), clone(extraOre), anno, mese, clone(extras), clone(turniExtra), clone(maxTurniMese));
+      if (JSON.stringify(schema2) !== JSON.stringify(schema)) {
+        violazioni.push(`${contesto}: rielaborazione dello stesso scenario produce output DIVERSO (INV-DETERMINISMO)`);
+      }
+    }
     // NOTA (§3.11, distribuzione temporale): QUI NON esiste un invariante sulla QUALITÀ della
     // distribuzione (turni "sparsi" invece che ammucchiati), ed è una scelta deliberata, non una
     // dimenticanza. È stato tentato (INV-DISTRIBUZIONE) e RIMOSSO: in uno scenario random denso

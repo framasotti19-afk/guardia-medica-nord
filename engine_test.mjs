@@ -913,4 +913,4 @@ function notaSlot(slots, si, fis) {
   return { testo: `*coperto da ${SEDI5[prim]}`, tipo: "copertura" };
 }
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };
