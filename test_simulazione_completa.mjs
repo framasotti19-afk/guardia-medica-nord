@@ -1,4 +1,4 @@
-// Simulazione massiva: scenari casuali con tutti i 26 medici, su più mesi e più semi,
+// Simulazione massiva: scenari casuali con tutti i 14 medici, su più mesi e più semi,
 // verificando gli invarianti (CONTEXT.md §5) su OGNI singolo turno prodotto.
 // È il test più importante del pacchetto: non verifica un caso puntuale, ma che il
 // motore non violi mai le sue garanzie fondamentali qualunque combinazione di

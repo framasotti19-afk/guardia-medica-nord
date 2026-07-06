@@ -3,15 +3,17 @@
 // non solo tra determinati), tie-break debito/graduatoria, scenari di copertura verde/blu
 // (1-4 medici), invarianti. Basato sulle regole di CONTEXT.md §3.
 //
-// MEDICI_DEFAULT (14 medici reali, tutti i contrattualizzati con titolarità obbligatoria — vedi
-// turni-guardia-medica.jsx): ZURLO(1,DET38,tit.Maniago) FOSCHIANI(2,DET38,tit.Spilimbergo)
-// TRIGODKO(3,DET24,tit.Maniago) MARTINETTI(4,DET24,tit.Spilimbergo) PITAU(5,DET24,tit.Maniago)
-// BEKAEVA(6,DET38,tit.Maniago) VALERI(7,DET12ASAP,tit.Spilimbergo) PRESSACCO(8,DET24,tit.Spilimbergo)
-// CERVESATO(9,DET38,tit.Spilimbergo) MORANO(10,DET12,tit.Maniago) DE_CANDIDO(11,DET24,tit.Spilimbergo)
-// MERLINO(12,DET12ASAP,tit.Maniago) IENGO(13,DET38,tit.Maniago) BERTUZZI(14,INDET,tit.Spilimbergo).
-// Nessun SENZA incarico di default: dove serve un test double, si usa comeSenza() per
-// sovrascrivere temporaneamente la categoria di un medico esistente (stesso pattern già usato
-// altrove per DET12/DET12ASAP).
+// MEDICI_DEFAULT (14 medici reali — vedi turni-guardia-medica.jsx): 8 titolari determinati
+// + 1 INDET fuori graduatoria + 5 SENZA incarico:
+// ZURLO(1,DET38,tit.Maniago) TRIGODKO(2,DET24,tit.Maniago) PITAU(3,DET24,tit.Maniago)
+// BEKAEVA(4,DET24,tit.Maniago) MORANO(5,DET12,tit.Maniago) FOSCHIANI(6,DET38,tit.Spilimbergo)
+// MARTINETTI(7,DET24,tit.Spilimbergo) VALERI(8,DET12ASAP,tit.Spilimbergo) BERTUZZI(9,INDET,tit.Spilimbergo)
+// PRESSACCO(10,SENZA) CERVESATO(11,SENZA) DE_CANDIDO(12,SENZA) MERLINO(13,SENZA) IENGO(14,SENZA).
+// PRESSACCO/CERVESATO/DE_CANDIDO/MERLINO/IENGO sono SENZA incarico di default: dove un test
+// necessita di un secondo/terzo determinato oltre agli 8 nativi, vengono "resuscitati" nel loro
+// ruolo storico (categoria+titolarità) con comeStorico (test_utils.mjs) — vedi costante BASE sotto.
+// Dove serve invece un test double "senza incarico" generico, si usa comeSenza() per sovrascrivere
+// temporaneamente la categoria di un medico esistente (stesso pattern già usato altrove).
 //
 // NOTA su Maniago/Spilimbergo nei test a 2 candidati: con solo 2 medici disponibili per uno slot,
 // il target fisico è SEMPRE [Maniago, Spilimbergo] (§3.2/§5) — Meduno e oltre richiedono almeno 3
@@ -19,21 +21,26 @@
 // di categoria/debito/grad (senza interferenza di titolarità) va costruito scegliendo due medici
 // ENTRAMBI titolari della sede NON contesa (quindi nessuno dei due titolare di quella contesa).
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, elaboraSchema } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("run_tests2 — gerarchia, titolarità universale, scenari, debito");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3
 
 // Scorciatoie sui medici reali (CONTEXT.md §4)
-const ZURLO = 1, FOSCHIANI = 2, TRIGODKO = 3, MARTINETTI = 4, PITAU = 5, BEKAEVA = 6, VALERI = 7,
-  PRESSACCO = 8, CERVESATO = 9, MORANO = 10, DE_CANDIDO = 11, MERLINO = 12, IENGO = 13, BERTUZZI = 14;
+const ZURLO = 1, TRIGODKO = 2, PITAU = 3, BEKAEVA = 4, MORANO = 5, FOSCHIANI = 6, MARTINETTI = 7,
+  VALERI = 8, BERTUZZI = 9, PRESSACCO = 10, CERVESATO = 11, DE_CANDIDO = 12, MERLINO = 13, IENGO = 14;
+
+// Ruoli storici resuscitati per i 5 SENZA incarico di default usati in questo file come
+// determinati (PRESSACCO/CERVESATO/DE_CANDIDO/IENGO — MERLINO non è usato in nessun test qui).
+const BASE = comeStorico(MEDICI_DEFAULT, PRESSACCO, CERVESATO, DE_CANDIDO, MERLINO, IENGO);
 
 function unicoTurno(dispo, extraOre = {}, giorno = G1, turniExtra = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {}, turniExtra);
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
 }
-function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
+function resetMedici() { setMediciGlobal(BASE); }
+resetMedici();
 // Sovrascrive temporaneamente un medico come senza incarico (nessun monte ore, nessuna titolarità
 // — mai null per un contrattualizzato, sempre null per SENZA), preservando nome/grad.
 function comeSenza(lista, id) {
@@ -75,7 +82,7 @@ suite.test("DET38 batte DET24 anche con grad numerico peggiore, nessuno titolare
 
 suite.test("DET24 batte SENZA anche con grad numerico peggiore", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, ZURLO); // ZURLO (grad2, migliore) diventa senza incarico
+  const lista = comeSenza(BASE, ZURLO); // ZURLO (grad2, migliore) diventa senza incarico
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"]); // DET24, grad5
@@ -154,7 +161,7 @@ suite.test("due titolari della STESSA sede: la titolarità è a parità, decide 
 
 suite.test("la titolarità NON si applica contro un senza incarico (mai contrattualizzato)", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, MORANO);
+  const lista = comeSenza(BASE, MORANO);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[MORANO][N(G1)] = turnoDisp(["Maniago"]); // ora SENZA, unico candidato
@@ -168,7 +175,7 @@ suite.test("nelle coperture a DISTANZA (blu), la titolarità vince PRIMA della c
   // CERVESATO (DET38, titolare Spilimbergo) vs MARTINETTI (DET24, titolare Spilimbergo di
   // default, qui reso titolare di Meduno per isolare il meccanismo generico di isTitolareDi):
   // entrambi dichiarano blu su Meduno, MARTINETTI vince nonostante la categoria inferiore.
-  const lista = MEDICI_DEFAULT.map((m) => (m.id === MARTINETTI ? { ...m, sedeContratto: "Meduno" } : m));
+  const lista = BASE.map((m) => (m.id === MARTINETTI ? { ...m, sedeContratto: "Meduno" } : m));
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[CERVESATO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } });
@@ -242,7 +249,7 @@ suite.test("recupero ore (extraOre) aumenta il debito e può ribaltare un confli
 
 suite.test("il recupero ore NON si applica ai senza incarico", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, MORANO);
+  const lista = comeSenza(BASE, MORANO);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[MORANO][N(G1)] = turnoDisp(["Maniago"]);
@@ -267,7 +274,7 @@ suite.test("un medico con debito esaurito (0) esce dalla priorità di categoria 
 
 suite.test("ordine fascia 1: contrattualizzati con debito>0 battono i senza incarico", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, MORANO);
+  const lista = comeSenza(BASE, MORANO);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[PITAU][N(G1)] = turnoDisp(["Maniago"]);
@@ -279,7 +286,7 @@ suite.test("ordine fascia 1: contrattualizzati con debito>0 battono i senza inca
 
 suite.test("ordine fascia 2: senza incarico battono i contrattualizzati con debito esaurito", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, MORANO);
+  const lista = comeSenza(BASE, MORANO);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
@@ -304,7 +311,7 @@ suite.test("fascia 3 (esauriti CON turni extra dichiarati): competono solo per g
 
 suite.test("un esaurito NON può scalzare un senza incarico anche con grad migliore", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, VALERI);
+  const lista = comeSenza(BASE, VALERI);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
@@ -461,7 +468,7 @@ suite.test("parità Maniago/Meduno = identico risultato di Maniago:1 + Meduno:2 
 
 suite.test("livello verde migliore = diritto di tenere la sede contro chi non supera in gerarchia", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, MORANO);
+  const lista = comeSenza(BASE, MORANO);
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"]);
@@ -539,7 +546,7 @@ suite.test("nessuna eccezione con singolo candidato marcato NO esplicito", () =>
 
 suite.test("due senza incarico in conflitto: vince solo il grad", () => {
   resetMedici();
-  let lista = comeSenza(MEDICI_DEFAULT, PITAU); // grad14
+  let lista = comeSenza(BASE, PITAU); // grad14
   lista = comeSenza(lista, MORANO); // grad72
   setMediciGlobal(lista);
   const d = dispoBase(lista);

@@ -7,20 +7,27 @@
 // validi ("nessuna alternativa → copertura vince comunque", "alternativa su un'altra sede non
 // conta") sono rimasti, dato che il loro esito non cambia.
 //
-// BERTUZZI (INDET, titolare Spilimbergo) e CERVESATO (DET38, titolare Spilimbergo) sono usati
-// come coppia "pura" per i test di gerarchia/spaziatura, contesi su Maniago (dove nessuno dei due
-// è titolare) per isolare l'effetto dalla titolarità universale (§3.1a).
+// BERTUZZI (INDET, titolare Spilimbergo) e CERVESATO (DET38, titolare Spilimbergo — SENZA
+// incarico di default nella lista attuale, resuscitato nel suo ruolo storico con comeStorico)
+// sono usati come coppia "pura" per i test di gerarchia/spaziatura, contesi su Maniago (dove
+// nessuno dei due è titolare) per isolare l'effetto dalla titolarità universale (§3.1a).
+// PRESSACCO (DET24 tit.Spilimbergo) e MERLINO (DET12ASAP tit.Maniago) sono anch'essi SENZA
+// incarico di default, resuscitati allo stesso modo per il tetto settimanale.
 //
 // Tetto settimanale: il medico dichiara dispo[mid]["SETT:" + lunedì] = { maxTurni: N }. Una volta
 // raggiunto il tetto quella settimana, il motore non lo considera più candidato — le sedi che
 // sarebbero state sue restano scoperte (nessuna copertura automatica di ripiego).
-import { MEDICI, dk, elaboraSchema, settimanaDi, giorniTra } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema, settimanaDi, giorniTra } from './engine_test.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_spaziatura_settimana — tetto settimanale (§3.7 rimossa, vedi intro)");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-const BERTUZZI = 14, CERVESATO = 9; // INDET tit.Spilimbergo, DET38 tit.Spilimbergo
-const PRESSACCO = 8, MERLINO = 12; // DET24 tit.Spilimbergo, DET12ASAP tit.Maniago
+const BERTUZZI = 9; // INDET tit.Spilimbergo
+const CERVESATO = 11; // SENZA di default, resuscitato come DET38 tit.Spilimbergo
+const PRESSACCO = 10; // SENZA di default, resuscitato come DET24 tit.Spilimbergo
+const MERLINO = 13; // SENZA di default, resuscitato come DET12ASAP tit.Maniago
+
+setMediciGlobal(comeStorico(MEDICI_DEFAULT, CERVESATO, PRESSACCO, MERLINO));
 
 function unicoTurno(dispo, giorno, extraOre = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});

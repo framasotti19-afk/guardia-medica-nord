@@ -1,4 +1,3 @@
-
 // ============ DATI SIMULAZIONE ============
 // MEDICI è modificabile dall'interfaccia (tab Medici): la lista di default viene
 // sovrascritta da quella salvata nello store, tramite setMediciGlobal.
@@ -6,20 +5,23 @@
 // "Maniago" | "Spilimbergo", mai null per loro. Solo i senza incarico (SENZA) non hanno titolarità
 // (sedeContratto sempre null). Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
+  // 8 TITOLARI DETERMINATI (5 Maniago + 3 Spilimbergo)
   { id: 1, nome: "ZURLO", grad: 2, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET38", sedeContratto: "Spilimbergo" },
-  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
-  { id: 4, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 5, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
-  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 7, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
-  { id: 8, nome: "PRESSACCO", grad: 57, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET38", sedeContratto: "Spilimbergo" },
-  { id: 10, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
-  { id: 11, nome: "DE CANDIDO", grad: 83, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 12, nome: "MERLINO", grad: 105, cat: "DET12ASAP", sedeContratto: "Maniago" },
-  { id: 13, nome: "IENGO", grad: 107, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 14, nome: "BERTUZZI", grad: 666, cat: "INDET", sedeContratto: "Spilimbergo" },
+  { id: 2, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 3, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 4, nome: "BEKAEVA", grad: 17, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 5, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
+  { id: 6, nome: "FOSCHIANI", grad: 3, cat: "DET38", sedeContratto: "Spilimbergo" },
+  { id: 7, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 8, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
+  // 1 INDET fuori graduatoria ufficiale
+  { id: 9, nome: "BERTUZZI", grad: 108, cat: "INDET", sedeContratto: "Spilimbergo" },
+  // 5 SENZA INCARICO (nessuna titolarità)
+  { id: 10, nome: "PRESSACCO", grad: 57, cat: "SENZA", sedeContratto: null },
+  { id: 11, nome: "CERVESATO", grad: 63, cat: "SENZA", sedeContratto: null },
+  { id: 12, nome: "DE CANDIDO", grad: 83, cat: "SENZA", sedeContratto: null },
+  { id: 13, nome: "MERLINO", grad: 105, cat: "SENZA", sedeContratto: null },
+  { id: 14, nome: "IENGO", grad: 107, cat: "SENZA", sedeContratto: null },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
 let byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
@@ -868,6 +870,5 @@ function notaSlot(slots, si, fis) {
   }
   return { testo: `*coperto da ${SEDI5[prim]}`, tipo: "copertura" };
 }
-
 
 export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };

@@ -1,20 +1,27 @@
 // Test sulle funzioni "nuove" (CONTEXT.md §3.1a, §3.3, §6.10): livelli verde 1-5,
 // titolarità di sede OBBLIGATORIA e universale per ogni contrattualizzato, e lista medici
 // modificabile (categoria, graduatoria, titolarità, aggiunta/rimozione) tramite setMediciGlobal.
+// IENGO, PRESSACCO e CERVESATO sono SENZA incarico di default nella lista attuale: vengono
+// resuscitati nel loro ruolo storico (DET38 tit.Maniago, DET24 tit.Spilimbergo, DET38
+// tit.Spilimbergo) con comeStorico, dove serve un secondo/terzo determinato oltre ai nativi.
 import { MEDICI_DEFAULT, setMediciGlobal, byId, dk, elaboraSchema, CDC } from './engine_test.mjs';
-import { makeSuite, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+import { makeSuite, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_nuove_funzioni — livelli verde + titolarità + medici modificabili");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
-const ZURLO = 1, IENGO = 13, TRIGODKO = 3, MARTINETTI = 4, PITAU = 5, PRESSACCO = 8, CERVESATO = 9, MORANO = 10, BERTUZZI = 14;
+const ZURLO = 1, IENGO = 14, TRIGODKO = 2, MARTINETTI = 7, PITAU = 3, PRESSACCO = 10, CERVESATO = 11, MORANO = 5, BERTUZZI = 9;
 
-// Ogni test riparte dalla lista medici di default, per non contaminare i successivi
-// (setMediciGlobal è idempotente e la lista è uno stato di modulo condiviso).
-function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
+const BASE = comeStorico(MEDICI_DEFAULT, IENGO, PRESSACCO, CERVESATO);
+
+// Ogni test riparte dalla lista medici di base (con i ruoli storici resuscitati), per non
+// contaminare i successivi (setMediciGlobal è idempotente e la lista è uno stato di modulo
+// condiviso).
+function resetMedici() { setMediciGlobal(BASE); }
+resetMedici();
 function dispoBase() { const d = {}; MEDICI_DEFAULT.forEach((m) => (d[m.id] = {})); return d; }
 function unicoTurno(dispo, extraOre = {}, mediciAttuali) {
-  const list = mediciAttuali || MEDICI_DEFAULT;
+  const list = mediciAttuali || BASE;
   const d2 = {};
   list.forEach((m) => (d2[m.id] = dispo[m.id] || {}));
   const { schema } = elaboraSchema(d2, extraOre, ANNO_TEST, MESE_TEST, {});
@@ -39,7 +46,7 @@ suite.test("livelli verdi pari = indifferenti: il motore ricolloca per massimizz
 
 suite.test("livello più basso su una sede verde = diritto di tenerla contro chi non supera in gerarchia", () => {
   resetMedici();
-  const lista = comeSenza(MEDICI_DEFAULT, PITAU);
+  const lista = comeSenza(BASE, PITAU);
   setMediciGlobal(lista);
   const d = dispoBase();
   d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 1 } });
@@ -95,7 +102,7 @@ suite.test("una sede dichiarata come blu resta comunque di priorità inferiore a
 // ---------------------------------------------------------------------------
 // TITOLARITÀ DI SEDE (§3.1a) — OBBLIGATORIA per ogni contrattualizzato, modificabile via setMediciGlobal
 // ---------------------------------------------------------------------------
-suite.test("il titolare di Maniago vince anche contro categoria superiore (dati di default, nessun override necessario)", () => {
+suite.test("il titolare di Maniago vince anche contro categoria superiore", () => {
   resetMedici();
   const d = dispoBase();
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET38, titolare Spilimbergo (non Maniago)
@@ -110,23 +117,27 @@ suite.test("azzerare la titolarità (sedeContratto → null) ripristina la norma
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
 
-  const conTitolarita = MEDICI_DEFAULT;
+  const conTitolarita = BASE;
   setMediciGlobal(conTitolarita);
   suite.eq(unicoTurno(d, {}, conTitolarita).slots[0], TRIGODKO, "con titolarità (dato di default), TRIGODKO vince");
 
   // Stato non normalmente raggiungibile dall'UI (titolarità obbligatoria per i contrattualizzati),
   // ma il motore gestisce comunque correttamente sedeContratto:null anche per un contrattualizzato:
   // isTitolareDi lo tratta semplicemente come "non titolare", senza eccezioni.
-  const senzaTitolarita = MEDICI_DEFAULT.map((m) => (m.id === TRIGODKO ? { ...m, sedeContratto: null } : m));
+  const senzaTitolarita = BASE.map((m) => (m.id === TRIGODKO ? { ...m, sedeContratto: null } : m));
   setMediciGlobal(senzaTitolarita);
   suite.eq(unicoTurno(d, {}, senzaTitolarita).slots[0], CERVESATO, "senza titolarità, torna a vincere CERVESATO (DET38 > DET24)");
   resetMedici();
 });
 
-suite.test("i medici di default sono tutti contrattualizzati con titolarità obbligatoria (nessun sedeContratto null)", () => {
+suite.test("i medici contrattualizzati (categoria diversa da SENZA) hanno sempre titolarità obbligatoria, mai i medici senza incarico", () => {
   resetMedici();
-  suite.assert(MEDICI_DEFAULT.every((m) => m.sedeContratto !== null), "ogni contrattualizzato ha una titolarità reale dichiarata (nessun SENZA incarico nei dati di default)");
-  suite.assert(MEDICI_DEFAULT.every((m) => CDC.includes(m.sedeContratto)), "ogni titolarità è Maniago o Spilimbergo (le 2 CDC), mai un'altra sede");
+  const contrattualizzati = MEDICI_DEFAULT.filter((m) => m.cat !== "SENZA");
+  const senzaIncarico = MEDICI_DEFAULT.filter((m) => m.cat === "SENZA");
+  suite.assert(contrattualizzati.length === 9, "9 contrattualizzati nella lista attuale (8 determinati + 1 INDET)");
+  suite.assert(contrattualizzati.every((m) => m.sedeContratto !== null && CDC.includes(m.sedeContratto)), "ogni contrattualizzato ha una titolarità reale dichiarata, sempre una delle 2 CDC");
+  suite.assert(senzaIncarico.length === 5, "5 medici senza incarico nella lista attuale");
+  suite.assert(senzaIncarico.every((m) => m.sedeContratto === null), "nessun medico senza incarico ha mai una titolarità");
 });
 
 // ---------------------------------------------------------------------------
@@ -136,7 +147,7 @@ suite.test("cambiare la categoria di un medico ne cambia la priorità nel motore
   resetMedici();
   // PRESSACCO e CERVESATO, entrambi titolari di Spilimbergo: contesa su Maniago isola l'effetto
   // del cambio di categoria dalla titolarità (nessuno dei due titolare lì, prima e dopo la modifica).
-  const listaModificata = MEDICI_DEFAULT.map((m) => (m.id === PRESSACCO ? { ...m, cat: "INDET" } : m));
+  const listaModificata = BASE.map((m) => (m.id === PRESSACCO ? { ...m, cat: "INDET" } : m));
   const d = dispoBase();
   d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // DET38, normalmente batterebbe un DET24
@@ -156,7 +167,7 @@ suite.test("cambiare la graduatoria di un medico cambia l'esito di un conflitto 
   const prima = unicoTurno(d);
   suite.eq(prima.slots[0], MARTINETTI, "normalmente MARTINETTI (grad5) batte PRESSACCO (grad57)");
 
-  const listaModificata = MEDICI_DEFAULT.map((m) => (m.id === PRESSACCO ? { ...m, grad: 1 } : m));
+  const listaModificata = BASE.map((m) => (m.id === PRESSACCO ? { ...m, grad: 1 } : m));
   setMediciGlobal(listaModificata);
   const dopo = unicoTurno(d, {}, listaModificata);
   suite.eq(dopo.slots[0], PRESSACCO, "con grad1, PRESSACCO deve ora battere MARTINETTI");
@@ -165,8 +176,8 @@ suite.test("cambiare la graduatoria di un medico cambia l'esito di un conflitto 
 
 suite.test("aggiungere un nuovo medico lo rende un candidato valido", () => {
   resetMedici();
-  const nuovoId = Math.max(...MEDICI_DEFAULT.map((m) => m.id)) + 1;
-  const listaEstesa = [...MEDICI_DEFAULT, { id: nuovoId, nome: "NUOVO MEDICO", cat: "INDET", grad: 0, sedeContratto: null }];
+  const nuovoId = Math.max(...BASE.map((m) => m.id)) + 1;
+  const listaEstesa = [...BASE, { id: nuovoId, nome: "NUOVO MEDICO", cat: "INDET", grad: 0, sedeContratto: null }];
   setMediciGlobal(listaEstesa);
   const d = {}; listaEstesa.forEach((m) => (d[m.id] = {}));
   // Contesa su Spilimbergo (non Maniago): TRIGODKO è titolare di Maniago, non di Spilimbergo — così
@@ -183,7 +194,7 @@ suite.test("rimuovere un medico lo esclude dai candidati anche se aveva dichiara
   const d = dispoBase();
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
-  const listaSenzaBertuzzi = MEDICI_DEFAULT.filter((m) => m.id !== BERTUZZI);
+  const listaSenzaBertuzzi = BASE.filter((m) => m.id !== BERTUZZI);
   setMediciGlobal(listaSenzaBertuzzi);
   const t = unicoTurno(d, {}, listaSenzaBertuzzi);
   suite.eq(t.slots[0], TRIGODKO, "con BERTUZZI rimosso dalla lista medici, TRIGODKO deve vincere anche se BERTUZZI aveva dichiarato disponibilità");
@@ -192,9 +203,9 @@ suite.test("rimuovere un medico lo esclude dai candidati anche se aveva dichiara
 
 suite.test("setMediciGlobal è idempotente: richiamarlo più volte con la stessa lista non altera l'esito", () => {
   resetMedici();
-  setMediciGlobal(MEDICI_DEFAULT);
-  setMediciGlobal(MEDICI_DEFAULT);
-  setMediciGlobal(MEDICI_DEFAULT);
+  setMediciGlobal(BASE);
+  setMediciGlobal(BASE);
+  setMediciGlobal(BASE);
   const d = dispoBase();
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d);
@@ -203,7 +214,7 @@ suite.test("setMediciGlobal è idempotente: richiamarlo più volte con la stessa
 
 suite.test("byId riflette sempre l'ultima lista impostata da setMediciGlobal", () => {
   resetMedici();
-  const listaModificata = MEDICI_DEFAULT.map((m) => (m.id === TRIGODKO ? { ...m, nome: "TRIGODKO-RINOMINATO" } : m));
+  const listaModificata = BASE.map((m) => (m.id === TRIGODKO ? { ...m, nome: "TRIGODKO-RINOMINATO" } : m));
   setMediciGlobal(listaModificata);
   suite.eq(byId[TRIGODKO].nome, "TRIGODKO-RINOMINATO");
   resetMedici();
@@ -212,7 +223,7 @@ suite.test("byId riflette sempre l'ultima lista impostata da setMediciGlobal", (
 
 suite.test("cambiare categoria da INDET a SENZA elimina il concetto di debito e lo declassa a senza incarico", () => {
   resetMedici();
-  const listaModificata = MEDICI_DEFAULT.map((m) => (m.id === BERTUZZI ? { ...m, cat: "SENZA", sedeContratto: null } : m));
+  const listaModificata = BASE.map((m) => (m.id === BERTUZZI ? { ...m, cat: "SENZA", sedeContratto: null } : m));
   const d = dispoBase();
   d[BERTUZZI][N(G1)] = turnoDisp(["Maniago"]);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]); // DET24 con debito ha priorità sul BERTUZZI declassato

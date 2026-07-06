@@ -7,15 +7,19 @@
 // la parità rende due sedi "indifferenti" per il medico, non davvero equivalenti tra loro.
 // Nei test di conflitto puro (categoria/grad, non titolarità) le coppie sono scelte entrambe
 // titolari della STESSA sede (o il conflitto è su Meduno/Claut, mai sedi di titolarità) per isolare
-// la regola dalla titolarità universale (§3.1a).
-import { MEDICI, dk, elaboraSchema, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+// la regola dalla titolarità universale (§3.1a). IENGO e DE CANDIDO sono SENZA incarico di default
+// nella lista attuale: vengono resuscitati nel loro ruolo storico (DET38 tit.Maniago, DET24
+// tit.Spilimbergo) con comeStorico.
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU } from './engine_test.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_livelli_verde_blu — livelli verde 1-5 e blu 1-4");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
-const ZURLO = 1, IENGO = 13, BERTUZZI = 14; // DET38 tit.Maniago, DET38 tit.Maniago, INDET tit.Spilimbergo
-const MARTINETTI = 4, PITAU = 5, DE_CANDIDO = 11; // DET24: tit.Spilimbergo, tit.Maniago, tit.Spilimbergo
+const ZURLO = 1, IENGO = 14, BERTUZZI = 9; // DET38 tit.Maniago, DET38 tit.Maniago (resuscitato), INDET tit.Spilimbergo
+const MARTINETTI = 7, PITAU = 3, DE_CANDIDO = 12; // DET24: tit.Spilimbergo, tit.Maniago, tit.Spilimbergo (resuscitato)
+
+setMediciGlobal(comeStorico(MEDICI_DEFAULT, IENGO, DE_CANDIDO));
 
 function unicoTurno(dispo, extraOre = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});

@@ -22,9 +22,9 @@
 // interno — così i gruppi di livelli diversi si incastrano invece di sovrapporsi in giorni
 // consecutivi.
 //
-// BERTUZZI (INDET, titolare Spilimbergo nativo) e i backup "senza incarico" (ottenuti per override
-// da PITAU/MORANO, nessun SENZA di default nella nuova lista medici) sono impostati UNA VOLTA a
-// livello di modulo (MEDICI_TEST): la titolarità universale (§3.1a) non interferisce qui perché il
+// BERTUZZI (INDET, titolare Spilimbergo nativo) e i backup PRESSACCO/IENGO (SENZA incarico
+// nativi nella lista attuale, grad57 e grad107) sono impostati UNA VOLTA a livello di modulo
+// (MEDICI_TEST = MEDICI_DEFAULT): la titolarità universale (§3.1a) non interferisce qui perché il
 // confronto titolarità→categoria è gated su ENTRAMBI i contendenti contrattualizzati — un senza
 // incarico lo disattiva sempre.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
@@ -33,10 +33,10 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_ut
 const suite = makeSuite("test_distribuzione_temporale — turni distanziati nel mese invece dei primi N");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 // INDET: BERTUZZI (96h monte ore = 8 notti)
-const BERTUZZI = 14;
-// "senza incarico" per override: ZURLO grad14 (migliore), GRANDO grad72 (backup di grad peggiore)
-const ZURLO = 5, GRANDO = 10;
-const MEDICI_TEST = MEDICI_DEFAULT.map((m) => (m.id === ZURLO || m.id === GRANDO ? { ...m, cat: "SENZA", sedeContratto: null } : m));
+const BERTUZZI = 9;
+// SENZA incarico nativi: PRESSACCO grad57 (migliore), IENGO grad107 (backup di grad peggiore)
+const PRESSACCO = 10, IENGO = 14;
+const MEDICI_TEST = MEDICI_DEFAULT;
 setMediciGlobal(MEDICI_TEST);
 
 function tutteLeNotti(anno, mese, verdeDiMedico) {
@@ -53,19 +53,19 @@ function vincitoriNotte(schema, mid) {
   return notti;
 }
 suite.test("scarsità genuina su un'unica sede: il tetto implicito (8, dal monte ore) coincide col numero di vittorie naturali, quindi nessuna cessione scatta — vince i primi 8 giorni CONSECUTIVI (nessuna alternanza forzata, §3.7 rimossa)", () => {
-  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 8, "BERTUZZI vince esattamente le 8 notti previste dal suo monte ore (96h/12h): il tetto implicito non taglia nulla perché coincide col numero di vittorie naturali");
   suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8]), "i primi 8 giorni CONSECUTIVI: senza la spaziatura §3.7 (rimossa) nulla forza più un'alternanza, e senza cessione (tetto = vittorie naturali) la distribuzione non ha nulla da fare");
   const scoperte = [];
   schema.forEach((g) => { const t = g.turni.find((x) => x.id === "N"); if (!t.slots[0]) scoperte.push(g.giorno); });
-  suite.eq(scoperte.length, 0, "nessuna notte resta scoperta: ZURLO copre tutte le notti non vinte da BERTUZZI");
+  suite.eq(scoperte.length, 0, "nessuna notte resta scoperta: PRESSACCO copre tutte le notti non vinte da BERTUZZI");
 });
 
 suite.test("più siti disponibili (nessuna scarsità artificiale): stesso principio, nessuna cessione (tetto implicito = vittorie naturali), copertura sempre completa su 2 sedi", () => {
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, {
-    [BERTUZZI]: ["Maniago", "Spilimbergo"], [ZURLO]: ["Maniago", "Spilimbergo"], [GRANDO]: ["Maniago", "Spilimbergo"],
+    [BERTUZZI]: ["Maniago", "Spilimbergo"], [PRESSACCO]: ["Maniago", "Spilimbergo"], [IENGO]: ["Maniago", "Spilimbergo"],
   });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
@@ -85,12 +85,12 @@ suite.test("un titolare di sede segue le stesse regole di tutti (CONTEXT.md §3.
   // e le vittorie naturali sono lo stesso numero.
   const lista = MEDICI_TEST.map((m) => (m.id === BERTUZZI ? { ...m, cat: "DET38", sedeContratto: "Maniago" } : m));
   setMediciGlobal(lista);
-  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]), "il titolare vince i primi 14 giorni CONSECUTIVI (168h/12h): tetto implicito = vittorie naturali, nessuna cessione");
-  const notteZurlo15 = schema.find((g) => g.giorno === 15).turni.find((t) => t.id === "N");
-  suite.eq(notteZurlo15.slots[0], ZURLO, "esaurito il monte ore del titolare (blocco rigido preesistente §3.4), la sede passa al senza incarico dal giorno 15 in poi");
+  const nottePressacco15 = schema.find((g) => g.giorno === 15).turni.find((t) => t.id === "N");
+  suite.eq(nottePressacco15.slots[0], PRESSACCO, "esaurito il monte ore del titolare (blocco rigido preesistente §3.4), la sede passa al senza incarico dal giorno 15 in poi");
   setMediciGlobal(MEDICI_TEST);
 });
 
@@ -105,21 +105,21 @@ suite.test("con un solo candidato disponibile e nessun backup, la distribuzione 
 });
 
 suite.test("Max turni mese più restrittivo del monte ore: il tetto (3) è inferiore alle vittorie naturali (8), quindi la cessione scatta davvero — il sottoinsieme tenuto è il più equidistanziato TRA LE VITTORIE EFFETTIVE, non tra i giorni disponibili", () => {
-  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 3, "con un tetto mensile di 3, BERTUZZI vince solo 3 notti nell'intero mese (non le 8 del monte ore, mai di più: tetto rigido)");
   suite.eq(JSON.stringify(notti), JSON.stringify([1, 5, 8]), "sottoinsieme equidistanziato scelto tra le 8 vittorie EFFETTIVE del pass 1 ([1,2,...,8], gli stessi primi 8 giorni consecutivi del primo test qui sopra), non tra tutti i 31 giorni disponibili: la finestra resta quella naturale della gerarchia");
   const scoperte = [];
   schema.forEach((g) => { const t = g.turni.find((x) => x.id === "N"); if (!t.slots[0]) scoperte.push(g.giorno); });
-  suite.eq(scoperte.length, 0, "nessuna notte scoperta: ZURLO copre sempre le notti cedute da BERTUZZI");
+  suite.eq(scoperte.length, 0, "nessuna notte scoperta: PRESSACCO copre sempre le notti cedute da BERTUZZI");
 });
 
 suite.test("un contrattualizzato con debito ordinario esattamente pari ai giorni disponibili non viene mai demosso (nTarget >= k, nessuna restrizione reale)", () => {
   // Solo 5 giorni disponibili per BERTUZZI, ben sotto le 8 notti del suo monte ore: tutti e 5 sono
   // vinti nel pass 1 e nessuna cessione scatta (5 vittorie < tetto implicito 8).
   const d = dispoBase(MEDICI);
-  [3, 10, 17, 24, 31].forEach((g) => { d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]); d[ZURLO][N(g)] = turnoDisp(["Maniago"]); });
+  [3, 10, 17, 24, 31].forEach((g) => { d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]); d[PRESSACCO][N(g)] = turnoDisp(["Maniago"]); });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 5, "BERTUZZI vince tutti e 5 i giorni in cui è disponibile: nessuna demozione quando i giorni disponibili non superano il diritto");
@@ -128,18 +128,18 @@ suite.test("un contrattualizzato con debito ordinario esattamente pari ai giorni
 suite.test("priorità di sede ASSOLUTA sull'equidistanza (CONTEXT.md §3.11): tra i turni effettivamente vinti, un turno di livello verde peggiore viene SEMPRE ceduto per intero prima di intaccare un turno di livello migliore, anche se cedere un turno di livello migliore produrrebbe una spaziatura più uniforme", () => {
   const d = dispoBase(MEDICI);
   // BERTUZZI dichiara Maniago (livello 1, la sua sede preferita) nei giorni 3,10,17,24 e
-  // Spilimbergo (livello 2, ripiego) nei giorni 6,13,20,27 — ZURLO copre sempre entrambe le sedi
-  // da backup. Senza cap, BERTUZZI vince tutti e 8 questi turni per priorità di categoria (il
+  // Spilimbergo (livello 2, ripiego) nei giorni 6,13,20,27 — PRESSACCO copre sempre entrambe le
+  // sedi da backup. Senza cap, BERTUZZI vince tutti e 8 questi turni per priorità di categoria (il
   // monte ore di 96h/8 turni si esaurisce esattamente qui, senza toccare il 9° giorno).
   const liv1 = [3, 10, 17, 24]; // Maniago, livello 1
   const liv2 = [6, 13, 20, 27]; // Spilimbergo, livello 2
   liv1.forEach((g) => {
     d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]);
-    d[ZURLO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
+    d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
   });
   liv2.forEach((g) => {
     d[BERTUZZI][N(g)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 2 } });
-    d[ZURLO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
+    d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
   });
   // Con un tetto esplicito di 3 (inferiore alle 8 vittorie naturali), la cessione DEVE scattare:
   // il gruppo di livello 1 (4 vittorie, [3,10,17,24]) viene riempito per intero prima di
@@ -152,23 +152,23 @@ suite.test("priorità di sede ASSOLUTA sull'equidistanza (CONTEXT.md §3.11): tr
   liv2.forEach((g) => {
     const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
     suite.eq(t.slots.includes(BERTUZZI), false, `giorno ${g} (livello 2, Spilimbergo): ceduto per intero, MAI tenuto al posto di un turno di livello 1`);
-    suite.eq(t.slots.includes(ZURLO), true, `giorno ${g}: ceduto a ZURLO, nessun buco di copertura`);
+    suite.eq(t.slots.includes(PRESSACCO), true, `giorno ${g}: ceduto a PRESSACCO, nessun buco di copertura`);
   });
   const giornoScartatoLiv1 = schema.find((x) => x.giorno === 10).turni.find((x) => x.id === "N");
-  suite.eq(giornoScartatoLiv1.slots.includes(ZURLO), true, "giorno 10 (livello 1, ma scartato dall'equidistanza): ceduto normalmente a ZURLO, nessun buco");
+  suite.eq(giornoScartatoLiv1.slots.includes(PRESSACCO), true, "giorno 10 (livello 1, ma scartato dall'equidistanza): ceduto normalmente a PRESSACCO, nessun buco");
 });
 
 suite.test("selezione CROSS-LIVELLO (CONTEXT.md §3.11): quando anche il livello 2 deve essere ridotto, la scelta tiene conto della distanza dai giorni GIÀ FISSATI dal livello 1 (farthest-point), non solo dell'equidistanza interna al livello 2", () => {
   const d = dispoBase(MEDICI);
   // BERTUZZI: livello 1 (Maniago) SOLO il giorno 1 — un'unica vittoria, tenuta per intero (nessuna
   // riduzione possibile con un solo candidato). Livello 2 (Spilimbergo) sui giorni 3,5,7,28,29,30
-  // (6 candidati) — ZURLO copre sempre entrambe le sedi da backup.
+  // (6 candidati) — PRESSACCO copre sempre entrambe le sedi da backup.
   d[BERTUZZI][N(1)] = turnoDisp(["Maniago"]);
-  d[ZURLO][N(1)] = turnoDisp(["Maniago", "Spilimbergo"]);
+  d[PRESSACCO][N(1)] = turnoDisp(["Maniago", "Spilimbergo"]);
   const liv2 = [3, 5, 7, 28, 29, 30];
   liv2.forEach((g) => {
     d[BERTUZZI][N(g)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 2 } });
-    d[ZURLO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
+    d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
   });
   // Tetto esplicito di 3: il livello 1 (1 vittoria) viene riempito per intero (residuo 3→2), poi il
   // livello 2 (6 vittorie) va ridotto a 2. La pura equidistanza POSIZIONALE tra i 6 candidati di
@@ -183,7 +183,7 @@ suite.test("selezione CROSS-LIVELLO (CONTEXT.md §3.11): quando anche il livello
   suite.eq(JSON.stringify(notti), JSON.stringify([1, 7, 30]), "tiene il giorno 1 (livello 1, intero) più i giorni 7 e 30 (livello 2, scelti anche in base alla distanza dal giorno 1 già fissato) — NON il giorno 3, che la pura equidistanza posizionale (ignara del livello 1) avrebbe scelto al suo posto");
   [3, 5, 28, 29].forEach((g) => {
     const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
-    suite.eq(t.slots.includes(ZURLO), true, `giorno ${g} (livello 2, scartato dalla selezione cross-livello): ceduto a ZURLO, nessun buco di copertura`);
+    suite.eq(t.slots.includes(PRESSACCO), true, `giorno ${g} (livello 2, scartato dalla selezione cross-livello): ceduto a PRESSACCO, nessun buco di copertura`);
   });
 });
 

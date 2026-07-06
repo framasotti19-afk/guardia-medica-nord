@@ -5,29 +5,33 @@
 // anche il budget extra, il medico torna al comportamento attuale di "debito esaurito" (perde
 // sempre contro un senza incarico vero, può solo coprire turni rimasti completamente scoperti).
 //
-// PRESSACCO e CERVESATO (entrambi DET24/DET38 titolari di Spilimbergo) sono i protagonisti,
-// contesi sempre su Maniago (dove nessuno dei due è titolare) per isolare i confronti di
-// debito/bucket dalla titolarità universale (§3.1a). I "senza incarico" sono ottenuti per
-// override da MARTINETTI/DE CANDIDO (nessun SENZA di default nella nuova lista medici).
-import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+// PRESSACCO e CERVESATO (SENZA incarico di default nella lista attuale, resuscitati con
+// comeStorico nel loro ruolo storico: entrambi DET24/DET38 titolari di Spilimbergo) sono i
+// protagonisti, contesi sempre su Maniago (dove nessuno dei due è titolare) per isolare i
+// confronti di debito/bucket dalla titolarità universale (§3.1a). I "senza incarico" sono ottenuti
+// per override da MARTINETTI (nativo DET24) / DE CANDIDO (già SENZA di default).
+import { MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_turni_extra — turni extra volontari oltre il monte ore");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-// DET24, titolare Spilimbergo: PRESSACCO grad57 (104h monte ore)
-const PRESSACCO = 8;
-// DET38, titolare Spilimbergo: CERVESATO grad63 (168h monte ore, agosto non è mese aggiustato)
-const CERVESATO = 9;
-// Override "senza incarico": MARTINETTI grad5 (migliore), DE CANDIDO grad83 (peggiore)
-const MARTINETTI = 4, DE_CANDIDO = 11;
+// DET24, titolare Spilimbergo: PRESSACCO grad57 (104h monte ore) — SENZA di default, resuscitato
+const PRESSACCO = 10;
+// DET38, titolare Spilimbergo: CERVESATO grad63 (168h monte ore, agosto non è mese aggiustato) — SENZA di default, resuscitato
+const CERVESATO = 11;
+// Override "senza incarico": MARTINETTI grad5 (migliore, nativo DET24), DE CANDIDO grad83 (peggiore, già SENZA di default)
+const MARTINETTI = 7, DE_CANDIDO = 12;
+
+const BASE = comeStorico(MEDICI_DEFAULT, PRESSACCO, CERVESATO);
+
+function comeSenza(id) {
+  return BASE.map((m) => (m.id === id ? { ...m, cat: "SENZA", sedeContratto: null } : m));
+}
+function resetMedici() { setMediciGlobal(BASE); }
+resetMedici();
 // G1/G2/G3 scelti NON consecutivi (scelta ereditata da quando esisteva ancora la regola di
 // spaziatura temporale §3.7, oggi rimossa — CONTEXT.md §10 — innocua qui, mantenuta per leggibilità).
 const [G1, , G2, , G3] = GIORNI_FERIALI_SEMPLICI;
-
-function comeSenza(id) {
-  return MEDICI_DEFAULT.map((m) => (m.id === id ? { ...m, cat: "SENZA", sedeContratto: null } : m));
-}
-function resetMedici() { setMediciGlobal(MEDICI_DEFAULT); }
 function unicoTurno(dispo, extraOre, turniExtra, giorno = G1) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {}, turniExtra);
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
@@ -84,7 +88,7 @@ suite.test("il budget di turni extra si esaurisce dopo il numero di turni dichia
 });
 
 suite.test("i turni extra non danno MAI priorità di categoria: un contrattualizzato con debito ancora positivo vince sempre, indipendentemente dal grad di chi usa i turni extra", () => {
-  const d = dispoBase(MEDICI);
+  const d = dispoBase(BASE);
   d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]); // grad57 (migliore), ma esaurito + turni extra
   d[CERVESATO][N(G1)] = turnoDisp(["Maniago"]); // grad63 (peggiore), ma con debito ordinario ancora pieno
   const t = unicoTurno(d, { [PRESSACCO]: -104 }, { [PRESSACCO]: 5 }); // budget extra ampio, non basta comunque

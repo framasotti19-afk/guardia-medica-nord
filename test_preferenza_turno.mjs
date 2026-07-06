@@ -11,15 +11,19 @@
 //
 // BERTUZZI (INDET, titolare Spilimbergo) è sempre il protagonista su Maniago (dove NON è
 // titolare): le alternative sono scelte titolari di Spilimbergo (non di Maniago), per isolare i
-// confronti di categoria/grad dalla titolarità universale (§3.1a).
+// confronti di categoria/grad dalla titolarità universale (§3.1a). CERVESATO e PRESSACCO sono
+// SENZA incarico di default nella lista attuale: vengono "resuscitati" nel loro ruolo storico
+// (DET38/DET24, entrambi titolari di Spilimbergo, stessi grad) tramite comeStorico, per preservare
+// esattamente i confronti originali.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_preferenza_turno — preferenza diurno/notturno stesso giorno");
-const BERTUZZI = 14; // INDET, titolare Spilimbergo
-const FOSCHIANI = 2, CERVESATO = 9; // DET38, titolari Spilimbergo (grad3, grad63)
-const PRESSACCO = 8; // DET24, titolare Spilimbergo, grad57
-const PITAU = 5; // DET24 di default, usato come override "senza incarico" (grad14)
+const BERTUZZI = 9; // INDET, titolare Spilimbergo
+const FOSCHIANI = 6; // DET38, titolare Spilimbergo, grad3
+const CERVESATO = 11; // SENZA di default, resuscitato come DET38 titolare Spilimbergo, grad63
+const PRESSACCO = 10; // SENZA di default, resuscitato come DET24 titolare Spilimbergo, grad57
+const PITAU = 3; // DET24 di default, usato come override "senza incarico" (grad14)
 
 // Giorno 8 agosto 2026 = sabato: weekend "semplice" (non festivo/prefestivo), ha sia G che N con
 // etichette piane ("DIURNO 8-20" / "NOTTURNO"). Giorno 3 = feriale semplice (nessun G), usato per
@@ -28,6 +32,10 @@ const G8 = 8, G3 = GIORNI_FERIALI_SEMPLICI[0];
 const G = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|G`;
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const TURNOPREF = (g) => "TURNOPREF:" + dk(ANNO_TEST, MESE_TEST, g);
+
+const BASE = comeStorico(MEDICI_DEFAULT, CERVESATO, PRESSACCO);
+function resetMedici() { setMediciGlobal(BASE); }
+resetMedici();
 
 function schemaCompleto(dispo, extraOre = {}) {
   return elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
@@ -142,7 +150,7 @@ suite.test("tra più alternative possibili, subentra sempre quella con priorità
 });
 
 suite.test("l'alternativo scelto è sempre quello con priorità migliore anche contro un senza incarico di grad ottimo", () => {
-  const lista = MEDICI_DEFAULT.map((m) => (m.id === PITAU ? { ...m, cat: "SENZA", sedeContratto: null } : m));
+  const lista = BASE.map((m) => (m.id === PITAU ? { ...m, cat: "SENZA", sedeContratto: null } : m));
   setMediciGlobal(lista);
   const d = dispoBase(lista);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
@@ -153,7 +161,7 @@ suite.test("l'alternativo scelto è sempre quello con priorità migliore anche c
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
   const { tN } = turniGiorno(schema, G8);
   suite.eq(tN.slots[0], PRESSACCO, "la categoria decide prima della graduatoria, anche per l'alternativo di uno scambio di preferenza turno");
-  setMediciGlobal(MEDICI_DEFAULT);
+  resetMedici();
 });
 
 // ---------------------------------------------------------------------------

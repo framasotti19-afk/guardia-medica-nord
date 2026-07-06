@@ -4,20 +4,24 @@
 // Titolarità universale (§3.1a): le coppie sono scelte in modo che nessuno dei due sia titolare
 // della sede contesa (o, quando serve confrontarne 3, che siano TUTTI titolari della STESSA sede,
 // quindi a parità anche lì) — per isolare la regola di debito/grad senza interferenza.
-import { MEDICI, dk, elaboraSchema } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
+// CERVESATO, PRESSACCO e DE CANDIDO sono SENZA incarico di default nella lista attuale: vengono
+// resuscitati nel loro ruolo storico (DET38/DET24, titolari di Spilimbergo) con comeStorico.
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_stesso_cat2 — conflitti stessa categoria");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
 // DET38, titolari Spilimbergo: FOSCHIANI grad3, CERVESATO grad63
-const FOSCHIANI = 2, CERVESATO = 9;
+const FOSCHIANI = 6, CERVESATO = 11;
 // DET24, titolari Spilimbergo: MARTINETTI grad5, PRESSACCO grad57, DE CANDIDO grad83
-const MARTINETTI = 4, PRESSACCO = 8, DE_CANDIDO = 11;
+const MARTINETTI = 7, PRESSACCO = 10, DE_CANDIDO = 12;
 // DET24, titolare Maniago: TRIGODKO grad4 (per il test del blocco rigido, unico candidato)
-const TRIGODKO = 3;
+const TRIGODKO = 2;
 // SENZA (via override): PITAU grad14, MORANO grad72
-const PITAU = 5, MORANO = 10;
+const PITAU = 3, MORANO = 5;
+
+setMediciGlobal(comeStorico(MEDICI_DEFAULT, CERVESATO, PRESSACCO, DE_CANDIDO));
 
 function unicoTurno(dispo, extraOre = {}, giorno = G1) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});

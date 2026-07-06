@@ -7,20 +7,23 @@ import { useState, useMemo, useRef, useEffect } from "react";
 // "Maniago" | "Spilimbergo", mai null per loro. Solo i senza incarico (SENZA) non hanno titolarità
 // (sedeContratto sempre null). Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
+  // 8 TITOLARI DETERMINATI (5 Maniago + 3 Spilimbergo)
   { id: 1, nome: "ZURLO", grad: 2, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET38", sedeContratto: "Spilimbergo" },
-  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
-  { id: 4, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 5, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
-  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 7, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
-  { id: 8, nome: "PRESSACCO", grad: 57, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET38", sedeContratto: "Spilimbergo" },
-  { id: 10, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
-  { id: 11, nome: "DE CANDIDO", grad: 83, cat: "DET24", sedeContratto: "Spilimbergo" },
-  { id: 12, nome: "MERLINO", grad: 105, cat: "DET12ASAP", sedeContratto: "Maniago" },
-  { id: 13, nome: "IENGO", grad: 107, cat: "DET38", sedeContratto: "Maniago" },
-  { id: 14, nome: "BERTUZZI", grad: 666, cat: "INDET", sedeContratto: "Spilimbergo" },
+  { id: 2, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 3, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 4, nome: "BEKAEVA", grad: 17, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 5, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
+  { id: 6, nome: "FOSCHIANI", grad: 3, cat: "DET38", sedeContratto: "Spilimbergo" },
+  { id: 7, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 8, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
+  // 1 INDET fuori graduatoria ufficiale
+  { id: 9, nome: "BERTUZZI", grad: 108, cat: "INDET", sedeContratto: "Spilimbergo" },
+  // 5 SENZA INCARICO (nessuna titolarità)
+  { id: 10, nome: "PRESSACCO", grad: 57, cat: "SENZA", sedeContratto: null },
+  { id: 11, nome: "CERVESATO", grad: 63, cat: "SENZA", sedeContratto: null },
+  { id: 12, nome: "DE CANDIDO", grad: 83, cat: "SENZA", sedeContratto: null },
+  { id: 13, nome: "MERLINO", grad: 105, cat: "SENZA", sedeContratto: null },
+  { id: 14, nome: "IENGO", grad: 107, cat: "SENZA", sedeContratto: null },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
 let byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
@@ -2206,8 +2209,8 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"WANG","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
-- {"az":"ore_extra","medico":"PRESSACCO","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
-- {"az":"turni_extra","medico":"PRESSACCO","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
+- {"az":"ore_extra","medico":"MARTINETTI","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
+- {"az":"turni_extra","medico":"MARTINETTI","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
 - {"az":"tetto_settimana","medico":"WANG","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
 - {"az":"tetto_mese","medico":"ZURLO","maxTurni":8} → imposta il tetto massimo di turni per l'INTERO mese corrente (vale per QUALSIASI categoria, anche senza incarico): il motore si ferma su quel numero anche con debito residuo; maxTurni null o assente rimuove il tetto. Usalo SEMPRE quando un senza incarico dichiara un numero massimo di guardie/turni che può fare nel mese (es. "posso fare al massimo 8 turni questo mese") — è il vincolo reale nel motore, non solo un'indicazione testuale
 - {"az":"turno_pref","medico":"WANG","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)

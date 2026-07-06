@@ -47,11 +47,12 @@ const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BLU = ["Meduno", "Claut", "Anduins"];
 
 const contrattualizzati = MEDICI_DEFAULT.filter((m) => CAT_INFO[m.cat].ore !== null);
-// Può essere vuoto (nessun medico "senza incarico" nella lista attuale, es. i 14 medici reali di
-// default): ogni categoria che pesca da qui deve controllare senzaIncarico.length prima di
-// chiamare pick(), saltando i propri casi (times(N, () => { if (!senzaIncarico.length) return; ...
-// })) invece di andare in eccezione — mai un override sintetico locale a questo file, perché
-// test_email_runner.mjs costruisce "stato.medici" per l'AI leggendo le categorie REALI da
+// Con la lista attuale (14 medici reali) ci sono 5 medici "senza incarico" (PRESSACCO, CERVESATO,
+// DE CANDIDO, MERLINO, IENGO): le 5 categorie che pescano da qui tornano quindi a generare i loro
+// casi normalmente. Il controllo senzaIncarico.length resta comunque (times(N, () => {
+// if (!senzaIncarico.length) return; ... })) per restare robusto anche se in futuro la lista
+// tornasse ad avere 0 medici senza incarico — mai un override sintetico locale a questo file,
+// perché test_email_runner.mjs costruisce "stato.medici" per l'AI leggendo le categorie REALI da
 // MEDICI_DEFAULT: un override qui non si rifletterebbe là, producendo casi falsati (l'AI vedrebbe
 // la categoria vera del medico, non SENZA) invece che semplicemente assenti.
 const senzaIncarico = MEDICI_DEFAULT.filter((m) => CAT_INFO[m.cat].ore === null);
