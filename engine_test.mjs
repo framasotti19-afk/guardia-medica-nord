@@ -2,35 +2,24 @@
 // ============ DATI SIMULAZIONE ============
 // MEDICI è modificabile dall'interfaccia (tab Medici): la lista di default viene
 // sovrascritta da quella salvata nello store, tramite setMediciGlobal.
-// sedeContratto: solo per i determinati (DET36/DET24) — "Maniago" | "Spilimbergo" | null.
-// Vedi CONTEXT.md §3.1a per la regola di titolarità.
+// sedeContratto: OBBLIGATORIA per ogni contrattualizzato (INDET, DET36, DET24, DET12ASAP, DET12) —
+// "Maniago" | "Spilimbergo", mai null per loro. Solo i senza incarico (SENZA) non hanno titolarità
+// (sedeContratto sempre null). Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
-  { id: 1, nome: "BERTUZZI", grad: 0, cat: "INDET", sedeContratto: null },
-  { id: 2, nome: "CAMPANER", grad: 1, cat: "INDET", sedeContratto: null },
-  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET36", sedeContratto: null },
-  { id: 4, nome: "PRESSACCO", grad: 57, cat: "DET36", sedeContratto: null },
-  { id: 5, nome: "GHIZZO", grad: 91, cat: "DET36", sedeContratto: null },
-  { id: 6, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: null },
-  { id: 7, nome: "DE MARCHI L", grad: 130, cat: "DET36", sedeContratto: null },
-  { id: 8, nome: "FOSCHIANI", grad: 3, cat: "DET24", sedeContratto: null },
-  { id: 9, nome: "BEKAEVA", grad: 17, cat: "DET24", sedeContratto: null },
-  { id: 10, nome: "CERVESATO", grad: 63, cat: "DET24", sedeContratto: null },
-  { id: 11, nome: "COLOSETTI", grad: 97, cat: "DET24", sedeContratto: null },
-  { id: 12, nome: "WANG", grad: 124, cat: "DET24", sedeContratto: null },
-  { id: 13, nome: "ZURLO", grad: 2, cat: "SENZA", sedeContratto: null },
-  { id: 14, nome: "GRANDO", grad: 13, cat: "SENZA", sedeContratto: null },
-  { id: 15, nome: "PITAU", grad: 14, cat: "SENZA", sedeContratto: null },
-  { id: 16, nome: "DE CECCO-BEOLCHI", grad: 20, cat: "SENZA", sedeContratto: null },
-  { id: 17, nome: "MICHELI", grad: 39, cat: "SENZA", sedeContratto: null },
-  { id: 18, nome: "MARZANO", grad: 45, cat: "SENZA", sedeContratto: null },
-  { id: 19, nome: "MUNARETTO", grad: 54, cat: "SENZA", sedeContratto: null },
-  { id: 20, nome: "CESCO", grad: 59, cat: "SENZA", sedeContratto: null },
-  { id: 21, nome: "PARRONI", grad: 71, cat: "SENZA", sedeContratto: null },
-  { id: 22, nome: "MORANO", grad: 72, cat: "SENZA", sedeContratto: null },
-  { id: 23, nome: "DE CANDIDO", grad: 83, cat: "SENZA", sedeContratto: null },
-  { id: 24, nome: "SIEGA-VIGNUT", grad: 87, cat: "SENZA", sedeContratto: null },
-  { id: 25, nome: "MERLINO", grad: 105, cat: "SENZA", sedeContratto: null },
-  { id: 26, nome: "MARCUZZO", grad: 109, cat: "SENZA", sedeContratto: null },
+  { id: 1, nome: "ZURLO", grad: 2, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 4, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 5, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 7, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
+  { id: 8, nome: "PRESSACCO", grad: 57, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 10, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
+  { id: 11, nome: "DE CANDIDO", grad: 83, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 12, nome: "MERLINO", grad: 105, cat: "DET12ASAP", sedeContratto: "Maniago" },
+  { id: 13, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 14, nome: "BERTUZZI", grad: 666, cat: "INDET", sedeContratto: "Spilimbergo" },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
 let byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
@@ -53,6 +42,11 @@ const CAT_INFO = {
   SENZA:    { label: "Senza inc.",    prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
 const isDeterminato = (mid) => ["DET36", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
+// Contrattualizzato = ha un monte ore (tutte le categorie tranne SENZA incarico) — INDET incluso.
+// Usato per la titolarità di sede (§3.1a): OBBLIGATORIA e universale tra tutti i contrattualizzati,
+// non solo tra i determinati (isDeterminato resta distinto, usato altrove per il solo confronto
+// tra categorie determinate).
+const isContrattualizzato = (mid) => CAT_INFO[byId[mid].cat].ore !== null;
 
 const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL", Anduins: "AN" };
@@ -379,16 +373,16 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // tetto mensile e la distribuzione temporale (§3.11) NON intervengono più qui: sono applicati
     // interamente in un secondo passaggio di post-elaborazione in elaboraSchema.
     const bucketOf = (mid) => (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) ? 1 : 0;
-    const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
+    const isTitolareDi = (mid, sede) => isContrattualizzato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
     // l'assegnazione fisica che per la copertura a distanza (CONTEXT.md §3.1a):
-    //   titolarità sede (solo tra determinati) → categoria → debito → graduatoria.
+    //   titolarità sede (tra tutti i contrattualizzati, INDET incluso) → categoria → debito → graduatoria.
     const isBetterPriority = (aId, bId, sede) => {
       const ba = bucketOf(aId), bb = bucketOf(bId);
       if (ba !== bb) return ba < bb;
       if (ba !== 0) return byId[aId].grad < byId[bId].grad;
       const A = byId[aId], B = byId[bId];
-      if (isDeterminato(aId) && isDeterminato(bId)) {
+      if (isContrattualizzato(aId) && isContrattualizzato(bId)) {
         const titA = isTitolareDi(aId, sede), titB = isTitolareDi(bId, sede);
         if (titA !== titB) return titA;
       }
@@ -428,7 +422,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // dei SUOI livelli, senza mai accettare una sede di livello peggiore di maxLiv. Ricollocazione
     // dell'occupante: a pari/miglior livello sempre consentita (indifferenza dichiarata, non gli
     // costa nulla); a livello peggiore solo se il richiedente ha VERA priorità superiore su quella
-    // sede (titolarità → categoria → debito → graduatoria tra determinati).
+    // sede (titolarità → categoria → debito → graduatoria tra tutti i contrattualizzati).
     const provaFisica = (m, visitate, maxLiv) => {
       const acc = accVerdeDi(m.id);
       for (const sede of acc) {
@@ -874,4 +868,4 @@ function notaSlot(slots, si, fis) {
 }
 
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale };

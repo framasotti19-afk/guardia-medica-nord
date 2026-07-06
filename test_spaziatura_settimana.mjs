@@ -7,6 +7,10 @@
 // validi ("nessuna alternativa → copertura vince comunque", "alternativa su un'altra sede non
 // conta") sono rimasti, dato che il loro esito non cambia.
 //
+// BERTUZZI (INDET, titolare Spilimbergo) e CERVESATO (DET36, titolare Spilimbergo) sono usati
+// come coppia "pura" per i test di gerarchia/spaziatura, contesi su Maniago (dove nessuno dei due
+// è titolare) per isolare l'effetto dalla titolarità universale (§3.1a).
+//
 // Tetto settimanale: il medico dichiara dispo[mid]["SETT:" + lunedì] = { maxTurni: N }. Una volta
 // raggiunto il tetto quella settimana, il motore non lo considera più candidato — le sedi che
 // sarebbero state sue restano scoperte (nessuna copertura automatica di ripiego).
@@ -15,7 +19,8 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_ut
 
 const suite = makeSuite("test_spaziatura_settimana — tetto settimanale (§3.7 rimossa, vedi intro)");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-const BERTUZZI = 1, CAMPANER = 2, FOSCHIANI = 8, WANG = 12;
+const BERTUZZI = 14, CERVESATO = 9; // INDET tit.Spilimbergo, DET36 tit.Spilimbergo
+const PRESSACCO = 8, MERLINO = 12; // DET24 tit.Spilimbergo, DET12ASAP tit.Maniago
 
 function unicoTurno(dispo, giorno, extraOre = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
@@ -60,11 +65,11 @@ suite.test("anche con un'alternativa valida disponibile, il medico che ha lavora
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]); // unico candidato il giorno 3: vince a mani basse
   d[BERTUZZI][N(G4)] = turnoDisp(["Maniago"]);
-  d[CAMPANER][N(G4)] = turnoDisp(["Maniago"]); // alternativa valida, stessa sede, il giorno 4 — ma non entra più in gioco
+  d[CERVESATO][N(G4)] = turnoDisp(["Maniago"]); // alternativa valida (non titolare lì), stessa sede, il giorno 4 — ma non entra più in gioco
   // +12h di recupero a BERTUZZI: compensa esattamente le 12h consumate vincendo il giorno 3, così
-  // il giorno 4 il debito residuo è di nuovo pari a CAMPANER (mai lavorato) — isola l'effetto da
+  // il giorno 4 il debito residuo è di nuovo pari a CERVESATO (mai lavorato) — isola l'effetto da
   // testare (nessuna cessione per "aver lavorato ieri") dal normale auto-bilanciamento del debito
-  // (§3.4, che altrimenti farebbe vincere CAMPANER il giorno 4 per debito residuo maggiore: un
+  // (§3.4, che altrimenti farebbe vincere CERVESATO il giorno 4 per debito residuo maggiore: un
   // meccanismo diverso e preesistente, non la spaziatura rimossa qui).
   const { schema } = schemaCompleto(d, { [BERTUZZI]: 12 });
   const t1 = schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N");
@@ -77,19 +82,19 @@ suite.test("senza alternativa valida per QUELLA sede specifica, il medico recent
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G4)] = turnoDisp(["Maniago"]);
-  d[CAMPANER][N(G4)] = turnoDisp(["Spilimbergo"]); // presente, ma su un'ALTRA sede: non è un'alternativa per Maniago
+  d[CERVESATO][N(G4)] = turnoDisp(["Spilimbergo"]); // presente, ma su un'ALTRA sede: non è un'alternativa per Maniago
   const { schema } = schemaCompleto(d);
   const t2 = schema.find((g) => g.giorno === G4).turni.find((t) => t.id === "N");
-  suite.eq(t2.slots[0], BERTUZZI, "CAMPANER non ha dichiarato Maniago: non è un'alternativa valida per quella sede");
-  suite.eq(t2.slots[1], CAMPANER, "CAMPANER ottiene comunque la sua sede, Spilimbergo");
+  suite.eq(t2.slots[0], BERTUZZI, "CERVESATO non ha dichiarato Maniago: non è un'alternativa valida per quella sede");
+  suite.eq(t2.slots[1], CERVESATO, "CERVESATO ottiene comunque la sua sede, Spilimbergo (titolare lì)");
 });
 
 suite.test("giorni consecutivi, ma la gerarchia (non un'euristica di distanza) decide comunque tutto normalmente", () => {
   const d = dispoBase(MEDICI);
   d[BERTUZZI][N(G3)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G5)] = turnoDisp(["Maniago"]); // giorno 5, distanza 2 dal giorno 3
-  d[CAMPANER][N(G5)] = turnoDisp(["Maniago"]);
-  const { schema } = schemaCompleto(d, { [CAMPANER]: -90 });
+  d[CERVESATO][N(G5)] = turnoDisp(["Maniago"]);
+  const { schema } = schemaCompleto(d, { [CERVESATO]: -90 });
   const t2 = schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N");
   suite.eq(t2.slots[0], BERTUZZI, "decide solo il debito residuo, nessuna euristica di distanza in gioco");
 });
@@ -99,56 +104,56 @@ suite.test("giorni consecutivi, ma la gerarchia (non un'euristica di distanza) d
 // ---------------------------------------------------------------------------
 suite.test("nessun tetto dichiarato: nessun limite, comportamento invariato", () => {
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G3)] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][N(G5)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G3)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G5)] = turnoDisp(["Maniago"]);
   const { schema } = schemaCompleto(d);
-  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], FOSCHIANI);
-  suite.eq(schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N").slots[0], FOSCHIANI);
+  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], PRESSACCO);
+  suite.eq(schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N").slots[0], PRESSACCO);
 });
 
 suite.test("tetto settimanale raggiunto: il medico non è più candidato, la sede resta scoperta se non c'è alternativa", () => {
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G3)] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][N(G5)] = turnoDisp(["Maniago"]); // stessa settimana di G3, giorni non consecutivi
-  d[FOSCHIANI][settKey(G3)] = { maxTurni: 1 };
+  d[PRESSACCO][N(G3)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G5)] = turnoDisp(["Maniago"]); // stessa settimana di G3, giorni non consecutivi
+  d[PRESSACCO][settKey(G3)] = { maxTurni: 1 };
   const { schema } = schemaCompleto(d);
-  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], FOSCHIANI, "primo turno della settimana: tetto non ancora raggiunto");
+  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], PRESSACCO, "primo turno della settimana: tetto non ancora raggiunto");
   const t2 = schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N");
   suite.eq(t2.slots[0], null, "secondo turno della stessa settimana: tetto raggiunto, nessuna copertura automatica di ripiego");
 });
 
 suite.test("tetto settimanale raggiunto: se esiste un altro candidato, la sede va a lui normalmente", () => {
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G3)] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][N(G5)] = turnoDisp(["Maniago"]);
-  d[WANG][N(G5)] = turnoDisp(["Maniago"]); // alternativa per il secondo turno
-  d[FOSCHIANI][settKey(G3)] = { maxTurni: 1 };
+  d[PRESSACCO][N(G3)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G5)] = turnoDisp(["Maniago"]);
+  d[MERLINO][N(G5)] = turnoDisp(["Maniago"]); // alternativa per il secondo turno
+  d[PRESSACCO][settKey(G3)] = { maxTurni: 1 };
   const { schema } = schemaCompleto(d);
   const t2 = schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "N");
-  suite.eq(t2.slots[0], WANG, "FOSCHIANI escluso dal tetto: la sede va normalmente a WANG");
+  suite.eq(t2.slots[0], MERLINO, "PRESSACCO escluso dal tetto: la sede va normalmente a MERLINO");
 });
 
 suite.test("il tetto si azzera alla settimana successiva", () => {
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G3)] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][N(G10)] = turnoDisp(["Maniago"]); // settimana successiva
-  d[FOSCHIANI][settKey(G3)] = { maxTurni: 1 };
+  d[PRESSACCO][N(G3)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G10)] = turnoDisp(["Maniago"]); // settimana successiva
+  d[PRESSACCO][settKey(G3)] = { maxTurni: 1 };
   const { schema } = schemaCompleto(d);
-  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], FOSCHIANI);
-  suite.eq(schema.find((g) => g.giorno === G10).turni.find((t) => t.id === "N").slots[0], FOSCHIANI, "settimana diversa: il tetto della settimana precedente non si applica");
+  suite.eq(schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "N").slots[0], PRESSACCO);
+  suite.eq(schema.find((g) => g.giorno === G10).turni.find((t) => t.id === "N").slots[0], PRESSACCO, "settimana diversa: il tetto della settimana precedente non si applica");
 });
 
 suite.test("il tetto conta anche i turni EXTRA (MMG)", () => {
   const extras = { [dk(ANNO_TEST, MESE_TEST, G3)]: { M: true }, [dk(ANNO_TEST, MESE_TEST, G5)]: { M: true } };
   const M3 = `${dk(ANNO_TEST, MESE_TEST, G3)}|M`, M5 = `${dk(ANNO_TEST, MESE_TEST, G5)}|M`;
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][M3] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][M5] = turnoDisp(["Maniago"]);
-  d[FOSCHIANI][settKey(G3)] = { maxTurni: 1 };
+  d[PRESSACCO][M3] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][M5] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][settKey(G3)] = { maxTurni: 1 };
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, extras);
   const t3 = schema.find((g) => g.giorno === G3).turni.find((t) => t.id === "M");
   const t5 = schema.find((g) => g.giorno === G5).turni.find((t) => t.id === "M");
-  suite.eq(t3.slots[0], FOSCHIANI, "primo turno extra della settimana: tetto non ancora raggiunto");
+  suite.eq(t3.slots[0], PRESSACCO, "primo turno extra della settimana: tetto non ancora raggiunto");
   suite.eq(t5.slots[0], null, "secondo turno extra della stessa settimana: tetto raggiunto anche per gli extra");
 });
 

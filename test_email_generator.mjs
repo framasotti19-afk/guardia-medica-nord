@@ -8,7 +8,7 @@
 // RNG seedato (mulberry32) per riproducibilità totale: la stessa invocazione produce sempre
 // lo stesso corpus (stesso ordine, stesse combinazioni), così due run del runner su corpus
 // identico sono confrontabili "prima/dopo" una modifica al prompt. La selezione è CON
-// reinserimento (pick, non pickN): i pool di medici/giorni sono piccoli (26 medici, ~20-30
+// reinserimento (pick, non pickN): i pool di medici/giorni sono piccoli (14 medici, ~20-30
 // giorni) ma il corpus richiesto supera le 500 combinazioni, quindi le stesse coppie
 // giorno+medico si ripetono con valori/frasi diverse — non è un problema per un test di
 // robustezza del prompt, anzi verifica che risposte coerenti si ripetano in casi analoghi.
@@ -47,6 +47,13 @@ const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BLU = ["Meduno", "Claut", "Anduins"];
 
 const contrattualizzati = MEDICI_DEFAULT.filter((m) => CAT_INFO[m.cat].ore !== null);
+// Può essere vuoto (nessun medico "senza incarico" nella lista attuale, es. i 14 medici reali di
+// default): ogni categoria che pesca da qui deve controllare senzaIncarico.length prima di
+// chiamare pick(), saltando i propri casi (times(N, () => { if (!senzaIncarico.length) return; ...
+// })) invece di andare in eccezione — mai un override sintetico locale a questo file, perché
+// test_email_runner.mjs costruisce "stato.medici" per l'AI leggendo le categorie REALI da
+// MEDICI_DEFAULT: un override qui non si rifletterebbe là, producendo casi falsati (l'AI vedrebbe
+// la categoria vera del medico, non SENZA) invece che semplicemente assenti.
 const senzaIncarico = MEDICI_DEFAULT.filter((m) => CAT_INFO[m.cat].ore === null);
 
 let seq = 0;
@@ -390,6 +397,7 @@ times(43, () => {
 // lo stesso significato ("PARRONI è senza incarico, il recupero ore non si applica al suo caso"),
 // una differenza di forma non di sostanza che non vale la pena trattare come fallimento.
 times(43, () => {
+  if (!senzaIncarico.length) return; // nessun medico senza incarico nella lista attuale: categoria saltata, robusto anche a 0
   const ore = pick([6, 12, 18, 24, 36]);
   const m = pick(senzaIncarico);
   const email = `Ho ${ore} ore da recuperare dal mese scorso.`;
@@ -402,6 +410,7 @@ times(43, () => {
 // ============ 20. SENZA INCARICO — TURNI EXTRA IMPROPRIO ============
 // Stesso motivo di senza_incarico_recupero sopra: niente prefisso letterale "ATTENZIONE" richiesto.
 times(43, () => {
+  if (!senzaIncarico.length) return; // nessun medico senza incarico nella lista attuale: categoria saltata, robusto anche a 0
   const n = randInt(1, 4);
   const m = pick(senzaIncarico);
   const email = `Sono disponibile per ${n} turni extra oltre il mio monte ore.`;
@@ -413,6 +422,7 @@ times(43, () => {
 
 // ============ 20bis. SENZA INCARICO — DISPONIBILITÀ SENZA NUMERO DI GUARDIE MENSILI (avviso, nessuna azione) ============
 times(30, () => {
+  if (!senzaIncarico.length) return; // nessun medico senza incarico nella lista attuale: categoria saltata, robusto anche a 0
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(senzaIncarico);
   const varianti = [
@@ -429,6 +439,7 @@ times(30, () => {
 // Il numero dichiarato sblocca le disponibilità ordinarie E genera SEMPRE anche tetto_mese
 // (CONTEXT.md §3.11 punto 1 — vedi anche la categoria dedicata "tetto_mese_senza_incarico").
 times(30, () => {
+  if (!senzaIncarico.length) return; // nessun medico senza incarico nella lista attuale: categoria saltata, robusto anche a 0
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(senzaIncarico);
   const n = randInt(4, 10);
@@ -528,6 +539,7 @@ times(12, () => {
 // Lo stesso numero che soddisfa il controllo obbligatorio (§20ter) genera SEMPRE anche
 // tetto_mese, indipendentemente dal fatto che siano presenti altre disponibilità ordinarie.
 times(12, () => {
+  if (!senzaIncarico.length) return; // nessun medico senza incarico nella lista attuale: categoria saltata, robusto anche a 0
   const n = randInt(2, 10);
   const m = pick(senzaIncarico);
   const varianti = [

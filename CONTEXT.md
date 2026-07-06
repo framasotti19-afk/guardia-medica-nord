@@ -82,19 +82,19 @@ print('motore estratto')
 
 **Recupero ore da mese precedente:** dichiarato esplicitamente al coordinatore. Aumenta il debito mensile: `debito = monte_ore + ore_recupero`. Partecipa normalmente a tutti i conflitti. NON applicabile ai senza incarico (che non hanno debito).
 
-### 3.1a Titolarità di sede (solo determinati)
+### 3.1a Titolarità di sede (OBBLIGATORIA e universale per ogni contrattualizzato)
 
-Ogni medico **determinato** (DET36, DET24, DET12ASAP o DET12 — `isDeterminato(mid)`) può avere un campo `sedeContratto`: `"Maniago"`, `"Spilimbergo"`, oppure `null` (nessuna). Non esiste per INDET o SENZA — è un concetto legato al contratto di lavoro dei soli determinati.
+Ogni medico **contrattualizzato** (INDET, DET36, DET24, DET12ASAP o DET12 — `isContrattualizzato(mid)`, ha un monte ore) ha **SEMPRE** un campo `sedeContratto`: `"Maniago"` o `"Spilimbergo"` — mai `null` per un contrattualizzato. Solo i **senza incarico** (SENZA) non hanno titolarità (`sedeContratto` sempre `null`, campo disabilitato/"—" in UI). `isDeterminato(mid)` resta una funzione distinta (solo le 4 categorie DET*, usata altrove per altri scopi) — `isContrattualizzato` è la funzione rilevante per la titolarità, e include anche INDET.
 
-**Tra due determinati** in conflitto sulla sede di cui uno dei due è titolare, il titolare vince **sempre** quella sede — anche contro un determinato di categoria nominalmente superiore (es. un DET24 titolare di Maniago batte un DET36 non titolare, per Maniago). Questa regola vale **identica sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu)** — non ci sono due ordini diversi:
+**Tra QUALSIASI coppia di contrattualizzati** (INDET incluso, non solo tra determinati) in conflitto sulla sede di cui uno dei due è titolare, il titolare vince **sempre** quella sede — anche contro una categoria nominalmente superiore (es. un DET24 titolare di Maniago batte un INDET non titolare, su Maniago — pur essendo INDET la categoria più alta in assoluto). Questa regola vale **identica sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu)** — non ci sono due ordini diversi:
 
 ```
-titolarità sede (per la sede contesa) → categoria → debito → graduatoria
+titolarità sede (per la sede contesa, tra tutti i contrattualizzati) → categoria → debito → graduatoria
 ```
 
-La titolarità **non ha mai effetto** se uno dei due contendenti non è determinato (un INDET batte sempre un determinato titolare o no; un senza incarico perde sempre contro un determinato con debito, titolare o no) e non ha effetto se il contendente è titolare di una sede **diversa** da quella contesa.
+**Tra due titolari della STESSA sede** (o due non titolari di essa), la titolarità è a parità e decide normalmente categoria → debito → graduatoria — esattamente come se nessuno dei due fosse titolare. La titolarità **non ha mai effetto** se uno dei due contendenti è un senza incarico (mai contrattualizzato, la titolarità è gated su entrambi i lati) e non ha effetto se il contendente è titolare di una sede **diversa** da quella contesa.
 
-I dati simulati (§4) hanno tutti `sedeContratto: null` — va assegnata manualmente dal coordinatore tramite la colonna "Titolarità" nel tab "3 · Medici / ore da recuperare" quando si hanno i dati reali.
+**Validazione UI**: nel tab "3 · Medici", la colonna "Titolarità" mostra il selettore (solo Maniago/Spilimbergo, senza opzione "Nessuna") per ogni contrattualizzato; passando un medico a categoria SENZA la titolarità si azzera automaticamente a `null`, passando da SENZA a un contrattualizzato senza titolarità già impostata si applica un default (`"Maniago"`) che il coordinatore corregge dalla stessa colonna. Il form "Aggiungi nuovo medico" include lo stesso selettore (nascosto per SENZA). I dati di default (§4) hanno tutti una titolarità reale assegnata (nessun contrattualizzato con `sedeContratto: null`), coerentemente con l'obbligatorietà.
 
 **Bug storico risolto — 3+ determinati su sedi sovrapposte:** in scenari con 3 o più determinati che si contendono più sedi sovrapposte nello stesso turno, catene di ricollocazione ricorsiva profonde in `provaFisica` potevano raramente convergere a un equilibrio in cui un titolare finiva fisicamente altrove pur avendo diritto alla propria sede — senza che nessun singolo passaggio della catena fosse, isolatamente, scorretto. Un primo tentativo di correzione generico (ripetere l'intero giro di `provaFisica` più volte per far convergere lo stato) è stato scartato perché introduceva regressioni reali (perdita di copertura) in scenari altrove già corretti. Risolto invece con `correggiTitolarita()` — una passata MIRATA solo ai titolari (mai a candidati generici), eseguita sia dopo FASE1 sia dopo la spaziatura temporale (§3.7, che può essa stessa reintrodurre il problema): per ogni titolare non ancora sulla propria sede, se l'occupante attuale non ha davvero priorità superiore (`isBetterPriority`), lo scambia dentro e ridà all'occupante spostato una possibilità di ricollocarsi tramite lo stesso `provaFisica` già usato ovunque. Verificato a 0 violazioni su 100.000 scenari / 25.151.195 check (§10).
 
@@ -258,21 +258,21 @@ Test dedicati: `test_max_turni_mese.mjs` (7 casi), `test_distribuzione_temporale
 
 ---
 
-## 4. GRADUATORIA SIMULATA (dati di test — da sostituire con la reale)
+## 4. GRADUATORIA (14 medici reali, con titolarità)
 
 ```
-INDET:  BERTUZZI(id1, grad0), CAMPANER(id2, grad1)
-DET36:  TRIGODKO(id3, grad4), PRESSACCO(id4, grad57), GHIZZO(id5, grad91), IENGO(id6, grad107), DE MARCHI L(id7, grad130)
-DET24:  FOSCHIANI(id8, grad3), BEKAEVA(id9, grad17), CERVESATO(id10, grad63), COLOSETTI(id11, grad97), WANG(id12, grad124)
-SENZA:  ZURLO(id13, grad2), GRANDO(id14, grad13), PITAU(id15, grad14), DE CECCO-BEOLCHI(id16, grad20),
-        MICHELI(id17, grad39), MARZANO(id18, grad45), MUNARETTO(id19, grad54), CESCO(id20, grad59),
-        PARRONI(id21, grad71), MORANO(id22, grad72), DE CANDIDO(id23, grad83), SIEGA-VIGNUT(id24, grad87),
-        MERLINO(id25, grad105), MARCUZZO(id26, grad109)
+ZURLO(id1, DET36, grad2, tit.Maniago)          FOSCHIANI(id2, DET36, grad3, tit.Spilimbergo)
+TRIGODKO(id3, DET24, grad4, tit.Maniago)       MARTINETTI(id4, DET24, grad5, tit.Spilimbergo)
+PITAU(id5, DET24, grad14, tit.Maniago)         BEKAEVA(id6, DET36, grad17, tit.Maniago)
+VALERI(id7, DET12ASAP, grad25, tit.Spilimbergo) PRESSACCO(id8, DET24, grad57, tit.Spilimbergo)
+CERVESATO(id9, DET36, grad63, tit.Spilimbergo)  MORANO(id10, DET12, grad72, tit.Maniago)
+DE CANDIDO(id11, DET24, grad83, tit.Spilimbergo) MERLINO(id12, DET12ASAP, grad105, tit.Maniago)
+IENGO(id13, DET36, grad107, tit.Maniago)        BERTUZZI(id14, INDET, grad666, tit.Spilimbergo)
 ```
 
-Tutti i determinati (DET36/DET24/DET12ASAP/DET12) hanno `sedeContratto: null` nei dati simulati — nessuna titolarità nota, va assegnata quando si hanno i dati reali. Nessun medico di default è DET12ASAP o DET12 (categorie disponibili ma non usate nei dati simulati).
+Nessun medico SENZA incarico nei dati di default (categoria disponibile, aggiungibile dal coordinatore tramite "Aggiungi nuovo medico"). BERTUZZI: grad666 deliberatamente pessimo (fuori graduatoria ufficiale) — perde ogni spareggio per grad/categoria, ma è titolare di Spilimbergo e vince lì per titolarità nonostante l'INDET normalmente perda solo contro un'altra INDET (non esistendone altre, il suo grad non decide mai nulla se non contro un altro contrattualizzato titolare della STESSA sede sua). Tutti i 14 medici hanno una titolarità reale assegnata (obbligatoria per ogni contrattualizzato, §3.1a): nessun `sedeContratto: null`.
 
-La lista è modificabile dall'interfaccia (tab "3 · Medici / ore da recuperare": categoria, graduatoria, titolarità di sede per i determinati) e salvata nello store persistente. In `store.medici` se presente, altrimenti `MEDICI_DEFAULT`.
+La lista è modificabile dall'interfaccia (tab "3 · Medici / ore da recuperare": categoria, graduatoria, titolarità di sede per ogni contrattualizzato) e salvata nello store persistente. In `store.medici` se presente, altrimenti `MEDICI_DEFAULT`.
 
 ---
 
@@ -465,11 +465,11 @@ open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, 
 "
 
 # Lancia tutti i test
-node run_tests2.mjs            # 46 test runtime (gerarchia, titolarità, scenari verde/blu, debito)
+node run_tests2.mjs            # 48 test runtime (gerarchia, titolarità universale, scenari verde/blu, debito)
 node test_preferiti2.mjs       # 13 test preferiti (sede specifica) e ordine elaborazione
 node test_rapido2.mjs          # 18 test inserimento rapido, menu a tendina e protezione NO
 node test_livelli_verde_blu.mjs # 11 test livelli verde 1-5 e blu 1-4
-node test_stesso_cat2.mjs      # 8 test conflitti stessa categoria
+node test_stesso_cat2.mjs      # 9 test conflitti stessa categoria
 node test_nuove_funzioni.mjs   # 16 test livelli verde, titolarità e medici modificabili
 node test_spaziatura_settimana.mjs  # 11 test tetto settimanale (§3.8); §3.7 rimossa, vedi intro del file
 node test_categorie_12h.mjs    # 11 test DET12ASAP e DET12 (§3.1)
@@ -479,10 +479,10 @@ node test_max_turni_mese.mjs   # 7 test tetto mensile dichiarato dal coordinator
 node test_distribuzione_temporale.mjs  # 8 test distribuzione run-then-redistribute, priorità di sede, cross-livello, titolari non esenti (§3.11)
 node test_aggiustamento_mensile.mjs  # 11 test aggiustamento mensile del monte ore DET24/DET12/DET12ASAP, totali annui (§3.11 punto 3)
 node test_simulazione_completa.mjs  # ~25M check su scenari randomici (800 semi × 125 mesi, agosto 2026-dicembre 2036, con titolarità/turni extra/tetti mensili)
-node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (26 medici via "email")
+node test_simulazione_email.mjs     # simulazione leggibile di un mese intero (14 medici via "email")
 ```
 
-**Il test di simulazione** (`test_simulazione_completa.mjs`) è il più importante: genera scenari casuali con tutti i 26 medici (incluse titolarità, turni extra e tetti mensili casuali) e verifica gli invarianti su ogni singolo turno — inclusi `INV_MESE` (tetto mensile mai superato) e `INV-TITOLARE` (titolarità sempre rispettata). 0 violazioni su 100.000 scenari / 25.151.195 check.
+**Il test di simulazione** (`test_simulazione_completa.mjs`) è il più importante: genera scenari casuali con tutti i 14 medici (incluse titolarità, turni extra e tetti mensili casuali) e verifica gli invarianti su ogni singolo turno — inclusi `INV_MESE` (tetto mensile mai superato) e `INV-TITOLARE` (titolarità sempre rispettata). 0 violazioni su 100.000 scenari / 25.238.128 check.
 
 **Quando si aggiunge un test:** scrivilo in Node.js puro (ESM, `import`), con `process.exit(0/1)` e output `✅ TUTTI I TEST SUPERATI` o `❌ N FALLITI`. Aggiungilo al blocco `# Lancia tutti i test` sopra.
 
@@ -577,6 +577,10 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 11. **Selezione cross-livello nella distribuzione post-elaborazione (§3.11 punto 2b)** — quando un medico supera il proprio tetto su PIÙ livelli di sede verde (es. livello 1 riempito per intero, livello 2 ancora da ridurre), la selezione del sottoinsieme di livello 2 da tenere usava `scegliIndiciEquidistanti` guardando SOLO alla posizione dei candidati di livello 2 tra loro, ignorando dove fossero già stati fissati i giorni di livello 1: poteva scegliere un giorno di livello 2 vicinissimo a un giorno di livello 1 già tenuto, quando un altro candidato di livello 2 (magari meno "centrale" tra i soli candidati di livello 2) si sarebbe incastrato meglio. Aggiunta `scegliConRiferimento(candidati, n, giorniFissi)`: una selezione greedy "farthest-point" che, quando esistono giorni già fissati da livelli migliori, sceglie ad ogni passo il candidato con la distanza minima più alta possibile da TUTTI i giorni di riferimento raccolti finora (giorni fissi + proprie scelte precedenti, che si aggiungono al riferimento via via) — il livello 1 (o qualunque primo livello ridotto senza riferimento) continua a usare la pura equidistanza posizionale, invariata. La priorità di sede resta assoluta: un livello viene anche solo toccato dopo che tutti i livelli migliori sono stati riempiti per intero, questa selezione cambia SOLO quali giorni specifici di un livello già "in coda" vengono scelti. Verificato con un test dedicato (`test_distribuzione_temporale.mjs`) che dimostra la differenza concreta rispetto alla pura equidistanza posizionale, e sulla simulazione massiva: **0 violazioni su 100.000 scenari / 25.179.578 check**, nessuna regressione sui file di test dedicati.
 
 12. **2 test obsoleti in `run_tests2.mjs` su "esauriti" — non un bug del motore, test scritti prima del blocco rigido (§3.4)** — "fascia 3 (esauriti): competono solo per grad tra loro" e "un esaurito copre comunque un turno se non c'è nessun altro candidato" davano a un contrattualizzato debito 0 (via `extraOre` negativo) SENZA alcun turno extra dichiarato, aspettandosi che restasse comunque candidato. Il blocco rigido oltre il monte ore (voce implicita in `candidatiOrdinati`, §3.4 — CONTEXT.md punto 23 in §6) esclude ESPLICITAMENTE dai candidati chi ha esaurito SIA il debito ordinario SIA i turni extra (`debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0`), introdotto DOPO questi 2 test e mai retroapplicato a loro: il comportamento reale (slot scoperto) era già corretto e già verificato altrove (`test_stesso_cat2.mjs`, "blocco rigido oltre il monte ore"), erano i 2 test a essere scollegati dalla regola. **Regola corretta, verificata e non modificata nel motore**: un esaurito (debito ordinario 0) copre un turno anche in assenza di alternative SOLO se ha turni extra dichiarati (`turniExtra > 0`, §3.10) — senza turni extra dichiarati resta escluso ed il turno resta SCOPERTO, mai assegnato oltre il limite. Fix: i 2 test aggiornati per dichiarare `turniExtra` quando lo scenario richiede che l'esaurito resti candidato, più un nuovo test esplicito che conferma il caso SENZA turni extra (slot scoperto, `null`). Nessuna modifica al motore — verificato su tutta la suite (47/47 in `run_tests2.mjs`) e sulla simulazione massiva: 0 violazioni su 100.000 scenari.
+
+13. **Titolarità di sede resa OBBLIGATORIA e universale per ogni contrattualizzato (§3.1a), non più solo tra determinati** — su richiesta esplicita, la titolarità (`sedeContratto`, Maniago o Spilimbergo) è ora obbligatoria per QUALSIASI contrattualizzato (INDET incluso), non più un concetto riservato ai soli determinati (DET36/DET24/DET12ASAP/DET12). Aggiunta `isContrattualizzato(mid)` (`CAT_INFO[cat].ore !== null`, include INDET) come funzione rilevante per la titolarità — `isDeterminato` resta distinta e invariata, usata altrove. `isTitolareDi` e la condizione in `isBetterPriority` (che prima era `isDeterminato(aId) && isDeterminato(bId)`) ora usano `isContrattualizzato`: su qualunque sede contesa, chi ne è titolare vince prima ancora del confronto di categoria, anche contro un INDET (categoria nominalmente più alta in assoluto) — a parità di titolarità sulla sede contesa (entrambi titolari, o nessuno dei due) decide normalmente categoria → debito → graduatoria. **MEDICI_DEFAULT sostituito interamente** con 14 medici reali (rimossi i precedenti 26 dati di test), tutti i contrattualizzati con una titolarità reale assegnata (nessun `sedeContratto: null` — l'unico INDET, BERTUZZI, ha grad666 deliberatamente pessimo per perdere ogni spareggio di grad/categoria, titolare di Spilimbergo). UI: colonna "Titolarità" ora mostrata per ogni contrattualizzato (non solo determinati), senza opzione "Nessuna"; il cambio di categoria verso/da SENZA aggiorna automaticamente `sedeContratto` (default "Maniago" verso un contrattualizzato, azzerato verso SENZA); il form "Aggiungi nuovo medico" include lo stesso selettore di titolarità. Aggiornato anche il prompt AI (gerarchia categorie + sezione titolarità). Riscritti tutti i 13 file di test unitari del motore per usare i nuovi 14 medici (i "senza incarico" necessari nei test, assenti di default, si ottengono per override temporaneo di categoria — stesso pattern già usato per DET12/DET12ASAP). Verificato su tutta la suite (174 test) e sulla simulazione massiva: **0 violazioni su 100.000 scenari / 25.238.128 check**.
+
+14. **`test_email_generator.mjs` reso robusto all'assenza di medici senza incarico** — con 0 medici SENZA nella nuova lista di default (voce 13), i 5 punti che pescavano da `pick(senzaIncarico)` (categorie `senza_incarico_recupero`, `senza_incarico_turni_extra`, `senza_incarico_no_numero_guardie`, `senza_incarico_con_numero_guardie`, `tetto_mese_senza_incarico`) andavano in eccezione (`Cannot read properties of undefined`). Fix: ogni categoria ora controlla `senzaIncarico.length` e salta silenziosamente i propri casi se vuoto (`times(N, () => { if (!senzaIncarico.length) return; ... })`), invece di creare un override sintetico locale: un override qui non si rifletterebbe in `test_email_runner.mjs`, che costruisce `stato.medici` per l'AI leggendo le categorie REALI da `MEDICI_DEFAULT` — produrrebbe casi falsati (l'AI vedrebbe la categoria vera del medico, non SENZA), non semplicemente assenti. Corpus passato da 36 a 31 categorie con la lista attuale (0 medici SENZA); tornerà a generare quelle 5 categorie automaticamente se in futuro un medico verrà impostato come SENZA incarico. Verificato: `node test_email_generator.mjs` non va più in eccezione.
 
 ---
 

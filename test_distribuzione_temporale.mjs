@@ -21,15 +21,23 @@
 // migliori (farthest-point greedy, scegliConRiferimento), non solo l'equidistanza al proprio
 // interno — così i gruppi di livelli diversi si incastrano invece di sovrapporsi in giorni
 // consecutivi.
+//
+// BERTUZZI (INDET, titolare Spilimbergo nativo) e i backup "senza incarico" (ottenuti per override
+// da PITAU/MORANO, nessun SENZA di default nella nuova lista medici) sono impostati UNA VOLTA a
+// livello di modulo (MEDICI_TEST): la titolarità universale (§3.1a) non interferisce qui perché il
+// confronto titolarità→categoria è gated su ENTRAMBI i contendenti contrattualizzati — un senza
+// incarico lo disattiva sempre.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
 
 const suite = makeSuite("test_distribuzione_temporale — turni distanziati nel mese invece dei primi N");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-// INDET: BERTUZZI grad0 (96h monte ore = 8 notti)
-const BERTUZZI = 1;
-// SENZA: ZURLO grad2, GRANDO grad13 (pool di riserva, priorità piena su ogni giorno non riservato)
-const ZURLO = 13, GRANDO = 14;
+// INDET: BERTUZZI (96h monte ore = 8 notti)
+const BERTUZZI = 14;
+// "senza incarico" per override: ZURLO grad14 (migliore), GRANDO grad72 (backup di grad peggiore)
+const ZURLO = 5, GRANDO = 10;
+const MEDICI_TEST = MEDICI_DEFAULT.map((m) => (m.id === ZURLO || m.id === GRANDO ? { ...m, cat: "SENZA", sedeContratto: null } : m));
+setMediciGlobal(MEDICI_TEST);
 
 function tutteLeNotti(anno, mese, verdeDiMedico) {
   const d = dispoBase(MEDICI);
@@ -74,7 +82,7 @@ suite.test("un titolare di sede segue le stesse regole di tutti (CONTEXT.md §3.
   // esaurisce (blocco rigido §3.4) — il tetto implicito (13) coincide esattamente con queste
   // vittorie naturali, quindi nessuna cessione scatta: la titolarità non è "esente" per regola
   // speciale, semplicemente qui il tetto e le vittorie naturali sono lo stesso numero.
-  const lista = MEDICI_DEFAULT.map((m) => (m.id === BERTUZZI ? { ...m, cat: "DET36", sedeContratto: "Maniago" } : m));
+  const lista = MEDICI_TEST.map((m) => (m.id === BERTUZZI ? { ...m, cat: "DET36", sedeContratto: "Maniago" } : m));
   setMediciGlobal(lista);
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [ZURLO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
@@ -82,7 +90,7 @@ suite.test("un titolare di sede segue le stesse regole di tutti (CONTEXT.md §3.
   suite.eq(JSON.stringify(notti), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]), "il titolare vince i primi 13 giorni CONSECUTIVI (156h/12h): tetto implicito = vittorie naturali, nessuna cessione");
   const notteZurlo14 = schema.find((g) => g.giorno === 14).turni.find((t) => t.id === "N");
   suite.eq(notteZurlo14.slots[0], ZURLO, "esaurito il monte ore del titolare (blocco rigido preesistente §3.4), la sede passa al senza incarico dal giorno 14 in poi");
-  setMediciGlobal(MEDICI_DEFAULT);
+  setMediciGlobal(MEDICI_TEST);
 });
 
 suite.test("con un solo candidato disponibile e nessun backup, la distribuzione non cambia il comportamento preesistente: si consuma il monte ore nei primi giorni e il resto resta scoperto (blocco rigido §3.4, non un difetto di questo meccanismo)", () => {

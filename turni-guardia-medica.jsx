@@ -3,35 +3,24 @@ import { useState, useMemo, useRef, useEffect } from "react";
 // ============ DATI SIMULAZIONE ============
 // MEDICI è modificabile dall'interfaccia (tab Medici): la lista di default viene
 // sovrascritta da quella salvata nello store, tramite setMediciGlobal.
-// sedeContratto: solo per i determinati (DET36/DET24) — "Maniago" | "Spilimbergo" | null.
-// Vedi CONTEXT.md §3.1a per la regola di titolarità.
+// sedeContratto: OBBLIGATORIA per ogni contrattualizzato (INDET, DET36, DET24, DET12ASAP, DET12) —
+// "Maniago" | "Spilimbergo", mai null per loro. Solo i senza incarico (SENZA) non hanno titolarità
+// (sedeContratto sempre null). Vedi CONTEXT.md §3.1a per la regola di titolarità.
 const MEDICI_DEFAULT = [
-  { id: 1, nome: "BERTUZZI", grad: 0, cat: "INDET", sedeContratto: null },
-  { id: 2, nome: "CAMPANER", grad: 1, cat: "INDET", sedeContratto: null },
-  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET36", sedeContratto: null },
-  { id: 4, nome: "PRESSACCO", grad: 57, cat: "DET36", sedeContratto: null },
-  { id: 5, nome: "GHIZZO", grad: 91, cat: "DET36", sedeContratto: null },
-  { id: 6, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: null },
-  { id: 7, nome: "DE MARCHI L", grad: 130, cat: "DET36", sedeContratto: null },
-  { id: 8, nome: "FOSCHIANI", grad: 3, cat: "DET24", sedeContratto: null },
-  { id: 9, nome: "BEKAEVA", grad: 17, cat: "DET24", sedeContratto: null },
-  { id: 10, nome: "CERVESATO", grad: 63, cat: "DET24", sedeContratto: null },
-  { id: 11, nome: "COLOSETTI", grad: 97, cat: "DET24", sedeContratto: null },
-  { id: 12, nome: "WANG", grad: 124, cat: "DET24", sedeContratto: null },
-  { id: 13, nome: "ZURLO", grad: 2, cat: "SENZA", sedeContratto: null },
-  { id: 14, nome: "GRANDO", grad: 13, cat: "SENZA", sedeContratto: null },
-  { id: 15, nome: "PITAU", grad: 14, cat: "SENZA", sedeContratto: null },
-  { id: 16, nome: "DE CECCO-BEOLCHI", grad: 20, cat: "SENZA", sedeContratto: null },
-  { id: 17, nome: "MICHELI", grad: 39, cat: "SENZA", sedeContratto: null },
-  { id: 18, nome: "MARZANO", grad: 45, cat: "SENZA", sedeContratto: null },
-  { id: 19, nome: "MUNARETTO", grad: 54, cat: "SENZA", sedeContratto: null },
-  { id: 20, nome: "CESCO", grad: 59, cat: "SENZA", sedeContratto: null },
-  { id: 21, nome: "PARRONI", grad: 71, cat: "SENZA", sedeContratto: null },
-  { id: 22, nome: "MORANO", grad: 72, cat: "SENZA", sedeContratto: null },
-  { id: 23, nome: "DE CANDIDO", grad: 83, cat: "SENZA", sedeContratto: null },
-  { id: 24, nome: "SIEGA-VIGNUT", grad: 87, cat: "SENZA", sedeContratto: null },
-  { id: 25, nome: "MERLINO", grad: 105, cat: "SENZA", sedeContratto: null },
-  { id: 26, nome: "MARCUZZO", grad: 109, cat: "SENZA", sedeContratto: null },
+  { id: 1, nome: "ZURLO", grad: 2, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 2, nome: "FOSCHIANI", grad: 3, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 3, nome: "TRIGODKO", grad: 4, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 4, nome: "MARTINETTI", grad: 5, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 5, nome: "PITAU", grad: 14, cat: "DET24", sedeContratto: "Maniago" },
+  { id: 6, nome: "BEKAEVA", grad: 17, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 7, nome: "VALERI", grad: 25, cat: "DET12ASAP", sedeContratto: "Spilimbergo" },
+  { id: 8, nome: "PRESSACCO", grad: 57, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 9, nome: "CERVESATO", grad: 63, cat: "DET36", sedeContratto: "Spilimbergo" },
+  { id: 10, nome: "MORANO", grad: 72, cat: "DET12", sedeContratto: "Maniago" },
+  { id: 11, nome: "DE CANDIDO", grad: 83, cat: "DET24", sedeContratto: "Spilimbergo" },
+  { id: 12, nome: "MERLINO", grad: 105, cat: "DET12ASAP", sedeContratto: "Maniago" },
+  { id: 13, nome: "IENGO", grad: 107, cat: "DET36", sedeContratto: "Maniago" },
+  { id: 14, nome: "BERTUZZI", grad: 666, cat: "INDET", sedeContratto: "Spilimbergo" },
 ];
 let MEDICI = MEDICI_DEFAULT.map((m) => ({ ...m }));
 let byId = Object.fromEntries(MEDICI.map((m) => [m.id, m]));
@@ -54,6 +43,11 @@ const CAT_INFO = {
   SENZA:    { label: "Senza inc.",    prio: 5, ore: null, color: "#5b5b6b", bg: "#eeeef2" },
 };
 const isDeterminato = (mid) => ["DET36", "DET24", "DET12ASAP", "DET12"].includes(byId[mid].cat);
+// Contrattualizzato = ha un monte ore (tutte le categorie tranne SENZA incarico) — INDET incluso.
+// Usato per la titolarità di sede (§3.1a): OBBLIGATORIA e universale tra tutti i contrattualizzati,
+// non solo tra i determinati (isDeterminato resta distinto, usato altrove per il solo confronto
+// tra categorie determinate).
+const isContrattualizzato = (mid) => CAT_INFO[byId[mid].cat].ore !== null;
 
 const SEDI5 = ["Maniago", "Spilimbergo", "Meduno", "Claut", "Anduins"];
 const SEDI_BREVI = { Maniago: "MA", Spilimbergo: "SP", Meduno: "ME", Claut: "CL", Anduins: "AN" };
@@ -380,16 +374,16 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // tetto mensile e la distribuzione temporale (§3.11) NON intervengono più qui: sono applicati
     // interamente in un secondo passaggio di post-elaborazione in elaboraSchema.
     const bucketOf = (mid) => (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) ? 1 : 0;
-    const isTitolareDi = (mid, sede) => isDeterminato(mid) && byId[mid].sedeContratto === sede;
+    const isTitolareDi = (mid, sede) => isContrattualizzato(mid) && byId[mid].sedeContratto === sede;
     // Confronto di priorità "vero", parametrizzato sulla sede contesa. Vale identico sia per
     // l'assegnazione fisica che per la copertura a distanza (CONTEXT.md §3.1a):
-    //   titolarità sede (solo tra determinati) → categoria → debito → graduatoria.
+    //   titolarità sede (tra tutti i contrattualizzati, INDET incluso) → categoria → debito → graduatoria.
     const isBetterPriority = (aId, bId, sede) => {
       const ba = bucketOf(aId), bb = bucketOf(bId);
       if (ba !== bb) return ba < bb;
       if (ba !== 0) return byId[aId].grad < byId[bId].grad;
       const A = byId[aId], B = byId[bId];
-      if (isDeterminato(aId) && isDeterminato(bId)) {
+      if (isContrattualizzato(aId) && isContrattualizzato(bId)) {
         const titA = isTitolareDi(aId, sede), titB = isTitolareDi(bId, sede);
         if (titA !== titB) return titA;
       }
@@ -429,7 +423,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // dei SUOI livelli, senza mai accettare una sede di livello peggiore di maxLiv. Ricollocazione
     // dell'occupante: a pari/miglior livello sempre consentita (indifferenza dichiarata, non gli
     // costa nulla); a livello peggiore solo se il richiedente ha VERA priorità superiore su quella
-    // sede (titolarità → categoria → debito → graduatoria tra determinati).
+    // sede (titolarità → categoria → debito → graduatoria tra tutti i contrattualizzati).
     const provaFisica = (m, visitate, maxLiv) => {
       const acc = accVerdeDi(m.id);
       for (const sede of acc) {
@@ -945,7 +939,7 @@ export default function App() {
   const [rapMaxSettimana, setRapMaxSettimana] = useState(""); // "" = nessun tetto, altrimenti numero
   const [confermaAzzera, setConfermaAzzera] = useState(false); // doppio tocco per azzerare il mese
   const azzeraTimer = useRef(null);
-  const [nuovoMedico, setNuovoMedico] = useState({ nome: "", cat: "SENZA", grad: "" });
+  const [nuovoMedico, setNuovoMedico] = useState({ nome: "", cat: "SENZA", grad: "", sedeContratto: "" });
 
   // Caricamento persistente all'avvio.
   // La chiave include una versione: cambiarla forza una partenza pulita senza residui.
@@ -1102,9 +1096,12 @@ export default function App() {
     if (!nome) { alert("Inserisci il cognome del medico."); return; }
     if (mediciList.some((m) => m.nome === nome)) { alert("Esiste già un medico con questo nome."); return; }
     if (!Number.isFinite(grad) || grad < 0) { alert("Inserisci una posizione in graduatoria valida (numero ≥ 0)."); return; }
+    // Titolarità obbligatoria per ogni contrattualizzato (§3.1a): mai null per una categoria con
+    // monte ore (tutte tranne SENZA incarico).
+    const sedeContratto = nuovoMedico.cat === "SENZA" ? null : (nuovoMedico.sedeContratto || "Maniago");
     const nuovoId = Math.max(...mediciList.map((m) => m.id)) + 1;
-    setMedici([...mediciList, { id: nuovoId, nome, cat: nuovoMedico.cat, grad, sedeContratto: null }]);
-    setNuovoMedico({ nome: "", cat: "SENZA", grad: "" });
+    setMedici([...mediciList, { id: nuovoId, nome, cat: nuovoMedico.cat, grad, sedeContratto }]);
+    setNuovoMedico({ nome: "", cat: "SENZA", grad: "", sedeContratto: "" });
   };
   const rimuoviMedico = (id) => {
     const m = mediciList.find((x) => x.id === id);
@@ -1599,22 +1596,20 @@ Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dich
 - Scenario 4 (4 medici): 4 sedi fisiche (Maniago, Spilimbergo, Meduno, Claut). Stessa logica blu per Anduins. Sedi senza blu → SCOPERTE.
 
 == GERARCHIA CATEGORIE (priorità decrescente) ==
-1. INDET (indeterminato, qualunque orario) → spareggio: debito orario poi graduatoria
-2. Determinato 36h/sett → spareggio: titolarità sede (solo tra determinati, vedi sotto) → debito orario → graduatoria
+1. INDET (indeterminato, qualunque orario) → spareggio: titolarità sede → debito orario → graduatoria
+2. Determinato 36h/sett → spareggio: titolarità sede → debito orario → graduatoria
 3. Determinato 24h/sett = Determinato 12h/sett ASAP (DET12ASAP) → STESSO livello di priorità, non sono in relazione
    gerarchica tra loro: uno spareggio diretto tra i due si risolve con titolarità sede → debito orario →
    graduatoria, esattamente come tra due medici della stessa categoria
 4. Determinato 12h/sett (DET12) → spareggio: titolarità sede → debito orario → graduatoria; perde sempre contro
    INDET, Determinato 36h, Determinato 24h e DET12ASAP, batte solo i medici senza incarico
-5. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore
-La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo positivo.
+5. Senza incarico → SOLO graduatoria aziendale, nessun conteggio ore, nessuna titolarità
+La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo positivo — ECCETTO quando la titolarità di sede decide prima (vedi sotto).
 
-== TITOLARITÀ DI SEDE (solo determinati) ==
-Ogni medico determinato (36h, 24h, 12h ASAP o 12h) può avere un contratto di titolarità per Maniago, Spilimbergo, o nessuna.
-Tra due determinati in conflitto per la sede di cui uno è titolare, il titolare vince SEMPRE quella sede,
-sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu), prima ancora del confronto di
-categoria: titolarità sede → categoria → debito → graduatoria, in entrambi i casi.
-La titolarità non ha alcun effetto se uno dei due contendenti non è determinato (es. contro un INDET o un senza incarico).
+== TITOLARITÀ DI SEDE (OBBLIGATORIA per ogni contrattualizzato, INDET incluso) ==
+Ogni medico contrattualizzato (INDET, Determinato 36h, 24h, 12h ASAP o 12h) ha SEMPRE un contratto di titolarità per Maniago o Spilimbergo — mai "nessuna" per loro. Solo i senza incarico non hanno titolarità.
+Su QUALSIASI sede contesa, la titolarità di QUELLA sede specifica decide PRIMA di tutto il resto, sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu): chi è titolare della sede contesa batte chi non lo è, qualunque sia la categoria di entrambi. Tra due medici PARI rispetto a quella sede specifica (entrambi titolari di essa, oppure nessuno dei due — es. uno titolare di Maniago e l'altro di Spilimbergo, in conflitto su Maniago: solo il primo è titolare LÌ), decide poi normalmente categoria → debito → graduatoria.
+Esempio: un Determinato 24h titolare di Maniago batte un INDET titolare di Spilimbergo nel conflitto su Maniago (la titolarità vince prima della categoria); sulla stessa coppia, su Spilimbergo vince invece l'INDET. Due titolari della STESSA sede (es. entrambi titolari di Maniago): la titolarità è a parità tra loro, quindi decide categoria → debito → graduatoria, esattamente come se nessuno dei due fosse titolare.
 
 == FRAMEWORK DEBITO ORARIO ==
 Conteggio mensile in ore effettive (NON settimanale, NON in numero di turni).
@@ -2875,7 +2870,17 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                     <tr key={m.id} style={{ borderBottom: "1px solid #eef0ec" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 600 }}>{m.nome}</td>
                       <td style={{ padding: "6px 8px" }}>
-                        <select value={m.cat} onChange={(e) => aggiornaMedico(m.id, { cat: e.target.value })}
+                        <select value={m.cat} onChange={(e) => {
+                          const nuovaCat = e.target.value;
+                          // Titolarità obbligatoria per ogni contrattualizzato (§3.1a): passando a SENZA
+                          // si azzera (nessuna titolarità per i senza incarico); passando a un
+                          // contrattualizzato senza titolarità già impostata, default a Maniago (mai
+                          // lasciarla null — il coordinatore la corregge dalla colonna Titolarità).
+                          const patch = { cat: nuovaCat };
+                          if (nuovaCat === "SENZA") patch.sedeContratto = null;
+                          else if (!m.sedeContratto) patch.sedeContratto = "Maniago";
+                          aggiornaMedico(m.id, patch);
+                        }}
                           style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6", background: CAT_INFO[m.cat].bg, color: CAT_INFO[m.cat].color, fontWeight: 600 }}>
                           {Object.entries(CAT_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                         </select>
@@ -2886,11 +2891,10 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                           style={{ width: 58, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }} />
                       </td>
                       <td style={{ padding: "6px 8px" }}>
-                        {isDeterminato(m.id) ? (
-                          <select value={m.sedeContratto || ""} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value || null })}
-                            title="Sede di titolarità: vince sempre quella sede tra determinati, prima della categoria"
+                        {isContrattualizzato(m.id) ? (
+                          <select value={m.sedeContratto || "Maniago"} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value })}
+                            title="Sede di titolarità (obbligatoria): vince sempre quella sede tra tutti i contrattualizzati, prima della categoria"
                             style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #c8ccc6" }}>
-                            <option value="">Nessuna</option>
                             {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
                           </select>
                         ) : "—"}
@@ -2945,6 +2949,15 @@ Ogni cella è <b style={{color:"#1a5c4a"}}>disponibile</b> (con le sedi scelte) 
                       {Object.entries(CAT_INFO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
                   </label>
+                  {nuovoMedico.cat !== "SENZA" && (
+                    <label style={{ fontSize: 11, color: "#5b5f59" }}>Titolarità<br />
+                      <select value={nuovoMedico.sedeContratto || "Maniago"} onChange={(e) => setNuovoMedico((p) => ({ ...p, sedeContratto: e.target.value }))}
+                        title="Sede di titolarità (obbligatoria per ogni contrattualizzato)"
+                        style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #c8ccc6", marginTop: 3 }}>
+                        {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
+                      </select>
+                    </label>
+                  )}
                   <label style={{ fontSize: 11, color: "#5b5f59" }}>Graduatoria<br />
                     <input type="number" min={0} value={nuovoMedico.grad} placeholder="es. 88"
                       onChange={(e) => setNuovoMedico((p) => ({ ...p, grad: e.target.value }))}

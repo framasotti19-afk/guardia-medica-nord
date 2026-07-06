@@ -5,13 +5,17 @@
 // A parità di livello (sia verde che blu) l'ordine di prova segue sempre SEDI5 (Maniago →
 // Spilimbergo → Meduno → Claut → Anduins), MAI l'ordine in cui il medico ha dichiarato le sedi:
 // la parità rende due sedi "indifferenti" per il medico, non davvero equivalenti tra loro.
+// Nei test di conflitto puro (categoria/grad, non titolarità) le coppie sono scelte entrambe
+// titolari della STESSA sede (o il conflitto è su Meduno/Claut, mai sedi di titolarità) per isolare
+// la regola dalla titolarità universale (§3.1a).
 import { MEDICI, dk, elaboraSchema, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI } from './test_utils.mjs';
 
 const suite = makeSuite("test_livelli_verde_blu — livelli verde 1-5 e blu 1-4");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const G1 = GIORNI_FERIALI_SEMPLICI[0];
-const BERTUZZI = 1, WANG = 12;
+const ZURLO = 1, IENGO = 13, BERTUZZI = 14; // DET36 tit.Maniago, DET36 tit.Maniago, INDET tit.Spilimbergo
+const MARTINETTI = 4, PITAU = 5, DE_CANDIDO = 11; // DET24: tit.Spilimbergo, tit.Maniago, tit.Spilimbergo
 
 function unicoTurno(dispo, extraOre = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {});
@@ -53,12 +57,14 @@ suite.test("il motore prova le sedi verdi nell'ordine di livello dichiarato", ()
 });
 
 suite.test("i livelli verdi non influenzano MAI chi vince un conflitto, solo quale sede riceve", () => {
-  const FOSCHIANI = 8;
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 5 } }); // grad3, livello peggiore possibile
-  d[WANG][N(G1)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 } }); // grad124, livello migliore possibile
+  // MARTINETTI (grad5) e DE CANDIDO (grad83), entrambi DET24 titolari di Spilimbergo: contesa su
+  // Maniago (nessuno dei due titolare lì) — puro grad, livelli verde opposti a quanto ci si
+  // aspetterebbe non contano.
+  d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 5 } }); // grad5, livello peggiore possibile
+  d[DE_CANDIDO][N(G1)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 } }); // grad83, livello migliore possibile
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], FOSCHIANI, "FOSCHIANI vince per grad migliore nonostante il livello verde peggiore");
+  suite.eq(t.slots[0], MARTINETTI, "MARTINETTI vince per grad migliore nonostante il livello verde peggiore");
 });
 
 // ---------------------------------------------------------------------------
@@ -72,37 +78,35 @@ suite.test("il motore prova i blu del medico nell'ordine dei suoi livelli dichia
   suite.assert(t.slots[3] === null, "Claut resta scoperta: un medico copre al massimo 1 sede a distanza");
 });
 
-suite.test("conflitto sullo stesso blu: vince categoria/grad, non il livello blu dichiarato", () => {
-  const FOSCHIANI = 8, TRIGODKO = 3;
+suite.test("conflitto sullo stesso blu su Maniago: vince categoria/grad tra due non titolari, non il livello blu dichiarato", () => {
   const d = dispoBase(MEDICI);
-  // n=3: TRIGODKO fisico a Maniago (occupa il posto "normale"), FOSCHIANI a Spilimbergo, WANG a
-  // Meduno — target [MA,SP,ME] tutto coperto fisicamente. Rifacciamo con Maniago scoperto invece:
-  // FOSCHIANI a Spilimbergo e WANG a Meduno, un 3° medico (TRIGODKO) con verde altrove per far
-  // salire n a 3 senza coprire Maniago.
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 4 } }); // DET24 grad3, livello blu peggiore (4 = max valido)
-  d[WANG][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // DET24 grad124, livello blu migliore
-  d[TRIGODKO][N(G1)] = turnoDisp(["Claut"]); // 3° candidato presente, verde fuori dal target [MA,SP,ME]
+  // MARTINETTI e DE CANDIDO, entrambi DET24 titolari di Spilimbergo (non Maniago): blu-conflitto
+  // su Maniago, nessuno dei due titolare lì. 3° candidato (PITAU) presente con verde altrove, solo
+  // per portare n a 3 (target [MA,SP,ME]) senza intervenire sul conflitto.
+  d[MARTINETTI][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 4 } }); // grad5, livello blu peggiore (4 = max valido)
+  d[DE_CANDIDO][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad83, livello blu migliore
+  d[PITAU][N(G1)] = turnoDisp(["Claut"]); // 3° candidato presente, verde fuori dal target [MA,SP,ME]
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], FOSCHIANI, "FOSCHIANI (grad3) vince su WANG (grad124) nonostante il livello blu peggiore");
+  suite.eq(t.slots[0], MARTINETTI, "MARTINETTI (grad5) vince su DE CANDIDO (grad83) nonostante il livello blu peggiore");
 });
 
 suite.test("se il vincitore del blu preferito viene scalzato, riprova con il suo blu successivo", () => {
-  const TRIGODKO = 3, GHIZZO = 5;
   const d = dispoBase(MEDICI);
-  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad4
-  d[GHIZZO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad91
+  // Conflitto su Meduno (mai sede di titolarità): ZURLO e IENGO, entrambi DET36, decide il grad.
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad2
+  d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad107
   const t = unicoTurno(d);
-  suite.eq(t.slots[2], TRIGODKO, "TRIGODKO (grad migliore) vince Meduno");
-  suite.eq(t.slots[3], GHIZZO, "GHIZZO, perso Meduno, ottiene comunque il suo blu successivo (Claut)");
+  suite.eq(t.slots[2], ZURLO, "ZURLO (grad migliore) vince Meduno");
+  suite.eq(t.slots[3], IENGO, "IENGO, perso Meduno, ottiene comunque il suo blu successivo (Claut)");
 });
 
 suite.test("i livelli blu non influenzano MAI chi vince un conflitto, solo quale sede riceve", () => {
-  const FOSCHIANI = 8;
   const d = dispoBase(MEDICI);
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 4 } }); // grad3, livello blu peggiore
-  d[WANG][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad124, livello blu migliore
+  // Conflitto su Meduno (mai sede di titolarità): MARTINETTI e DE CANDIDO, stessa categoria DET24.
+  d[MARTINETTI][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 4 } }); // grad5, livello blu peggiore
+  d[DE_CANDIDO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad83, livello blu migliore
   const t = unicoTurno(d);
-  suite.eq(t.slots[2], FOSCHIANI, "FOSCHIANI vince per grad migliore nonostante il livello blu peggiore");
+  suite.eq(t.slots[2], MARTINETTI, "MARTINETTI vince per grad migliore nonostante il livello blu peggiore");
 });
 
 suite.finish();
