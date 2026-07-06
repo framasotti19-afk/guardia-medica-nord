@@ -308,7 +308,7 @@ const turnoPrefDi = (dispo, mid, dataStr) => dispo[mid]?.["TURNOPREF:" + dataStr
 // ufficiale (categoria/prio → debito residuo → graduatoria, con senza incarico in coda).
 // Isolata così la regola di preferenza turno (stesso giorno G/N) può cercare un
 // alternativo con lo stesso identico criterio usato da elaboraTurno.
-function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) {
+function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, esente) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const candidati = MEDICI.filter((m) => {
@@ -323,7 +323,12 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
     // turni mese/distribuzione, CONTEXT.md §3.11) NON è più un filtro qui: è applicato interamente
     // in un secondo passaggio di post-elaborazione in elaboraSchema, dopo che il mese è stato
     // elaborato una prima volta con la gerarchia pura (vedi elaboraSchema per i dettagli).
-    if (debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0) return false;
+    // `esente`: insieme opzionale di medici esentati dal blocco monte ore SOLO in questo oracolo —
+    // usato dalla distribuzione temporale (§3.11) per calcolare, per un medico con Max turni mese
+    // esplicito che morde, i turni che vincerebbe su TUTTO il mese se il suo stesso monte ore non
+    // lo fermasse presto (altrimenti i turni tenuti si ammucchiano nella prima settimana). Non
+    // altera mai il risultato reale: l'oracolo per-medico è usato solo per costruire il pool.
+    if (!(esente && esente.has(m.id)) && debiti[m.id] !== null && debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) <= 0) return false;
     return true;
   });
   const bucketDi = (m) => (debiti[m.id] === null || (debiti[m.id] <= 0 && (debitiExtra[m.id] || 0) > 0)) ? 1 : 0;
@@ -342,10 +347,10 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey) 
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti e
 // settimanaCount (turni già assegnati per medico/settimana) condivisi tra tutte le chiamate dello
 // stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, esente) {
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
-  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey); // già in ordine di gerarchia ufficiale
+  const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, esente); // già in ordine di gerarchia ufficiale
   // Scala il debito del vincitore per un turno fisico: finché ha monte ore+recupero residuo lo
   // scala normalmente; una volta esaurito, scala i turni extra volontari dichiarati (stessa
   // priorità di un senza incarico — vedi bucketOf/candidatiOrdinati). Nessun effetto sui senza
@@ -633,7 +638,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // (escludiPerSlot: slotKey -> Set<mid> forzati a "no" SOLO per quello slot specifico — non
   // tocca nessun'altra dichiarazione del medico). dopoTurno (opzionale) è richiamato subito dopo
   // ogni turno elaborato, per un eventuale conteggio live (§3.11, passaggio 2).
-  function eseguiMese(debiti, debitiExtra, settimanaCount, escludiPerSlot, dopoTurno) {
+  function eseguiMese(debiti, debitiExtra, settimanaCount, escludiPerSlot, dopoTurno, esente) {
     const risultati = {}; // "d|turnoId" -> turnoOut
     const avvisiRaw = []; // {d, testo}
     ordineVoci.forEach(({ d, turno, slotKey }) => {
@@ -645,7 +650,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
           dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null } };
         });
       }
-      const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount);
+      const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount, esente);
       risultati[`${d}|${turno.id}`] = turnoOut;
       if (avviso) avvisiRaw.push({ d, testo: avviso });
       if (dopoTurno) dopoTurno(turno, turnoOut);
@@ -666,23 +671,60 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   const tetto = {};
   MEDICI.forEach((m) => { tetto[m.id] = tettoDistribuzioneDi(m.id, debiti0[m.id], debitiExtra0[m.id], maxTurniMese); });
 
-  // Turni FISICI/EXTRA effettivamente vinti nel passaggio 1, in ordine cronologico (per giorno di
-  // calendario, non per ordine di elaborazione conPref/resto), con il livello della sede verde
-  // ottenuta — per medico (la copertura a distanza non conta mai ai fini del tetto mensile, come
-  // per Max turni mese).
-  const vintiDi = {};
-  MEDICI.forEach((m) => (vintiDi[m.id] = []));
+  // Turni FISICI/EXTRA vinti da un medico in un set di risultati, in ordine cronologico (per giorno
+  // di calendario, non per ordine di elaborazione conPref/resto), con il livello della sede verde
+  // ottenuta — la copertura a distanza non conta mai ai fini del tetto mensile, come per Max turni mese.
+  const estraiVinti = (risultati, mid) => {
+    const out = [];
+    voci.forEach(({ d, turno, slotKey }) => {
+      const r = risultati[`${d}|${turno.id}`];
+      if (turno.extra) {
+        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+      } else {
+        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) }); });
+      }
+    });
+    return out;
+  };
+
+  // Pool su cui la distribuzione temporale sceglie il sottoinsieme equidistante da tenere (§3.11).
+  // Caso base: i turni EFFETTIVAMENTE vinti nel passaggio 1 (oracolo normale). Build batch O(voci).
+  const poolDi = {};
+  MEDICI.forEach((m) => (poolDi[m.id] = []));
   voci.forEach(({ d, turno, slotKey }) => {
     const out = risultatiP1[`${d}|${turno.id}`];
     if (turno.extra) {
       const mid = out.slots[0];
-      if (mid) vintiDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
     } else {
       out.fis.forEach((si) => {
         const mid = out.slots[si];
-        if (mid) vintiDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
+        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
       });
     }
+  });
+
+  // CORREZIONE §3.11 (pool su tutto il mese quando morde un cap ESPLICITO): un contrattualizzato
+  // disponibile su gran parte del mese esaurisce il monte ore nei primi giorni, quindi nel passaggio
+  // 1 "vince" solo turni ammucchiati all'inizio — e l'equidistante su quel pool ristretto li tiene
+  // ammucchiati (bug del collaudo reale: DET24 disponibile tutte le notti + Max turni mese 4 →
+  // giorni 1,2,4,7 invece di ~4,12,20,28). Solo quando il vincolo che morde è un Max turni mese
+  // ESPLICITO più restrittivo del monte ore (cap < turni impliciti), il pool va ricalcolato su TUTTO
+  // il mese: un oracolo per-medico che esenta SOLO quel medico dal blocco monte ore (§3.4) — così
+  // "vince" tutti i turni di cui è il legittimo vincitore per gerarchia sull'intero mese, e
+  // l'equidistante li sparge davvero. Il passaggio 2 resta invariato (blocco monte ore + tetto
+  // rigido live): il medico non supera mai né monte ore né tetto (cap turni ≤ (implicito-1) turni <
+  // monte ore, quindi le ore bastano sempre per i turni tenuti). Gate ristretto ai soli
+  // contrattualizzati: i senza incarico non hanno monte ore, non si esauriscono mai, il loro pool
+  // già copre tutto il mese e non serve alcun oracolo dedicato.
+  MEDICI.forEach((m) => {
+    if (debiti0[m.id] === null) return; // senza incarico: nessun monte ore da esaurire, pool già completo
+    const capDich = capMensileDi(maxTurniMese, m.id);
+    if (capDich === null) return; // nessun cap esplicito: morde (al più) solo il monte ore, comportamento invariato
+    const implicito = Math.max(0, Math.round((debiti0[m.id] + (debitiExtra0[m.id] || 0)) / 12));
+    if (capDich >= implicito) return; // il cap non è più restrittivo del monte ore: nessun ammucchiamento da correggere
+    const { risultati: rM } = eseguiMese({ ...debiti0 }, { ...debitiExtra0 }, {}, null, null, new Set([m.id]));
+    poolDi[m.id] = estraiVinti(rM, m.id);
   });
 
   // Per ogni medico che supera il proprio tetto: raggruppa i turni EFFETTIVAMENTE vinti per
@@ -700,12 +742,12 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   MEDICI.forEach((m) => {
     const cap = tetto[m.id];
     if (cap === null) return;
-    const vinti = vintiDi[m.id];
-    if (vinti.length <= cap) return;
+    const pool = poolDi[m.id]; // turni vinti (oracolo normale, o oracolo per-medico esente se un cap esplicito morde)
+    if (pool.length <= cap) return;
     const perLivello = new Map();
-    vinti.forEach((v) => {
+    pool.forEach((v) => {
       if (!perLivello.has(v.livello)) perLivello.set(v.livello, []);
-      perLivello.get(v.livello).push(v); // già in ordine cronologico (vinti costruito su voci)
+      perLivello.get(v.livello).push(v); // già in ordine cronologico (pool costruito su voci)
     });
     const livelliOrdinati = [...perLivello.keys()].sort((a, b) => a - b);
     const kept = new Set();
@@ -722,7 +764,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
         residuo = 0;
       }
     });
-    vinti.forEach(({ slotKey }) => {
+    pool.forEach(({ slotKey }) => {
       if (kept.has(slotKey)) return;
       if (!cessioniPerSlot.has(slotKey)) cessioniPerSlot.set(slotKey, new Set());
       cessioniPerSlot.get(slotKey).add(m.id);

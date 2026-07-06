@@ -28,7 +28,7 @@
 // confronto titolarità→categoria è gated su ENTRAMBI i contendenti contrattualizzati — un senza
 // incarico lo disattiva sempre.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, dk, elaboraSchema } from './engine_test.mjs';
-import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST } from './test_utils.mjs';
+import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("test_distribuzione_temporale — turni distanziati nel mese invece dei primi N");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
@@ -104,15 +104,46 @@ suite.test("con un solo candidato disponibile e nessun backup, la distribuzione 
   suite.eq(scoperte.length, 31 - 8, "dal giorno 9 in poi la notte resta scoperta (blocco rigido oltre il monte ore, §3.4, preesistente e invariato): non è una regressione introdotta dalla distribuzione temporale");
 });
 
-suite.test("Max turni mese più restrittivo del monte ore: il tetto (3) è inferiore alle vittorie naturali (8), quindi la cessione scatta davvero — il sottoinsieme tenuto è il più equidistanziato TRA LE VITTORIE EFFETTIVE, non tra i giorni disponibili", () => {
+suite.test("Max turni mese ESPLICITO più restrittivo del monte ore: i turni tenuti sono sparsi su TUTTO il mese, non ammucchiati nella finestra del monte ore", () => {
+  // BERTUZZI (INDET, 96h = 8 turni impliciti) disponibile tutte le 31 notti, cap ESPLICITO 3.
+  // Fino alla correzione §3.11 di questo bug, il pool di distribuzione erano i turni EFFETTIVAMENTE
+  // vinti nel passaggio 1, dove il blocco rigido del monte ore (§3.4) esaurisce l'INDET nei primi 8
+  // giorni: l'equidistante su quel pool ristretto teneva [1,5,8] — ammucchiati nella prima settimana
+  // (il test precedente asseriva PROPRIO [1,5,8], codificando il bug). Ora, quando morde un cap
+  // ESPLICITO più restrittivo del monte ore (3 < 8), il pool viene ricalcolato su TUTTO il mese con
+  // un oracolo per-medico che esenta SOLO BERTUZZI dal blocco monte ore: vince tutte le 31 notti (è
+  // INDET, batte il backup senza incarico), e l'equidistante su 31 sceglie [1,16,31] — sparsi da
+  // inizio a fine mese. Il passaggio 2 resta invariato (tetto rigido: mai più di 3; 3 turni = 36h <
+  // 96h di monte ore, quindi le ore bastano per tenerli tutti).
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
   const notti = vincitoriNotte(schema, BERTUZZI);
-  suite.eq(notti.length, 3, "con un tetto mensile di 3, BERTUZZI vince solo 3 notti nell'intero mese (non le 8 del monte ore, mai di più: tetto rigido)");
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 5, 8]), "sottoinsieme equidistanziato scelto tra le 8 vittorie EFFETTIVE del pass 1 ([1,2,...,8], gli stessi primi 8 giorni consecutivi del primo test qui sopra), non tra tutti i 31 giorni disponibili: la finestra resta quella naturale della gerarchia");
+  suite.eq(notti.length, 3, "con un tetto mensile di 3, BERTUZZI vince solo 3 notti nell'intero mese (mai di più: tetto rigido)");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 16, 31]), "sottoinsieme equidistanziato su TUTTA la disponibilità del mese (31 notti), non solo sulla finestra del monte ore: [1,16,31] sparsi, non più [1,5,8] ammucchiati");
   const scoperte = [];
   schema.forEach((g) => { const t = g.turni.find((x) => x.id === "N"); if (!t.slots[0]) scoperte.push(g.giorno); });
   suite.eq(scoperte.length, 0, "nessuna notte scoperta: PRESSACCO copre sempre le notti cedute da BERTUZZI");
+});
+
+suite.test("regressione bug collaudo reale: DET24 disponibile TUTTE le notti + Max turni mese 4 → turni sparsi (1,10,22,31... span quasi pieno), non ammucchiati nei primi giorni", () => {
+  // Il caso esatto trovato in collaudo: un DET24 (104h = 9 turni impliciti) disponibile tutte le
+  // notti del mese, tetto ESPLICITO 4 (< 9). Prima della correzione otteneva giorni ammucchiati
+  // nella prima settimana (es. 1,2,4,7) perché il monte ore si esauriva subito e il pool erano solo
+  // quei turni iniziali. Ora deve distribuirli su tutto il mese. Uso PRESSACCO (senza incarico) come
+  // ruolo storico DET24 e IENGO (senza incarico) come backup che copre le notti cedute.
+  const lista = comeStorico(MEDICI_DEFAULT, PRESSACCO); // PRESSACCO torna DET24 titolare Spilimbergo
+  setMediciGlobal(lista);
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [PRESSACCO]: ["Maniago"], [IENGO]: ["Maniago"] });
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [PRESSACCO]: 4 });
+  const notti = vincitoriNotte(schema, PRESSACCO);
+  suite.eq(notti.length, 4, "esattamente 4 notti (tetto rigido, mai di più; 4×12=48h < 104h monte ore, le ore bastano)");
+  // Non fisso i giorni esatti (dipendono dal calendario), ma verifico che siano SPARSI: la campata
+  // (ultimo - primo) deve coprire gran parte del mese, e nessun turno oltre il 4° deve stare tutto
+  // nella prima settimana. Con equidistante su 31 notti: primo = giorno 1, ultimo = giorno 31.
+  suite.eq(notti[0], 1, "il primo turno tenuto è il giorno 1 (estremo iniziale dell'equidistante)");
+  suite.eq(notti[notti.length - 1], 31, "l'ultimo turno tenuto è il giorno 31 (estremo finale): la distribuzione copre TUTTO il mese");
+  suite.assert(notti[notti.length - 1] - notti[0] >= 25, `campata dei turni tenuti ampia (${notti[notti.length - 1] - notti[0]} giorni), non ammucchiati nella prima settimana`);
+  setMediciGlobal(MEDICI_TEST);
 });
 
 suite.test("un contrattualizzato con debito ordinario esattamente pari ai giorni disponibili non viene mai demosso (nTarget >= k, nessuna restrizione reale)", () => {

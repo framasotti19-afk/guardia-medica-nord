@@ -214,6 +214,24 @@ for (const seedBase of SEMI) {
       const usati = meseCountPerScenario[mid] || 0;
       if (usati > cap) violazioni.push(`seme=${seedBase} mese=${anno}-${mese + 1}: ${byId[mid]?.nome} ha ${usati} turni assegnati, oltre il tetto mensile di ${cap} (INV-MAXTURNI)`);
     });
+    // NOTA (§3.11, distribuzione temporale): QUI NON esiste un invariante sulla QUALITÀ della
+    // distribuzione (turni "sparsi" invece che ammucchiati), ed è una scelta deliberata, non una
+    // dimenticanza. È stato tentato (INV-DISTRIBUZIONE) e RIMOSSO: in uno scenario random denso
+    // l'ammucchiamento LEGITTIMO è indistinguibile dal bug senza replicare il motore dentro il
+    // test. Tre fonti di ammucchiamento corretto che nessun controllo a posteriori sullo schema
+    // finale sa separare dal bug: (1) cap piccolo — con Max turni mese 1-2 i turni tenuti sono
+    // pochissimi e la loro "campata" è naturalmente minima; (2) competizione al tempo-oracolo — i
+    // competitori modellano il pool nel passaggio 1 e poi si esauriscono, lasciando gli slot
+    // SCOPERTI nello schema finale, quindi un check post-hoc crede il medico "isolato" quando non
+    // lo è; (3) priorità di sede assoluta (§3.11) — i turni tenuti si concentrano nella finestra
+    // dei livelli-verdi migliori, che può essere stretta. Un invariante robusto dovrebbe conoscere
+    // il pool dell'oracolo e i livelli di sede, cioè ri-eseguire la logica di distribuzione del
+    // motore — un test però deve conoscere la risposta giusta per una via INDIPENDENTE da ciò che
+    // testa, e nella sim densa quella risposta non è calcolabile senza rifare il motore stesso.
+    // La qualità della distribuzione è quindi coperta dai due unit test DETERMINISTICI in
+    // test_distribuzione_temporale.mjs (caso isolato, single-livello, cap ≥ 3: [1,16,31] e il DET24
+    // [1,10,22,31]) — il posto giusto, senza i confondenti di competizione e priorità di sede.
+    // Vedi CONTEXT.md §10 voce 20 per la storia completa.
     scenari++;
   }
 }
