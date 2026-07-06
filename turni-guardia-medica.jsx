@@ -2543,6 +2543,18 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   }, [dati.schema]);
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
   const btn = { padding: "8px 12px", borderRadius: 6, border: "1px solid #c8ccc6", background: "#fff", cursor: "pointer", fontSize: 12 };
+  // Palette della "cornice" (restyling grafico, solo stile, nessun impatto sulla logica). Verde
+  // principale in versione più moderna/meno cupa, testi in grigi leggibili, bordi morbidi.
+  // Riutilizzabile dalle singole schermate quando verranno ristilizzate una alla volta.
+  const T = {
+    bg: "#f5f7f6",          // sfondo pagina, chiaro e ariato
+    primary: "#1c8066",     // verde principale moderno (meno cupo del vecchio #12312a)
+    primaryDark: "#14664f", // verde per hover/stati premuti
+    primaryTint: "#e7f3ef", // verde tenue per il tab attivo (pill)
+    text: "#2c3733",        // testo principale, grigio-verde scuro (non nero pieno)
+    textMuted: "#6a7671",   // testo secondario / tab inattivi
+    border: "#e5e9e6",      // bordi morbidi e sottili
+  };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
@@ -2556,8 +2568,8 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   };
 
   return (
-    <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif", background: "#f6f7f5", minHeight: "100vh", color: "#22252a" }}>
-      <div style={{ background: "#12312a", color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+    <div style={{ fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif", background: T.bg, minHeight: "100vh", color: T.text }}>
+      <div style={{ background: T.primary, color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", boxShadow: "0 1px 3px rgba(20,102,79,.18)" }}>
         <div>
           <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7 }}>ASFO · DISTRETTO NORD</div>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Coordinamento Turni Guardia Medica</h1>
@@ -2581,13 +2593,13 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
             ))}
           </select>
           <button onClick={() => setMeseIdx((i) => Math.min(MESI_DISPONIBILI.length - 1, i + 1))} disabled={meseIdx === MESI_DISPONIBILI.length - 1} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>›</button>
-          <button onClick={() => setAiOpen((o) => !o)} style={{ ...btn, background: aiOpen ? "#fff" : "rgba(255,255,255,.15)", color: aiOpen ? "#12312a" : "#fff", border: "none", fontWeight: 700 }}>Assistente AI</button>
+          <button onClick={() => setAiOpen((o) => !o)} style={{ ...btn, background: aiOpen ? "#fff" : "rgba(255,255,255,.15)", color: aiOpen ? T.primary : "#fff", border: "none", fontWeight: 700 }}>Assistente AI</button>
         </div>
       </div>
 
-      <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #dde0dc", padding: "0 16px", flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 4, background: "#fff", borderBottom: `1px solid ${T.border}`, padding: "8px 16px", flexWrap: "wrap", alignItems: "center" }}>
         {[["dispo", "1 · Disponibilità"], ["mmg", "2 · Coperture MMG e PLS"], ["medici", "3 · Medici / ore da recuperare"], ["schema", "4 · Schema turni"]].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} style={{ padding: "12px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: tab === k ? 600 : 400, color: tab === k ? "#12312a" : "#7a7f78", borderBottom: tab === k ? "3px solid #12312a" : "3px solid transparent" }}>{l}</button>
+          <button key={k} onClick={() => setTab(k)} style={{ padding: "9px 16px", borderRadius: 999, border: "none", background: tab === k ? T.primaryTint : "transparent", cursor: "pointer", fontSize: 13, fontWeight: tab === k ? 600 : 500, color: tab === k ? T.primaryDark : T.textMuted, transition: "background .15s, color .15s" }}>{l}</button>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, padding: "8px 0", flexWrap: "wrap" }}>
           <button onClick={annulla} disabled={!hPast} title="Annulla ultima azione" style={{ ...btn, opacity: hPast ? 1 : 0.4, fontWeight: 700 }}>↶ Annulla</button>
