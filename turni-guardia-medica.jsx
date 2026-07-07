@@ -1810,6 +1810,7 @@ UNICA ECCEZIONE: gli errori del coordinatore vanno sempre corretti retroattivame
 
 == CALENDARIO PERPETUO — GIORNO DELLA SETTIMANA E FESTIVITÀ (NON affidarti alla memoria) ==
 Per stabilire se un giorno del mese corrente (indicato in STATO ATTUALE come "mese") è un feriale semplice, un weekend, un festivo o un prefestivo — informazione necessaria per le regole su turni diurno/notturno e weekend ambiguo più sotto — NON fidarti della tua memoria approssimativa del calendario: calcola sempre, usando le regole seguenti, MA SOLO MENTALMENTE, senza scrivere alcun passaggio del calcolo nella risposta: la risposta visibile deve contenere SOLO il risultato finale (JSON valido), MAI il ragionamento o i calcoli intermedi, MAI un'introduzione tipo "Ragionamento interno" o simili — nemmeno se pensi che sia etichettata come "non mostrata all'utente": qualunque testo scrivi prima o dopo il JSON è visibile per l'utente, non esiste un canale nascosto.
+IMPORTANTISSIMO — MESE DI RIFERIMENTO FISSO: il mese e l'anno su cui calcolare SEMPRE i giorni della settimana, le festività e qualsiasi data sono ESCLUSIVAMENTE quelli indicati in "mese" dello STATO ATTUALE. Qualunque riferimento temporale scritto dal medico nella mail — "il mese prossimo", "il mese entrante", "per il prossimo mese", "ad aprile", il nome di un mese qualsiasi, ecc. — NON cambia il mese di riferimento e NON va usato per calcolare le date: per il medico "il mese prossimo" indica semplicemente il mese che il coordinatore sta già elaborando (quello in STATO ATTUALE). Non dedurre MAI un mese diverso dal testo della mail né spostare in avanti/indietro il calcolo dei giorni della settimana. Il mese di lavoro si cambia SOLO con l'azione vai_mese e SOLO quando è il COORDINATORE a chiederlo esplicitamente, mai a partire dal testo di una mail di disponibilità.
 1) GIORNO DELLA SETTIMANA — congruenza di Zeller (calendario gregoriano): per la data giorno=q, mese=m, anno=y, se m è gennaio o febbraio trattalo come mese 13 o 14 dell'anno PRECEDENTE (cioè m+12, y-1). Poi calcola:
    h = ( q + floor(13×(m+1)/5) + K + floor(K/4) + floor(J/4) − 2×J ) mod 7
    dove K = y mod 100 (ultime due cifre dell'anno), J = floor(y/100) (secolo). Il risultato h corrisponde a: 0=sabato, 1=domenica, 2=lunedì, 3=martedì, 4=mercoledì, 5=giovedì, 6=venerdì.
@@ -2103,6 +2104,12 @@ DISPONIBILITÀ GENERICA — TUTTE LE SEDI PARI
 • per quanto riguarda la sede, nessun problema
 → inserisci verde livello 1 su tutte e 5 le sedi con livelli pari
 
+SEDE NON MENZIONATA AFFATTO (il medico dichiara giorni/turni ma non nomina NESSUNA sede — diverso da "sede vaga"):
+Quando una disponibilità ordinaria (giorni/turni) NON contiene alcun riferimento a una sede, né esplicito né vago:
+• Se il medico HA una titolarità di sede (campo "titolare" in stato.medici valorizzato — Maniago o Spilimbergo): usa QUELLA come sede verde di prima scelta (livello 1) dell'inserimento. È la sua sede di contratto, la sede naturale; NON chiedere, NON lasciare vuoto.
+• Se il medico NON ha titolarità (campo "titolare" = null, cioè un senza incarico): NON inventare la sede. NON inserire la disponibilità e genera l'avviso (formato esatto): "🔴 ATTENZIONE: [nome] non ha specificato la sede e non ha titolarità di sede — verificare con il medico quale sede." (Precedenza: per un senza incarico vale PRIMA il controllo sul numero di guardie mensili in cima a questa sezione: se manca ANCHE quello, l'avviso da dare è quello sul numero di guardie, non questo — un solo avviso, quello del controllo che scatta per primo.)
+Questa regola vale SOLO quando la sede è del tutto ASSENTE. Se invece il medico nomina una sede vaga/non identificabile ("zona nord", "una sede comoda") resta la regola di CASI DA SEGNALARE AL COORDINATORE (avviso, nessun inserimento); se dichiara indifferenza esplicita ("qualsiasi sede", "ovunque") resta la regola qui sopra (tutte e 5 le sedi).
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TURNI DIURNO/NOTTURNO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2135,6 +2142,12 @@ SOLO DIURNO (inserisci solo G):
 • solo giorni / i diurni sì, i notturni no
 • la notte non riesco, solo il giorno
 • ho problemi con i notturni, solo diurni
+
+NOTTI DEI GIORNI FERIALI / INFRASETTIMANALI (insieme completo, tutte le notti feriali del mese):
+Frasi che indicano CHIARAMENTE le notti dei giorni feriali (infrasettimanali) come insieme, senza qualificatori di eccezione:
+• "faccio i miei soliti notturni infrasettimanali" / "i notturni infrasettimanali" / "i notturni feriali" / "le notti dei feriali" / "le notti durante la settimana" / "le sere infrasettimanali" / "sono disponibile le notti feriali"
+→ interpreta come TUTTE le notti dei giorni feriali del mese: inserisci il turno N su OGNI giorno feriale semplice del mese (lunedì-venerdì NON festivo/prefestivo, determinati con la sezione CALENDARIO PERPETUO sopra; nei feriali esiste solo il notturno). Questo insieme è DETERMINATO e completo: NON è una "data vaga" da segnalare. La sede segue le regole della sezione SEDI (se non dichiarata: titolarità del medico). Escludi i giorni per cui la stessa email dichiara un NO esplicito.
+⚠️ ECCEZIONE: se la frase contiene un qualificatore di eccezione NON specificata ("quasi sempre", "di solito", "spesso", "in genere", "il più delle volte", "salvo eccezioni") NON applicare questa regola e NON inserire nulla → vedi "ECCEZIONI NON SPECIFICATE" in CASI DA SEGNALARE AL COORDINATORE (va chiesto quali notti escludere).
 
 WEEKEND AMBIGUO — medico NON specifica NÉ diurno NÉ notturno (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
 🔒 CONTROLLO OBBLIGATORIO, PRIMA DI TUTTO IL RESTO DI QUESTA SEZIONE: verifica sempre, per il giorno esatto in questione, se è un lunedì/martedì/mercoledì/giovedì/venerdì NON festivo (feriale semplice). Se lo è, questa intera sezione NON SI APPLICA: niente domanda, niente ambiguità, il diurno in quel giorno non esiste affatto — inserisci solo il notturno (N) e basta, senza generare alcuna "domanda". La domanda sul diurno esiste SOLO per sabato, domenica, festivi e prefestivi (giorni che hanno realmente sia G che N). Esempio concreto dell'errore da NON fare: giovedì 7 agosto è un feriale semplice — "sono disponibile il 7" va inserito come solo notturno, SENZA nessuna domanda "vuoi aggiungere anche il diurno?", perché il 7 agosto non ha alcun turno diurno da poter aggiungere.
@@ -2361,6 +2374,10 @@ DATE VAGHE O NON IDENTIFICABILI:
 • "la prima settimana" / "la seconda settimana" (senza date)
 • "il weekend di ferragosto" (ambiguo se 14-15 o 15-16)
 • "qualche giorno" / "alcuni giorni" (senza specificare quali)
+
+ECCEZIONI NON SPECIFICATE (una regolarità dichiarata ma con eccezioni non dette):
+• "le sere durante la settimana ci sono quasi sempre" / "di solito faccio i notturni" / "spesso sono disponibile la sera" / "in genere ci sono" / "il più delle volte" / "salvo qualche eccezione"
+I qualificatori "quasi sempre / di solito / spesso / in genere / il più delle volte / salvo eccezioni" implicano eccezioni NON specificate: NON inserire nulla e NON indovinare quali notti/giorni escludere. Avviso (formato esatto): "🔴 ATTENZIONE: [nome] ha scritto '[frase testuale del medico]' — non è chiaro quali notti/giorni escludere. Verificare con il medico." NOTA: la stessa frase SENZA questi qualificatori (es. "notturni infrasettimanali" da solo) è invece CHIARA = tutte le notti feriali (vedi sezione TURNI DIURNO/NOTTURNO): è solo il qualificatore di eccezione a renderla da segnalare.
 
 CONDIZIONALI E INCERTI:
 • "forse il 15" / "probabilmente posso il 15" / "vedrò il 15"
