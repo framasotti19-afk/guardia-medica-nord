@@ -1019,6 +1019,40 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const turniOut = info.turni.map((turno) => risultati[`${d}|${turno.id}`]);
     schema.push({ giorno: d, key: info.key, dow: info.dow, festivo: info.festivo, prefestivo: info.prefestivo, weekend: info.weekend, turni: turniOut });
   }
+  // GUARDIANO TITOLARITÀ (§3.1a, §10 voce 33): controllo finale puramente ADDITIVO — dopo TUTTE le
+  // correzioni (correggiTitolarita ×2, scambio preferenza turno §3.9, step 4° medico §10 voce 32),
+  // verifica se è rimasto un titolare fuori dalla propria sede di titolarità mentre quella sede è
+  // tenuta da un altro determinato NON titolare: il residuo raro che le catene di ricollocazione
+  // ricorsiva profonde lasciano sfuggire (§10). NON corregge — tentare di correggere di più
+  // introduce regressioni note (perdita di copertura, §10) — genera SOLO un avviso perché il
+  // coordinatore sistemi a mano quel turno. Non cambia MAI alcuna assegnazione. Stessa identica
+  // condizione (ed esclusioni) dell'invariante INV-TITOLARE del test di simulazione: titolare
+  // determinato senza turni extra, sede di titolarità come sua PRIMA scelta verde oggi, occupata da
+  // un determinato non titolare di quella sede, mentre lui è fisico altrove nello stesso turno.
+  for (let d = 1; d <= nGiorni; d++) {
+    const info = turniDelGiorno(anno, mese, d, extras);
+    info.turni.forEach((turno) => {
+      if (turno.extra) return;
+      const out = risultati[`${d}|${turno.id}`];
+      if (!out) return;
+      MEDICI.forEach((m) => {
+        if (!isDeterminato(m.id) || byId[m.id].sedeContratto === null || turniExtra[m.id]) return;
+        const S = byId[m.id].sedeContratto;
+        const si = SEDI5.indexOf(S);
+        const v = normDispo(dispo[m.id]?.[`${info.key}|${turno.id}`]);
+        if (v.no || !v.verde.includes(S)) return;
+        if (ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE)[0] !== S) return;
+        const occ = out.slots[si];
+        if (occ === null || occ === undefined || occ === m.id) return;
+        if (!isDeterminato(occ) || byId[occ].sedeContratto === S) return;
+        const suoFisico = out.fis.find((fi) => out.slots[fi] === m.id);
+        if (suoFisico !== undefined && suoFisico !== si) {
+          avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: titolare ${m.nome} di ${S} assegnato altrove (${SEDI5[suoFisico]}); la sua sede di titolarità è coperta da ${byId[occ].nome} (non titolare). Valutare un intervento manuale su questo turno.` });
+        }
+      });
+    });
+  }
+
   avvisiRaw.sort((a, b) => a.d - b.d);
   const avvisi = avvisiRaw.map((a) => a.testo);
 
