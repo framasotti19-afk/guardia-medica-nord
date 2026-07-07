@@ -145,8 +145,10 @@ function turniDelGiorno(y, m, d, extras) {
 //   prima quella che viene prima nell'ordine fisso SEDI5, cioè Maniago → Spilimbergo → Meduno →
 //   Claut → Anduins, indipendentemente dall'ordine in cui il medico le ha dichiarate — vedi
 //   ordinaPerLivello e CONTEXT.md §3.3)
-// - blu: sedi che il medico è disposto a COPRIRE A DISTANZA, da qualunque sede fisica gli venga
-//   assegnata, in ordine di preferenza (livelli 1..4; stessa regola di tie-break per pari livello
+// - blu: sedi che il medico è disposto a COPRIRE A DISTANZA dalla sede fisica su cui viene
+//   assegnato, secondo il vincolo territoriale (Claut coperibile solo dal fisico di Maniago,
+//   Anduins solo da Spilimbergo o Meduno — vedi puoCoprireADistanza e CONTEXT.md §3.2),
+//   in ordine di preferenza (livelli 1..4; stessa regola di tie-break per pari livello
 //   dell'ordine fisso SEDI5, tramite lo stesso ordinaPerLivello). Nessuna copertura a distanza è
 //   automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a
 //   distanza (la prima disponibile nel suo ordine blu dichiarato).
@@ -1768,7 +1770,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
       const stato = {
         mese: `${MESI_IT[mese]} ${anno}`,
         medici: MEDICI.map((m) => ({
-          nome: m.nome, categoria: CAT_INFO[m.cat].label, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0,
+          nome: m.nome, categoria: CAT_INFO[m.cat].label, titolare: m.sedeContratto, graduatoria: m.grad, oreExtra: dati.extraOre[m.id] || 0,
           turniExtra: (dati.turniExtra || {})[m.id] || 0,
           maxTurniMese: (dati.maxTurniMese || {})[m.id] ?? null,
           oreAssegnate: dati.schema ? (oreAssegnateDi[m.id] || 0) : null,
@@ -1842,6 +1844,7 @@ La categoria superiore prevale SEMPRE finché il medico ha debito orario residuo
 Ogni medico contrattualizzato (INDET, Determinato 38h, 24h, 12h ASAP o 12h) ha SEMPRE un contratto di titolarità per Maniago o Spilimbergo — mai "nessuna" per loro. Solo i senza incarico non hanno titolarità.
 Su QUALSIASI sede contesa, la titolarità di QUELLA sede specifica decide PRIMA di tutto il resto, sia per l'assegnazione FISICA sia per la copertura A DISTANZA (blu): chi è titolare della sede contesa batte chi non lo è, qualunque sia la categoria di entrambi. Tra due medici PARI rispetto a quella sede specifica (entrambi titolari di essa, oppure nessuno dei due — es. uno titolare di Maniago e l'altro di Spilimbergo, in conflitto su Maniago: solo il primo è titolare LÌ), decide poi normalmente categoria → debito → graduatoria.
 Esempio: un Determinato 24h titolare di Maniago batte un INDET titolare di Spilimbergo nel conflitto su Maniago (la titolarità vince prima della categoria); sulla stessa coppia, su Spilimbergo vince invece l'INDET. Due titolari della STESSA sede (es. entrambi titolari di Maniago): la titolarità è a parità tra loro, quindi decide categoria → debito → graduatoria, esattamente come se nessuno dei due fosse titolare.
+La sede di titolarità di OGNI medico è nel campo "titolare" dell'oggetto medici nello stato (Maniago o Spilimbergo per i contrattualizzati, null per i senza incarico): usalo quando devi collegare un medico alla sua sede — NON dire mai che non conosci la città/sede di un medico contrattualizzato, è sempre disponibile lì.
 
 == FRAMEWORK DEBITO ORARIO ==
 Conteggio mensile in ore effettive (NON settimanale, NON in numero di turni).
@@ -1866,7 +1869,7 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - "NO" interno = indisponibilità dichiarata esplicitamente (protetta da sovrascritture massive)
 - Assenza di dati = equivale a non disponibile
 - VERDE = sede FISICA desiderata, livelli 1..5 (MA1,SP2 = Maniago prima scelta, Spilimbergo seconda). Livelli PARI = sedi INDIFFERENTI per il medico: il motore può spostarlo liberamente tra di esse per massimizzare il numero di medici al lavoro. Livello più basso = sede che il medico ha diritto di tenere, a meno che qualcuno con priorità superiore lo scalzi. I livelli non cambiano MAI chi vince un conflitto, solo quale sede viene assegnata a ciascun vincitore.
-- BLU = sede che il medico è disposto a COPRIRE A DISTANZA (da qualunque sede fisica gli venga assegnata), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
+- BLU = sede che il medico è disposto a COPRIRE A DISTANZA dalla sede fisica su cui viene assegnato, secondo il VINCOLO TERRITORIALE (Claut coperibile solo dal fisico di Maniago; Anduins solo dal fisico di Spilimbergo o Meduno; le altre sedi senza vincolo — vedi la sezione SEDI E SCENARI DI COPERTURA), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
 - "PREF:XX" = il medico ha marcato con ★ la sede verde XX come sua sede fisica preferita per quel turno (informativo, non decisionale sui conflitti: se ottiene un'altra sede fisica, o nessuna, genera solo un avviso al coordinatore)
 
 == INTERPRETAZIONE EMAIL DISPONIBILITÀ ==
@@ -2909,7 +2912,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede, da qualunque sede fisica gli venga assegnata — nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}

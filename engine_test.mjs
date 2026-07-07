@@ -143,8 +143,10 @@ function turniDelGiorno(y, m, d, extras) {
 //   prima quella che viene prima nell'ordine fisso SEDI5, cioè Maniago → Spilimbergo → Meduno →
 //   Claut → Anduins, indipendentemente dall'ordine in cui il medico le ha dichiarate — vedi
 //   ordinaPerLivello e CONTEXT.md §3.3)
-// - blu: sedi che il medico è disposto a COPRIRE A DISTANZA, da qualunque sede fisica gli venga
-//   assegnata, in ordine di preferenza (livelli 1..4; stessa regola di tie-break per pari livello
+// - blu: sedi che il medico è disposto a COPRIRE A DISTANZA dalla sede fisica su cui viene
+//   assegnato, secondo il vincolo territoriale (Claut coperibile solo dal fisico di Maniago,
+//   Anduins solo da Spilimbergo o Meduno — vedi puoCoprireADistanza e CONTEXT.md §3.2),
+//   in ordine di preferenza (livelli 1..4; stessa regola di tie-break per pari livello
 //   dell'ordine fisso SEDI5, tramite lo stesso ordinaPerLivello). Nessuna copertura a distanza è
 //   automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a
 //   distanza (la prima disponibile nel suo ordine blu dichiarato).
