@@ -2118,7 +2118,7 @@ ENTRAMBI I TURNI (inserisci G e N):
 • mettimi per il turno completo / turno doppio
 • dalle 8 alle 8 / 24 ore / turno di 24
 
-SOLO NOTTURNO (inserisci solo N, MAI una "domanda" sul diurno — l'uso esplicito di "notti"/"notturno"/"notturni" è già una scelta di turno dichiarata, non un'ambiguità):
+SOLO NOTTURNO (inserisci solo N, MAI una "domanda" sul diurno — l'uso esplicito di "notti"/"notturno"/"notturni"/"sera"/"serale" è già una scelta di turno dichiarata, non un'ambiguità):
 • solo il notturno / esclusivamente il notturno / solo la notte
 • preferisco il notturno / meglio il notturno
 • notturno sì, diurno no / il diurno non posso
@@ -2126,6 +2126,7 @@ SOLO NOTTURNO (inserisci solo N, MAI una "domanda" sul diurno — l'uso esplicit
 • disponibile solo per il notturno / solo turni notturni
 • la mattina non posso, solo il pomeriggio/sera
 • ho impegni diurni, disponibile solo la notte
+• di sera / la sera / serale / lavoro la sera / disponibile la sera / faccio la sera → "sera" da sola (SENZA menzione di mattina/diurno) significa SEMPRE notturno: inserisci solo N, MAI la domanda sul diurno. ATTENZIONE: "mattina e sera" (o "dal mattino alla sera") resta invece ENTRAMBI I TURNI (vedi sopra) — è solo "sera" NON accompagnata da mattina/diurno a valere come notturno.
 
 SOLO DIURNO (inserisci solo G):
 • solo il diurno / esclusivamente il diurno / solo di giorno
@@ -2137,7 +2138,7 @@ SOLO DIURNO (inserisci solo G):
 
 WEEKEND AMBIGUO — medico NON specifica NÉ diurno NÉ notturno (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
 🔒 CONTROLLO OBBLIGATORIO, PRIMA DI TUTTO IL RESTO DI QUESTA SEZIONE: verifica sempre, per il giorno esatto in questione, se è un lunedì/martedì/mercoledì/giovedì/venerdì NON festivo (feriale semplice). Se lo è, questa intera sezione NON SI APPLICA: niente domanda, niente ambiguità, il diurno in quel giorno non esiste affatto — inserisci solo il notturno (N) e basta, senza generare alcuna "domanda". La domanda sul diurno esiste SOLO per sabato, domenica, festivi e prefestivi (giorni che hanno realmente sia G che N). Esempio concreto dell'errore da NON fare: giovedì 7 agosto è un feriale semplice — "sono disponibile il 7" va inserito come solo notturno, SENZA nessuna domanda "vuoi aggiungere anche il diurno?", perché il 7 agosto non ha alcun turno diurno da poter aggiungere.
-🔴 ATTENZIONE ALLA DIFFERENZA (per i soli weekend/festivi/prefestivi): questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti" né "giorno/diurno"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità. La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno, E SOLO se quel giorno è un weekend/festivo/prefestivo vero (vedi controllo obbligatorio sopra).
+🔴 ATTENZIONE ALLA DIFFERENZA (per i soli weekend/festivi/prefestivi): questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti/sera/serale" né "giorno/diurno/mattina"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" / "sera" / "serale" / "di sera" da sole (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità (unica eccezione: "mattina e sera" = ENTRAMBI, perché lì è nominato anche il diurno). La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno, E SOLO se quel giorno è un weekend/festivo/prefestivo vero (vedi controllo obbligatorio sopra).
 • sabato 8 sono disponibile / disponibile domenica 9 / ci sono il 22 (domenica)
 • il 2 a Maniago (sabato) / sabato 8 a Spilimbergo / domenica 22 ci sono
 • faccio il 2 (weekend) / il 9 lo faccio (domenica) / mettimi il 16 (sabato)
@@ -2556,11 +2557,28 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     setAiBusy(false);
   };
 
+  // Abbina il nome scritto (dall'AI o dall'utente) a un medico. La corrispondenza ESATTA vince sempre
+  // ed è sempre univoca. Come fallback si accetta un match per prefisso (in una delle due direzioni)
+  // SOLO se identifica un unico medico: se il prefisso corrisponde a PIÙ medici (ambiguo, es. un
+  // cognome che è l'inizio di un altro) NON si indovina — meglio segnalare che agganciare a caso.
+  const mediciCheMatchano = (nome) => {
+    if (!nome) return [];
+    const n = String(nome).trim().toUpperCase();
+    const esatto = MEDICI.find((x) => x.nome === n);
+    if (esatto) return [esatto]; // corrispondenza esatta: univoca, batte qualsiasi prefisso
+    return MEDICI.filter((x) => x.nome.startsWith(n) || n.startsWith(x.nome));
+  };
   const nomeToId = (nome) => {
     if (!nome) return null;
-    const n = String(nome).trim().toUpperCase();
-    const m = MEDICI.find((x) => x.nome === n) || MEDICI.find((x) => x.nome.startsWith(n)) || MEDICI.find((x) => n.startsWith(x.nome));
-    return m ? m.id : undefined; // undefined = non trovato
+    const cand = mediciCheMatchano(nome);
+    return cand.length === 1 ? cand[0].id : undefined; // 0 = non trovato, >1 = ambiguo → non indovinare
+  };
+  // Messaggio di errore appropriato quando nomeToId non restituisce un id univoco: distingue
+  // "ambiguo" (prefisso di più cognomi) da "non trovato", così il coordinatore sa cosa correggere.
+  const erroreMedico = (nome) => {
+    const cand = mediciCheMatchano(nome);
+    if (cand.length > 1) return `nome "${nome}" ambiguo: corrisponde a ${cand.map((x) => x.nome).join(", ")} — specifica il cognome completo`;
+    return `medico ${nome} non trovato`;
   };
 
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
@@ -2575,10 +2593,22 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let schema = dati.schema;
     let daElaborare = false;
     let dispoModificata = false;
+    const giorniNelMese = new Date(anno, mese + 1, 0).getDate(); // 28..31 secondo il mese (gestisce anche febbraio)
 
     azioniDaApplicare.forEach((a) => {
       if (a.az === "elabora") { daElaborare = true; return; }
       if (a.az === "vai_mese") return;
+      // Validazione del giorno: le azioni che citano un giorno (mmg, dispo_*, schema, tetto/pref
+      // settimanali/turno) costruiscono dk(anno, mese, a.giorno) — un giorno fuori dal mese (es. 31
+      // in novembre, o il 30 febbraio proposto per errore dall'AI da una data che non torna) creerebbe
+      // una chiave per un giorno inesistente. Lo scartiamo con un errore chiaro invece di applicarlo.
+      if (a.giorno !== undefined && a.giorno !== null) {
+        const g = Number(a.giorno);
+        if (!Number.isInteger(g) || g < 1 || g > giorniNelMese) {
+          errori.push(`giorno ${a.giorno} non esiste in ${MESI_IT[mese]} ${anno} (${MESI_IT[mese]} ha ${giorniNelMese} giorni)`);
+          return;
+        }
+      }
       if (a.az === "mmg") {
         const dateKey = dk(anno, mese, a.giorno);
         const ex = { ...(extras[dateKey] || {}) };
@@ -2588,28 +2618,28 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       }
       if (a.az === "ore_extra") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         if (CAT_INFO[byId[mid].cat].ore === null) { errori.push(`${a.medico} è senza incarico, niente ore da recuperare`); return; }
         extraOre = { ...extraOre, [mid]: Math.max(0, Number(a.ore) || 0) };
         return;
       }
       if (a.az === "turni_extra") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         if (CAT_INFO[byId[mid].cat].ore === null) { errori.push(`${a.medico} è senza incarico, niente turni extra volontari`); return; }
         turniExtra = { ...turniExtra, [mid]: Math.max(0, Number(a.turni) || 0) };
         return;
       }
       if (a.az === "tetto_mese") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         if (a.maxTurni === null || a.maxTurni === undefined) { const { [mid]: _drop, ...rest } = maxTurniMese; maxTurniMese = rest; }
         else maxTurniMese = { ...maxTurniMese, [mid]: Math.max(0, Number(a.maxTurni) || 0) };
         return;
       }
       if (a.az === "tetto_settimana") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         const wk = settimanaDi(dk(anno, mese, a.giorno));
         const nd = { ...(dispo[mid] || {}) };
         if (a.maxTurni === null || a.maxTurni === undefined) delete nd["SETT:" + wk];
@@ -2620,7 +2650,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       }
       if (a.az === "turno_pref") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         const info = turniDelGiorno(anno, mese, a.giorno, extras);
         if (!info.turni.some((t) => t.id === "G")) { errori.push(`giorno ${a.giorno} non ha sia diurno che notturno: preferenza di turno non applicabile`); return; }
         const dataStr = dk(anno, mese, a.giorno);
@@ -2633,7 +2663,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       }
       if (a.az === "dispo_aggiungi" || a.az === "dispo_togli" || a.az === "dispo_no") {
         const mid = nomeToId(a.medico);
-        if (mid === undefined || mid === null) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         const slotKey = `${dk(anno, mese, a.giorno)}|${a.turno}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.az === "dispo_togli") delete nd[slotKey];
@@ -2666,7 +2696,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const si = t.extra ? 0 : SEDI5.indexOf(a.sede);
         if (si < 0) { errori.push(`sede ${a.sede} non valida`); return; }
         const mid = a.medico === null ? null : nomeToId(a.medico);
-        if (mid === undefined) { errori.push(`medico ${a.medico} non trovato`); return; }
+        if (mid === undefined) { errori.push(erroreMedico(a.medico)); return; }
         schema = schema.map((g, x) => x !== gi ? g : {
           ...g, turni: g.turni.map((tt, y) => y !== ti ? tt : { ...tt, slots: tt.slots.map((s, z) => z !== si ? s : mid) }),
         });
