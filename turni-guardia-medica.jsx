@@ -463,21 +463,26 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     };
 
     // ---- FASE 1: assegnazione fisica (verde) ----
-    // Target fisico: quante e quali sedi puntare in base al numero di medici presenti (max 4).
-    // Con 1 solo medico il target è dinamico: qualunque sede sia la sua preferenza verde migliore
-    // (non più forzato su Maniago). Con 2/3/4 medici, Maniago e Spilimbergo restano sempre le
-    // prime sedi puntate, poi Meduno, poi Claut — coerentemente con "MA e SP sempre prioritarie".
-    const nFisici = Math.min(ordinati.length, 4);
+    // Target fisico: quante e quali sedi puntare in base al numero di medici presenti. Sedi fisiche
+    // fisse: Maniago, Spilimbergo, Meduno (SEMPRE). Claut e Anduins si aggiungono come fisiche SOLO
+    // nel turno DIURNO (id "G") — che nel calendario esiste esclusivamente nei giorni ad alta
+    // domanda (weekend, festivi, prefestivi); nelle notti (sempre) restano coperte a DISTANZA
+    // (FASE 2). Priorità invariata: Maniago e Spilimbergo prime, poi Meduno, poi Claut, poi Anduins
+    // (il target è il prefisso di quest'ordine). Con 1 solo medico il target è dinamico: la sua
+    // preferenza verde migliore TRA le sedi oggi fisiche (non più forzato su Maniago). Claut e
+    // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
+    // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
+    // niente doppione, senza toccare la FASE 2.
+    const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
+    const nFisici = Math.min(ordinati.length, sediFisiche.length);
     let target = [];
     if (nFisici === 1) {
       const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
-      if (v.verde.length) {
-        const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE)[0];
-        target = [SEDI5.indexOf(top)];
-      }
-    } else if (nFisici === 2) target = [0, 1];
-    else if (nFisici === 3) target = [0, 1, 2];
-    else if (nFisici >= 4) target = [0, 1, 2, 3];
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
+      if (top !== undefined) target = [SEDI5.indexOf(top)];
+    } else {
+      target = sediFisiche.slice(0, nFisici);
+    }
 
     const accVerdeDi = (mid) => {
       const v = normDispo(dispo[mid]?.[slotKey]);
@@ -1738,10 +1743,11 @@ Un giorno ha SIA il turno diurno (G) SIA quello notturno (N) se e solo se è wee
 == SEDI E SCENARI DI COPERTURA ==
 Maniago e Spilimbergo (le 2 CDC) devono sempre essere coperte PRIMA delle altre sedi.
 Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dichiarano (verde/blu, vedi sotto).
-- Scenario 1 (1 medico): fisico nella sede verde ottenuta (non più forzato su Maniago). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
+SEDI FISICHE: Maniago, Spilimbergo, Meduno sono fisiche SEMPRE. Claut e Anduins sono sedi fisiche SOLO nel turno DIURNO (8-20) — che esiste unicamente nei giorni ad alta domanda (weekend, festivi, prefestivi); nel NOTTURNO (sempre) Claut e Anduins sono coperte SOLO a distanza (blu). Ordine di riempimento: Maniago, Spilimbergo, poi Meduno, poi — solo nel diurno — Claut, poi Anduins.
+- Scenario 1 (1 medico): fisico nella miglior sede verde ottenuta TRA quelle oggi fisiche (di notte solo Maniago/Spilimbergo/Meduno; nel diurno anche Claut/Anduins). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
 - Scenario 2 (2 medici): fisici nelle 2 CDC. Coprono a distanza le sedi per cui hanno dichiarato blu (massimo 1 a testa). Conflitti sulla stessa sede blu: titolarità sede → categoria → debito → graduatoria. Sedi senza blu dichiarato → SCOPERTE.
-- Scenario 3 (3 medici): fisici a Maniago, Spilimbergo, Meduno. Stessa logica blu per le sedi restanti. Sedi senza blu → SCOPERTE.
-- Scenario 4 (4 medici): 4 sedi fisiche (Maniago, Spilimbergo, Meduno, Claut). Stessa logica blu per Anduins. Sedi senza blu → SCOPERTE.
+- Scenario 3 (3 medici): fisici a Maniago, Spilimbergo, Meduno. Claut, Anduins e ogni altra sede solo a distanza (blu). Sedi senza blu → SCOPERTE.
+- Scenario 4 — SOLO nel turno DIURNO (4-5 medici): nel diurno Claut e Anduins si aggiungono come sedi fisiche se avanzano medici dopo le 3 prioritarie (4 medici → +Claut; 5 medici → +Claut +Anduins). Nel NOTTURNO restano SEMPRE a distanza (massimo 3 sedi fisiche, come lo scenario 3). Sedi senza copertura → SCOPERTE. Eventuali medici oltre le sedi disponibili restano inutilizzati.
 
 == GERARCHIA CATEGORIE (priorità decrescente) ==
 1. INDET (indeterminato, qualunque orario) → spareggio: titolarità sede → debito orario → graduatoria

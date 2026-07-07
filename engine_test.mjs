@@ -461,21 +461,26 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     };
 
     // ---- FASE 1: assegnazione fisica (verde) ----
-    // Target fisico: quante e quali sedi puntare in base al numero di medici presenti (max 4).
-    // Con 1 solo medico il target è dinamico: qualunque sede sia la sua preferenza verde migliore
-    // (non più forzato su Maniago). Con 2/3/4 medici, Maniago e Spilimbergo restano sempre le
-    // prime sedi puntate, poi Meduno, poi Claut — coerentemente con "MA e SP sempre prioritarie".
-    const nFisici = Math.min(ordinati.length, 4);
+    // Target fisico: quante e quali sedi puntare in base al numero di medici presenti. Sedi fisiche
+    // fisse: Maniago, Spilimbergo, Meduno (SEMPRE). Claut e Anduins si aggiungono come fisiche SOLO
+    // nel turno DIURNO (id "G") — che nel calendario esiste esclusivamente nei giorni ad alta
+    // domanda (weekend, festivi, prefestivi); nelle notti (sempre) restano coperte a DISTANZA
+    // (FASE 2). Priorità invariata: Maniago e Spilimbergo prime, poi Meduno, poi Claut, poi Anduins
+    // (il target è il prefisso di quest'ordine). Con 1 solo medico il target è dinamico: la sua
+    // preferenza verde migliore TRA le sedi oggi fisiche (non più forzato su Maniago). Claut e
+    // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
+    // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
+    // niente doppione, senza toccare la FASE 2.
+    const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
+    const nFisici = Math.min(ordinati.length, sediFisiche.length);
     let target = [];
     if (nFisici === 1) {
       const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
-      if (v.verde.length) {
-        const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE)[0];
-        target = [SEDI5.indexOf(top)];
-      }
-    } else if (nFisici === 2) target = [0, 1];
-    else if (nFisici === 3) target = [0, 1, 2];
-    else if (nFisici >= 4) target = [0, 1, 2, 3];
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
+      if (top !== undefined) target = [SEDI5.indexOf(top)];
+    } else {
+      target = sediFisiche.slice(0, nFisici);
+    }
 
     const accVerdeDi = (mid) => {
       const v = normDispo(dispo[mid]?.[slotKey]);

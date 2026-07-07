@@ -25,7 +25,9 @@ import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_S
 
 const suite = makeSuite("run_tests2 — gerarchia, titolarità universale, scenari, debito");
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
-const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3
+const Gd = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|G`; // slotKey del turno DIURNO (esiste solo nei giorni ad alta domanda)
+const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3 (feriale semplice: solo notturno, niente diurno)
+const SAB = 1; // 1 agosto 2026 = sabato → ha il turno diurno (dove Claut/Anduins diventano fisiche, §3.2)
 
 // Scorciatoie sui medici reali (CONTEXT.md §4)
 const ZURLO = 1, TRIGODKO = 2, PITAU = 3, BEKAEVA = 4, MORANO = 5, FOSCHIANI = 6, MARTINETTI = 7,
@@ -38,6 +40,12 @@ const BASE = comeStorico(MEDICI_DEFAULT, PRESSACCO, CERVESATO, DE_CANDIDO, MERLI
 function unicoTurno(dispo, extraOre = {}, giorno = G1, turniExtra = {}) {
   const { schema } = elaboraSchema(dispo, extraOre, ANNO_TEST, MESE_TEST, {}, turniExtra);
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
+}
+// Come unicoTurno ma restituisce il turno DIURNO (id "G") di un giorno ad alta domanda (default:
+// SAB) — dove Claut e Anduins sono sedi fisiche assegnabili (§3.2).
+function unicoTurnoDiurno(dispo, giorno = SAB) {
+  const { schema } = elaboraSchema(dispo, {}, ANNO_TEST, MESE_TEST, {}, {});
+  return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "G");
 }
 function resetMedici() { setMediciGlobal(BASE); }
 resetMedici();
@@ -399,16 +407,56 @@ suite.test("n=3 medici con blu su Claut e Anduins: entrambe coperte se dichiarat
   suite.eq(t.slots[4], PRESSACCO, "Anduins coperta da chi l'ha dichiarata blu");
 });
 
-suite.test("n=4 medici: 4 sedi fisiche (MA+SP+ME+CL), Anduins dipende dal blu", () => {
+suite.test("NOTTE: sedi fisiche solo Maniago/Spilimbergo/Meduno — Claut e Anduins solo a distanza (§3.2)", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
   d[CERVESATO][N(G1)] = turnoDisp(["Meduno"]);
-  d[IENGO][N(G1)] = turnoDisp(["Claut"]);
+  d[IENGO][N(G1)] = turnoDisp(["Claut"]); // verde Claut INUTILIZZABILE di notte: Claut non è fisica
   const t = unicoTurno(d);
-  suite.eq(t.fis.length, 4);
-  suite.eq(t.slots[3], IENGO);
-  suite.assert(t.slots[4] === null, "Anduins scoperta senza blu dichiarato da nessuno dei 4 fisici");
+  suite.eq(t.fis.length, 3, "di notte solo 3 sedi fisiche (Maniago, Spilimbergo, Meduno)");
+  suite.eq(t.slots[0], TRIGODKO); suite.eq(t.slots[1], PRESSACCO); suite.eq(t.slots[2], CERVESATO);
+  suite.assert(t.slots[3] === null, "Claut non fisica di notte (IENGO aveva solo verde Claut, nessun blu → non piazzato)");
+  suite.assert(t.slots[4] === null, "Anduins scoperta");
+});
+
+suite.test("DIURNO: Claut diventa fisica (4 medici → 4 sedi fisiche incl. Claut)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut"]); // nel diurno la verde Claut è usabile: Claut è fisica
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.fis.length, 4, "nel diurno Claut si aggiunge come 4ª sede fisica");
+  suite.eq(t.slots[3], IENGO, "Claut fisica nel diurno");
+  suite.assert(t.slots[4] === null, "Anduins scoperta (nessuno la copre, né fisica né blu)");
+});
+
+suite.test("DIURNO: con 5 medici anche Anduins è fisica (5 sedi fisiche piene)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut"]);
+  d[DE_CANDIDO][Gd(SAB)] = turnoDisp(["Anduins"]);
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.fis.length, 5, "nel diurno con 5 medici tutte e 5 le sedi sono fisiche");
+  suite.eq(t.slots[3], IENGO, "Claut fisica");
+  suite.eq(t.slots[4], DE_CANDIDO, "Anduins fisica nel diurno");
+});
+
+suite.test("DIURNO: priorità invariata — con 3 medici solo Maniago/Spilimbergo/Meduno, Claut/Anduins a distanza", () => {
+  const d = dispoBase(MEDICI);
+  // 3 medici che dichiarano le sedi prioritarie verdi + Claut/Anduins blu: le prioritarie si
+  // riempiono per prime, Claut/Anduins restano a distanza (non c'è un 4°/5° medico).
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } });
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.fis.length, 3, "solo 3 medici → solo le 3 sedi prioritarie sono fisiche");
+  suite.eq(t.slots[0], TRIGODKO); suite.eq(t.slots[1], PRESSACCO); suite.eq(t.slots[2], CERVESATO);
+  suite.eq(t.slots[3], TRIGODKO, "Claut coperta a DISTANZA da TRIGODKO (blu)");
+  suite.eq(t.slots[4], PRESSACCO, "Anduins coperta a DISTANZA da PRESSACCO (blu)");
 });
 
 suite.test("un medico copre al massimo 1 sede a distanza anche con più blu dichiarati e disponibili", () => {
