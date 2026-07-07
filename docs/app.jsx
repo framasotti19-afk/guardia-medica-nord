@@ -1662,7 +1662,7 @@ function App() {
           // di scopertura delle colonne normali (SCOPERTO rosso per la CDC Spilimbergo, scoperto
           // grigio per le sedi minori), così la colonna mostra sempre tutte e 5 le sedi.
           if (sede === "MANIAGO") {
-            if (t.slots[0]) testo = `${byId[t.slots[0]].nome} (MMG)`;
+            if (t.slots[0]) testo = byId[t.slots[0]].nome;
             else { testo = "SCOPERTO"; stile = 11; }
           } else if (sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
           else { testo = "scoperto"; stile = 13; }
