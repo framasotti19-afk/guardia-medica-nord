@@ -599,6 +599,36 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     correggiTitolarita();
     slots = [null, null, null, null, null];
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
+    // Fix "4° medico sprecato" nel diurno (§10 voce 32) — PERCORSO SEPARATO: la FASE 1
+    // (provaFisica/correggiTitolarità) resta INTATTA, target invariato. Qui, solo nel diurno, uno
+    // step additivo con SOLE assegnazioni dirette (nessuna ricollocazione ricorsiva), scelto rispetto
+    // a "target a 5 sedi" proprio per non toccare la ricorsione sensibile di FASE1 (§10):
+    if (turno.id === "G") {
+      // A) Anduins è l'unica sede fisica del diurno che il target (prefisso, con 4 medici arriva solo
+      //    fino a Claut) può non offrire: se è libera, piazzaci un medico ELEGGIBILE rimasto
+      //    inutilizzato che l'abbia dichiarata verde — così il 4° "solo Anduins" non è sprecato.
+      if (slots[4] === null) {
+        const cand = ordinati.find((m) => sedeDi[m.id] === undefined && normDispo(dispo[m.id]?.[slotKey]).verde.includes("Anduins"));
+        if (cand) { slots[4] = cand.id; sedeDi[cand.id] = 4; }
+      }
+      // B) Tie-break "indifferente": se Anduins è ancora libera e Claut è occupata da un medico che
+      //    aveva dichiarato ENTRAMBE allo STESSO livello (davvero indifferente), e Anduins resterebbe
+      //    l'UNICO buco a distanza (Anduins non coperibile ma Claut sì), lo si sposta da Claut ad
+      //    Anduins ("tappa il buco"). Copertura a distanza: Claut dal fisico di Maniago, Anduins dal
+      //    fisico di Spilimbergo/Meduno (vincolo territoriale §3.2). Altri casi: resta su Claut.
+      if (slots[4] === null && slots[3] !== null) {
+        const mid = slots[3];
+        const vE = normDispo(dispo[mid]?.[slotKey]);
+        const lC = vE.verde.includes("Claut") ? (vE.verdeLiv["Claut"] || 1) : Infinity;
+        const lA = vE.verde.includes("Anduins") ? (vE.verdeLiv["Anduins"] || 1) : Infinity;
+        if (lC !== Infinity && lA !== Infinity && lC === lA) {
+          const clautCop = slots[0] !== null && normDispo(dispo[slots[0]]?.[slotKey]).blu.includes("Claut");
+          const anduinsCop = (slots[1] !== null && normDispo(dispo[slots[1]]?.[slotKey]).blu.includes("Anduins")) ||
+                             (slots[2] !== null && normDispo(dispo[slots[2]]?.[slotKey]).blu.includes("Anduins"));
+          if (!anduinsCop && clautCop) { slots[3] = null; slots[4] = mid; sedeDi[mid] = 4; }
+        }
+      }
+    }
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
       scalaDebito(mid, turno.ore);

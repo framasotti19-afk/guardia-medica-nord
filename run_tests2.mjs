@@ -530,6 +530,78 @@ suite.test("TERRITORIALE: Meduno a distanza NON ha vincolo geografico (coperto d
 });
 
 // ---------------------------------------------------------------------------
+// E-ter. FIX "4° MEDICO SPRECATO" nel diurno (§10 voce 32)
+// Il 4° medico va dove ha dichiarato verde; se indifferente (Claut+Anduins stesso livello),
+// tappa il buco della copertura a distanza, altrimenti Claut. Solo diurno.
+// ---------------------------------------------------------------------------
+suite.test("4°-MEDICO: dichiara solo Anduins → va FISICO ad Anduins (non più sprecato)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } }); // copre Claut a distanza
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Anduins"]); // 4° solo Anduins
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.slots[4], IENGO, "Anduins fisica: il 4° medico è sfruttato");
+  suite.eq(t.slots[3], TRIGODKO, "Claut coperta a distanza dal fisico di Maniago");
+  suite.eq(t.fis.length, 4, "4 sedi fisiche (MA/SP/ME + Anduins)");
+});
+
+suite.test("4°-MEDICO indifferente + Anduins sarebbe scoperta a distanza → FISICO ad Anduins (tappa buco)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } }); // Claut coperibile
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);                                  // Anduins NON coperibile
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]); // indifferente (stesso livello di default)
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.slots[4], IENGO, "il 4° va su Anduins (il buco); Claut resta a distanza");
+  suite.eq(t.slots[3], TRIGODKO, "Claut coperta a distanza dal fisico di Maniago");
+});
+
+suite.test("4°-MEDICO indifferente + Claut sarebbe scoperta / Anduins coperibile → resta FISICO su Claut", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);                                            // Claut NON coperibile
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } }); // Anduins coperibile
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut (il buco); Anduins a distanza da Spilimbergo");
+  suite.eq(t.slots[4], PRESSACCO, "Anduins coperta a distanza dal fisico di Spilimbergo");
+});
+
+suite.test("4°-MEDICO indifferente + entrambe coperibili a distanza → FISICO su Claut (più popolosa)", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } });
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut; Anduins a distanza");
+  suite.assert(t.slots[4] === PRESSACCO, "Anduins coperta a distanza");
+});
+
+suite.test("4°-MEDICO indifferente + nessuna coperibile → FISICO su Claut", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
+  d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
+  const t = unicoTurnoDiurno(d);
+  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut; Anduins scoperta");
+  suite.assert(t.slots[4] === null, "Anduins scoperta (nessuno la copre)");
+});
+
+suite.test("4°-MEDICO: NOTTE invariata — 4° solo Anduins resta inutilizzato, Anduins mai fisica", () => {
+  const d = dispoBase(MEDICI);
+  d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"]);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"]);
+  d[CERVESATO][N(G1)] = turnoDisp(["Meduno"]);
+  d[IENGO][N(G1)] = turnoDisp(["Anduins"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  const t = unicoTurno(d);
+  suite.eq(t.fis.length, 3, "di notte solo 3 fisiche: lo step del 4° medico vale solo nel diurno");
+  suite.assert(t.slots[4] === null, "Anduins non fisica di notte (IENGO non è fisico da nessuna parte → non copre)");
+});
+
+// ---------------------------------------------------------------------------
 // F. LIVELLI VERDE (ricollocazione fisica, §3.3)
 // ---------------------------------------------------------------------------
 suite.test("livelli verdi pari fra due sedi = indifferente: il motore ricolloca per massimizzare le coperture", () => {
