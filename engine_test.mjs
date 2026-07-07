@@ -349,7 +349,19 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, 
 // perché serve in DUE punti con la stessa identica logica: durante l'elaborazione del turno
 // (sotto), e di nuovo dopo lo scambio preferenza-turno §3.9 in elaboraSchema — dove il rilascio
 // di uno slot fisico cambia l'insieme dei presenti e la copertura a distanza va rifatta da capo.
-function risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra) {
+function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra) {
+  const sitiCoperti = new Set(Object.values(sedeFisicaDi));
+  // Vincolo TERRITORIALE (CONTEXT.md §3.2): Claut (indice 3) può essere coperta a distanza SOLO dal
+  // medico fisicamente a Maniago (0) — unica via, la Val Cellina si raggiunge da lì; Anduins (4)
+  // SOLO dal fisico di Spilimbergo (1) o Meduno (2) — due vie possibili. Le altre sedi
+  // (Maniago/Spilimbergo/Meduno a distanza) non hanno vincolo geografico. È un FILTRO applicato
+  // PRIMA della gerarchia: chi non è nella sede-base ammessa non si candida nemmeno a coprire quella
+  // sede; la scelta tra i candidati validi resta governata da isBetterPriority (invariata).
+  const puoCoprireADistanza = (mid, si) => {
+    if (si === 3) return sedeFisicaDi[mid] === 0;
+    if (si === 4) return sedeFisicaDi[mid] === 1 || sedeFisicaDi[mid] === 2;
+    return true;
+  };
   const bucketOf = (mid) => (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) ? 1 : 0;
   const isTitolareDi = (mid, sede) => isContrattualizzato(mid) && byId[mid].sedeContratto === sede;
   const isBetterPriority = (aId, bId, sede) => {
@@ -384,6 +396,7 @@ function risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra) {
     for (const sede of acc) {
       const si = SEDI5.indexOf(sede);
       if (sitiCoperti.has(si) || visitate.has(si)) continue;
+      if (!puoCoprireADistanza(mid, si)) continue; // vincolo territoriale, applicato prima della gerarchia
       visitate.add(si);
       const occ = sedeBluDi[si];
       if (occ === undefined) { sedeBluDi[si] = mid; return true; }
@@ -600,9 +613,8 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // (la prima disponibile nel suo ordine blu). In caso di conflitto sulla stessa sede, vince
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
-    const sitiCoperti = new Set(Object.values(sedeDi));
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    const sedeBluDi = risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra);
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
@@ -924,9 +936,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     turniScambiati.forEach((out) => {
       const skRic = `${dataStr}|${out.id}`;
       for (let i = 0; i < out.slots.length; i++) if (!out.fis.includes(i)) out.slots[i] = null; // azzera la vecchia copertura a distanza
-      const sitiCoperti = new Set(out.fis.filter((i) => out.slots[i] !== null));
-      const fisMids = out.fis.map((i) => out.slots[i]).filter((x) => x !== null && x !== undefined);
-      const sedeBluDi = risolviBlu(fisMids, sitiCoperti, skRic, dispo, debiti, debitiExtra);
+      const sedeFisicaOut = {};
+      out.fis.forEach((i) => { if (out.slots[i] !== null && out.slots[i] !== undefined) sedeFisicaOut[out.slots[i]] = i; });
+      const fisMids = Object.keys(sedeFisicaOut).map(Number);
+      const sedeBluDi = risolviBlu(fisMids, sedeFisicaOut, skRic, dispo, debiti, debitiExtra);
       Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }

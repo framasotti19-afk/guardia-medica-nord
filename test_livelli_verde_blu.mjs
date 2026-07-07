@@ -97,11 +97,14 @@ suite.test("conflitto sullo stesso blu su Maniago: vince categoria/grad tra due 
 suite.test("se il vincitore del blu preferito viene scalzato, riprova con il suo blu successivo", () => {
   const d = dispoBase(MEDICI);
   // Conflitto su Meduno (mai sede di titolarità): ZURLO e IENGO, entrambi DET38, decide il grad.
+  // Fallback su Anduins (non Claut): IENGO è fisico a Spilimbergo, che può coprire Anduins a
+  // distanza ma NON Claut (vincolo territoriale §3.2). Il meccanismo "bump → blu successivo" è
+  // identico; cambia solo la sede di fallback per rispettare il vincolo geografico.
   d[ZURLO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad2
-  d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad107
+  d[IENGO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Anduins"], { bluLiv: { Meduno: 1, Anduins: 2 } }); // grad107
   const t = unicoTurno(d);
   suite.eq(t.slots[2], ZURLO, "ZURLO (grad migliore) vince Meduno");
-  suite.eq(t.slots[3], IENGO, "IENGO, perso Meduno, ottiene comunque il suo blu successivo (Claut)");
+  suite.eq(t.slots[4], IENGO, "IENGO, perso Meduno, ottiene comunque il suo blu successivo (Anduins)");
 });
 
 suite.test("i livelli blu non influenzano MAI chi vince un conflitto, solo quale sede riceve", () => {

@@ -187,6 +187,15 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       if (!presenteAltrove) violazioni.push(`${pfx}g${giorno} ${t.label} ${SEDI5[si]}: copertura a distanza da medico non fisico nel turno (INV3)`);
       // deve aver dichiarato quella sede come blu
       if (!v.blu.includes(SEDI5[si])) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
+      // INV-TERRITORIALE (§3.2, §10 voce 31): Claut coperta a distanza SOLO dal fisico di Maniago (0);
+      // Anduins SOLO dal fisico di Spilimbergo (1) o Meduno (2). Le altre sedi non hanno vincolo. Uso
+      // la sede-base fisica del medico nel turno (dove è fisicamente presente). Vincolo rigido.
+      const baseFisica = t.fis.find((fi) => t.slots[fi] === mid);
+      checkCount++;
+      if (baseFisica !== undefined) {
+        if (si === 3 && baseFisica !== 0) violazioni.push(`${pfx}g${giorno} ${t.label}: Claut coperta a distanza da ${byId[mid]?.nome} fisico a ${SEDI5[baseFisica]} (non Maniago) (INV-TERRITORIALE)`);
+        if (si === 4 && baseFisica !== 1 && baseFisica !== 2) violazioni.push(`${pfx}g${giorno} ${t.label}: Anduins coperta a distanza da ${byId[mid]?.nome} fisico a ${SEDI5[baseFisica]} (non Spilimbergo/Meduno) (INV-TERRITORIALE)`);
+      }
       bluDaMedico[mid] = (bluDaMedico[mid] || 0) + 1;
     }
   });

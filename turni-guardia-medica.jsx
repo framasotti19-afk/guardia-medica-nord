@@ -351,7 +351,19 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, 
 // perché serve in DUE punti con la stessa identica logica: durante l'elaborazione del turno
 // (sotto), e di nuovo dopo lo scambio preferenza-turno §3.9 in elaboraSchema — dove il rilascio
 // di uno slot fisico cambia l'insieme dei presenti e la copertura a distanza va rifatta da capo.
-function risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra) {
+function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra) {
+  const sitiCoperti = new Set(Object.values(sedeFisicaDi));
+  // Vincolo TERRITORIALE (CONTEXT.md §3.2): Claut (indice 3) può essere coperta a distanza SOLO dal
+  // medico fisicamente a Maniago (0) — unica via, la Val Cellina si raggiunge da lì; Anduins (4)
+  // SOLO dal fisico di Spilimbergo (1) o Meduno (2) — due vie possibili. Le altre sedi
+  // (Maniago/Spilimbergo/Meduno a distanza) non hanno vincolo geografico. È un FILTRO applicato
+  // PRIMA della gerarchia: chi non è nella sede-base ammessa non si candida nemmeno a coprire quella
+  // sede; la scelta tra i candidati validi resta governata da isBetterPriority (invariata).
+  const puoCoprireADistanza = (mid, si) => {
+    if (si === 3) return sedeFisicaDi[mid] === 0;
+    if (si === 4) return sedeFisicaDi[mid] === 1 || sedeFisicaDi[mid] === 2;
+    return true;
+  };
   const bucketOf = (mid) => (debiti[mid] === null || (debiti[mid] <= 0 && (debitiExtra[mid] || 0) > 0)) ? 1 : 0;
   const isTitolareDi = (mid, sede) => isContrattualizzato(mid) && byId[mid].sedeContratto === sede;
   const isBetterPriority = (aId, bId, sede) => {
@@ -386,6 +398,7 @@ function risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra) {
     for (const sede of acc) {
       const si = SEDI5.indexOf(sede);
       if (sitiCoperti.has(si) || visitate.has(si)) continue;
+      if (!puoCoprireADistanza(mid, si)) continue; // vincolo territoriale, applicato prima della gerarchia
       visitate.add(si);
       const occ = sedeBluDi[si];
       if (occ === undefined) { sedeBluDi[si] = mid; return true; }
@@ -602,9 +615,8 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // (la prima disponibile nel suo ordine blu). In caso di conflitto sulla stessa sede, vince
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
-    const sitiCoperti = new Set(Object.values(sedeDi));
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    const sedeBluDi = risolviBlu(fisMids, sitiCoperti, slotKey, dispo, debiti, debitiExtra);
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
@@ -926,9 +938,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     turniScambiati.forEach((out) => {
       const skRic = `${dataStr}|${out.id}`;
       for (let i = 0; i < out.slots.length; i++) if (!out.fis.includes(i)) out.slots[i] = null; // azzera la vecchia copertura a distanza
-      const sitiCoperti = new Set(out.fis.filter((i) => out.slots[i] !== null));
-      const fisMids = out.fis.map((i) => out.slots[i]).filter((x) => x !== null && x !== undefined);
-      const sedeBluDi = risolviBlu(fisMids, sitiCoperti, skRic, dispo, debiti, debitiExtra);
+      const sedeFisicaOut = {};
+      out.fis.forEach((i) => { if (out.slots[i] !== null && out.slots[i] !== undefined) sedeFisicaOut[out.slots[i]] = i; });
+      const fisMids = Object.keys(sedeFisicaOut).map(Number);
+      const sedeBluDi = risolviBlu(fisMids, sedeFisicaOut, skRic, dispo, debiti, debitiExtra);
       Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }
@@ -1744,6 +1757,7 @@ Un giorno ha SIA il turno diurno (G) SIA quello notturno (N) se e solo se è wee
 Maniago e Spilimbergo (le 2 CDC) devono sempre essere coperte PRIMA delle altre sedi.
 Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dichiarano (verde/blu, vedi sotto).
 SEDI FISICHE: Maniago, Spilimbergo, Meduno sono fisiche SEMPRE. Claut e Anduins sono sedi fisiche SOLO nel turno DIURNO (8-20) — che esiste unicamente nei giorni ad alta domanda (weekend, festivi, prefestivi); nel NOTTURNO (sempre) Claut e Anduins sono coperte SOLO a distanza (blu). Ordine di riempimento: Maniago, Spilimbergo, poi Meduno, poi — solo nel diurno — Claut, poi Anduins.
+VINCOLO TERRITORIALE sulla copertura a distanza (geografico, reale): Claut può essere coperta a distanza SOLO dal medico fisicamente a Maniago (unica via); Anduins SOLO dal medico fisicamente a Spilimbergo o Meduno (due vie, si sceglie con la gerarchia). Le altre sedi a distanza non hanno vincolo. Resta sempre necessaria la dichiarazione blu: se il fisico di Maniago non dichiara Claut, Claut resta SCOPERTA (mai coperta da altrove).
 - Scenario 1 (1 medico): fisico nella miglior sede verde ottenuta TRA quelle oggi fisiche (di notte solo Maniago/Spilimbergo/Meduno; nel diurno anche Claut/Anduins). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
 - Scenario 2 (2 medici): fisici nelle 2 CDC. Coprono a distanza le sedi per cui hanno dichiarato blu (massimo 1 a testa). Conflitti sulla stessa sede blu: titolarità sede → categoria → debito → graduatoria. Sedi senza blu dichiarato → SCOPERTE.
 - Scenario 3 (3 medici): fisici a Maniago, Spilimbergo, Meduno. Claut, Anduins e ogni altra sede solo a distanza (blu). Sedi senza blu → SCOPERTE.

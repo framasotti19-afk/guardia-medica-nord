@@ -473,11 +473,60 @@ suite.test("se il vincitore del blu preferito viene scalzato, prova il blu succe
   // Stessa categoria (DET24) per isolare il grad da qualunque interferenza di categoria: TRIGODKO
   // (grad4) vs PRESSACCO (grad57), entrambi dichiarano Meduno come blu (nessuno dei due titolare
   // lì — Meduno non è mai una sede di titolarità, riservata a Maniago/Spilimbergo).
+  // Fallback su Anduins (non Claut): PRESSACCO è fisico a Spilimbergo, che può coprire Anduins a
+  // distanza ma NON Claut (vincolo territoriale §3.2). Il meccanismo di "bump → blu successivo"
+  // resta identico; cambia solo la sede di fallback per rispettare il vincolo geografico.
   d[TRIGODKO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } }); // grad4
-  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Claut"], { bluLiv: { Meduno: 1, Claut: 2 } }); // grad57
+  d[PRESSACCO][N(G1)] = turnoDisp(["Spilimbergo"], ["Meduno", "Anduins"], { bluLiv: { Meduno: 1, Anduins: 2 } }); // grad57
   const t = unicoTurno(d);
   suite.eq(t.slots[2], TRIGODKO, "TRIGODKO (grad migliore) vince Meduno");
-  suite.eq(t.slots[3], PRESSACCO, "PRESSACCO, perso Meduno, ottiene comunque Claut (suo blu successivo)");
+  suite.eq(t.slots[4], PRESSACCO, "PRESSACCO, perso Meduno, ottiene comunque Anduins (suo blu successivo)");
+});
+
+// ---------------------------------------------------------------------------
+// E-bis. VINCOLO TERRITORIALE nella copertura a distanza (§3.2, §10 voce 31)
+// Claut ← solo dal fisico di Maniago; Anduins ← solo dal fisico di Spilimbergo o Meduno.
+// ---------------------------------------------------------------------------
+suite.test("TERRITORIALE: Claut a distanza SOLO dal fisico di Maniago (Spilimbergo non può, anche con grad migliore)", () => {
+  const d = dispoBase(MEDICI);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } });   // @Maniago (grad57) → copre Claut
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Claut"], { bluLiv: { Claut: 1 } }); // @Spilimbergo (grad4, migliore) → NON può
+  const t = unicoTurno(d);
+  suite.eq(t.slots[3], PRESSACCO, "Claut coperta dal fisico di Maniago, mai da Spilimbergo");
+});
+
+suite.test("TERRITORIALE: Claut resta SCOPERTA se il fisico di Maniago non l'ha dichiarata", () => {
+  const d = dispoBase(MEDICI);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"]);                                          // @Maniago, niente Claut
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Claut"], { bluLiv: { Claut: 1 } });  // @Spilimbergo, blu Claut ma non può
+  const t = unicoTurno(d);
+  suite.assert(t.slots[3] === null, "Claut scoperta: Maniago non l'ha dichiarata, Spilimbergo non può coprirla");
+});
+
+suite.test("TERRITORIALE: Anduins contesa Spilimbergo vs Meduno → decide la gerarchia; Maniago escluso", () => {
+  const d = dispoBase(MEDICI);
+  d[IENGO][N(G1)] = turnoDisp(["Maniago"], ["Anduins"], { bluLiv: { Anduins: 1 } });       // @Maniago, blu Anduins ma NON può
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } }); // @Spilimbergo, DET24
+  d[MORANO][N(G1)] = turnoDisp(["Meduno"], ["Anduins"], { bluLiv: { Anduins: 1 } });        // @Meduno, DET12 → perde per categoria
+  const t = unicoTurno(d);
+  suite.eq(t.slots[4], TRIGODKO, "Anduins al fisico di Spilimbergo (DET24 > DET12); Maniago escluso dal vincolo");
+});
+
+suite.test("TERRITORIALE: Anduins dal fisico di Meduno se Spilimbergo non la dichiara (seconda via)", () => {
+  const d = dispoBase(MEDICI);
+  d[IENGO][N(G1)] = turnoDisp(["Maniago"]);                                                // @Maniago
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"]);                                          // @Spilimbergo, niente Anduins
+  d[MORANO][N(G1)] = turnoDisp(["Meduno"], ["Anduins"], { bluLiv: { Anduins: 1 } });        // @Meduno → copre Anduins
+  const t = unicoTurno(d);
+  suite.eq(t.slots[4], MORANO, "Anduins coperta dal fisico di Meduno (seconda via valida)");
+});
+
+suite.test("TERRITORIALE: Meduno a distanza NON ha vincolo geografico (coperto dal fisico di Maniago)", () => {
+  const d = dispoBase(MEDICI);
+  d[PRESSACCO][N(G1)] = turnoDisp(["Maniago"], ["Meduno"], { bluLiv: { Meduno: 1 } });      // @Maniago copre Meduno a distanza
+  d[TRIGODKO][N(G1)] = turnoDisp(["Spilimbergo"]);
+  const t = unicoTurno(d);
+  suite.eq(t.slots[2], PRESSACCO, "Meduno coperto a distanza dal fisico di Maniago: nessun vincolo territoriale su Meduno");
 });
 
 // ---------------------------------------------------------------------------
