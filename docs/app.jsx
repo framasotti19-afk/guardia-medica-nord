@@ -2976,7 +2976,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.textMuted}}>non disponibile</b> (grigia, con un puntino discreto) — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). In cella la disponibilità è resa con dei <b>pallini</b>: un <b style={{color:T.primary}}>pallino verde</b> = sede fisica, un <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza; accanto compare la <b>sigla</b> della sede se è una sola, oppure il <b>numero</b> se sono più d'una (con l'elenco delle sigle in grigetto sotto). I <b>livelli di preferenza</b> (1ª, 2ª scelta…) e i <b style={{color:"#8a5a00"}}>★ preferiti</b> non si mostrano più nella griglia: si vedono e si impostano aprendo la cella. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -3101,32 +3101,41 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           // interna esiste solo per proteggere le indisponibilità dichiarate dall'inserimento
                           // rapido, non è mai mostrata all'utente.
                           // Dicotomico invariato (righe 1870/3095): "on" = disponibile, "!on" = non
-                          // disponibile. Peso visivo INVERTITO: disponibile = verde pieno che risalta,
-                          // non disponibile = grigio tenue neutro discreto (niente ✕ rossa).
-                          const bg = inEdit ? "#8a5a00" : on ? T.primary : T.neutralCell;
-                          const fg = inEdit ? "#fff" : on ? "#fff" : T.textFaint;
+                          // disponibile. Resa "che respira": sfondo NEUTRO (non verde pieno), il contenuto
+                          // è fatto di PALLINI colorati (verde = sede fisica, blu = a distanza) con la sigla
+                          // (1 sede) o il conteggio (≥2, con elenco grigio sotto). Livelli/preferiti NON
+                          // mostrati in griglia — solo nel popup. I DATI (V/B + preferiti) restano invariati:
+                          // cambia solo la VISUALIZZAZIONE.
+                          const bg = inEdit ? "#8a5a00" : on ? T.surface : T.neutralCell;
                           return (
-                            <td key={i} style={{ borderBottom: "1px solid #eef1ee", borderLeft: "1px solid #eef1ee", textAlign: "center", cursor: "pointer", background: bg, color: fg, padding: "5px 0", userSelect: "none", position: "relative", fontWeight: 700, fontSize: 11.5 }}
+                            <td key={i} style={{ borderBottom: "1px solid #eef1ee", borderLeft: "1px solid #eef1ee", textAlign: "center", cursor: "pointer", background: bg, color: T.text, padding: "4px 3px", userSelect: "none", position: "relative", verticalAlign: "middle" }}
                               onClick={() => {
                                 if (inEdit) setEditCella(null);
                                 else setEditCella({ mid: m.id, slotKey: sk, giorno: c.giorno, turno: c.turno.label });
                               }}>
                               {on ? (() => {
-                                const sup = ["¹","²","³","⁴","⁵"];
-                                const bluStr = sedi.blu.length
-                                  ? "·" + ordinaPerLivello(sedi.blu, sedi.bluLiv, MAX_LIV_BLU)
-                                      .map((s) => SEDI_BREVI[s] + sup[(sedi.bluLiv[s] || 1) - 1]).join("")
-                                  : "";
-                                // Verdi: compatte (solo conteggio) se tutte a livello 1 e nessuna sede
-                                // preferita marcata; altrimenti dettagliate (sigla+livello), con ★
-                                // attaccata specificamente alla sede preferita (non alla giornata).
-                                const tutteLv1 = sedi.verde.every((s) => (sedi.verdeLiv[s] || 1) === 1);
-                                const verdeStr = (tutteLv1 && !sedi.preferito)
-                                  ? String(sedi.verde.length)
-                                  : ordinaPerLivello(sedi.verde, sedi.verdeLiv, MAX_LIV_VERDE)
-                                      .map((s) => (s === sedi.preferito ? "★" : "") + SEDI_BREVI[s] + sup[(sedi.verdeLiv[s] || 1) - 1]).join("");
-                                return `${verdeStr}${bluStr}`;
-                              })() : ""}
+                                const verdeO = ordinaPerLivello(sedi.verde, sedi.verdeLiv, MAX_LIV_VERDE);
+                                const bluO = ordinaPerLivello(sedi.blu, sedi.bluLiv, MAX_LIV_BLU);
+                                const nV = verdeO.length, nB = bluO.length;
+                                const Dot = (col) => <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: col, flex: "0 0 auto" }} />;
+                                const pill = (col, n, sedeArr) => (
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                    {Dot(col)}<span style={{ fontWeight: 700, fontSize: 11, color: inEdit ? "#fff" : T.text }}>{n === 1 ? SEDI_BREVI[sedeArr[0]] : n}</span>
+                                  </span>
+                                );
+                                const grigio = [];
+                                if (nV >= 2) grigio.push(verdeO.map((s) => SEDI_BREVI[s]).join(" "));
+                                if (nB >= 2) grigio.push(bluO.map((s) => SEDI_BREVI[s]).join(" "));
+                                return (
+                                  <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 1, lineHeight: 1.15 }}>
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      {nV > 0 && pill(T.primary, nV, verdeO)}
+                                      {nB > 0 && pill(T.blu, nB, bluO)}
+                                    </span>
+                                    {grigio.length > 0 && <span style={{ color: inEdit ? "#f0e6cf" : T.textFaint, fontSize: 8, fontWeight: 600, letterSpacing: .2 }}>{grigio.join(" · ")}</span>}
+                                  </span>
+                                );
+                              })() : <span style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: T.textFaint, opacity: .45 }} />}
                             </td>
                           );
                         })}
