@@ -2907,6 +2907,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     blu: "#3a6fd9",         // copertura a distanza (blu)
     bluDark: "#2853ad",     // blu scuro (testi su tinta)
     bluTint: "#e8eefb",     // blu tenue (sfondi)
+    warning: "#b8791a",     // giallo/arancio scuro: scoperto di gravità minore (testo/bordo)
+    warningBg: "#fdf3dd",   // giallo tenue (sfondo)
+    warningBorder: "#e8d199",// bordo giallo tenue
+    neutralCell: "#eef1ee", // cella "non disponibile" grigio tenue (era rosso)
   };
   const btn = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 12 };
   const btnPrimary = { ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 };
@@ -2972,7 +2976,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>Sede principale 1-5</b> (sede FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>Copertura a distanza 1-4</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.danger}}>✕ non disponibile</b> — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). I <b style={{color:"#8a5a00"}}>★ preferiti</b> restano sulla sede fisica e/o "a tutti i costi" anche solo a distanza. In cella: "2·CL¹" = 2 sedi verdi (tutte liv.1) + Claut come blu liv.1; se le verdi hanno livelli diversi appare "MA¹SP²" al posto del conteggio; ★ prima = preferito sul fisico, ★ dopo = lo vuole anche solo a distanza. Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -3073,9 +3077,9 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       <th style={{ position: "sticky", left: 0, top: 0, zIndex: 3, background: T.surfaceAlt, padding: "5px 8px", textAlign: "left", minWidth: 160, borderBottom: "2px solid #d3dad6" }}>Medico</th>
                       {colonne.map((c, i) => (
                         <th key={i} style={{ position: "sticky", top: 0, zIndex: 2, padding: "3px 2px", minWidth: 30, background: c.festivo || c.prefestivo ? "#fbe9e0" : c.weekend ? "#eef3ea" : T.surfaceAlt, borderBottom: "2px solid #d3dad6" }}>
-                          <div style={{ fontSize: 8, color: T.textFaint }}>{GIORNI_BREVI[c.dow]}</div>
-                          <div style={{ fontWeight: 700 }}>{c.giorno}</div>
-                          <div style={{ fontSize: 8 }}>{iconaT[c.turno.id]}</div>
+                          <div style={{ fontSize: 8.5, color: T.textMuted }}>{GIORNI_BREVI[c.dow]}</div>
+                          <div style={{ fontWeight: 800, fontSize: 12.5, color: T.text }}>{c.giorno}</div>
+                          <div style={{ fontSize: 9, color: T.textMuted }}>{iconaT[c.turno.id]}</div>
                         </th>
                       ))}
                     </tr>
@@ -3096,10 +3100,13 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           // (rosso). "Non specificato" e "NO esplicito" appaiono identici: la distinzione
                           // interna esiste solo per proteggere le indisponibilità dichiarate dall'inserimento
                           // rapido, non è mai mostrata all'utente.
-                          const bg = inEdit ? "#8a5a00" : on ? T.primary : T.dangerBg;
-                          const fg = inEdit ? "#fff" : on ? "#fff" : T.dangerText;
+                          // Dicotomico invariato (righe 1870/3095): "on" = disponibile, "!on" = non
+                          // disponibile. Peso visivo INVERTITO: disponibile = verde pieno che risalta,
+                          // non disponibile = grigio tenue neutro discreto (niente ✕ rossa).
+                          const bg = inEdit ? "#8a5a00" : on ? T.primary : T.neutralCell;
+                          const fg = inEdit ? "#fff" : on ? "#fff" : T.textFaint;
                           return (
-                            <td key={i} style={{ borderBottom: "1px solid #eef1ee", borderLeft: "1px solid #eef1ee", textAlign: "center", cursor: "pointer", background: bg, color: fg, padding: "5px 0", userSelect: "none", position: "relative", fontWeight: 700 }}
+                            <td key={i} style={{ borderBottom: "1px solid #eef1ee", borderLeft: "1px solid #eef1ee", textAlign: "center", cursor: "pointer", background: bg, color: fg, padding: "5px 0", userSelect: "none", position: "relative", fontWeight: 700, fontSize: 11.5 }}
                               onClick={() => {
                                 if (inEdit) setEditCella(null);
                                 else setEditCella({ mid: m.id, slotKey: sk, giorno: c.giorno, turno: c.turno.label });
@@ -3119,7 +3126,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                   : ordinaPerLivello(sedi.verde, sedi.verdeLiv, MAX_LIV_VERDE)
                                       .map((s) => (s === sedi.preferito ? "★" : "") + SEDI_BREVI[s] + sup[(sedi.verdeLiv[s] || 1) - 1]).join("");
                                 return `${verdeStr}${bluStr}`;
-                              })() : "✕"}
+                              })() : ""}
                             </td>
                           );
                         })}
@@ -3131,6 +3138,8 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
               {editCella && (() => {
                 const sedi = normDispo(dati.dispo[editCella.mid]?.[editCella.slotKey]);
                 const dataStrCella = editCella.slotKey.split("|")[0];
+                const turnoIdCella = editCella.slotKey.split("|")[1]; // "G" | "N" | "M" | "P" — solo per il FILTRO opzioni notturne Claut/Anduins (UI, non tocca il motore)
+                const ordScelta = ["1ª", "2ª", "3ª", "4ª", "5ª"];
                 const hasEntrambiTurni = !!giorniMese[editCella.giorno - 1]?.turni.some((t) => t.id === "G");
                 const turnoPref = turnoPrefDi(dati.dispo, editCella.mid, dataStrCella);
                 return (
@@ -3171,11 +3180,15 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: T.primary }}>Sede principale 1-5</b> = sede FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: T.blu }}>Copertura a distanza 1-4</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
+                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: T.primary }}>1ª–5ª scelta</b> = sede principale FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: T.blu }}>A distanza · 1ª–4ª scelta</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Di notte Claut e Anduins offrono solo le opzioni "a distanza" (lì non sono sedi fisiche). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
                             const isVerde = valore.startsWith("V");
+                            // Di NOTTE Claut/Anduins non sono sedi fisiche (motore, riga 491): nel menu
+                            // mostra SOLO le opzioni "A distanza". Filtro UI — i valori (V/B + livello)
+                            // restano identici, cambia solo cosa è OFFERTO nel menu, mai il dato al motore.
+                            const soloDistanza = (s === "Claut" || s === "Anduins") && turnoIdCella === "N";
                             return (
                               <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, minWidth: 24 }}>{SEDI_BREVI[s]}</span>
@@ -3184,8 +3197,14 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                     background: valore.startsWith("V") ? T.primaryTint : valore.startsWith("B") ? T.bluTint : "#fff",
                                     color: valore.startsWith("V") ? T.primary : valore.startsWith("B") ? T.bluDark : T.textMuted }}>
                                   <option value="">Non disponibile</option>
-                                  {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l}>Sede principale {l}</option>)}
-                                  {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l}>Copertura a distanza {l}</option>)}
+                                  {!soloDistanza && (
+                                    <optgroup label="Sede principale (fisica)">
+                                      {[1, 2, 3, 4, 5].map((l) => <option key={"V" + l} value={"V" + l} style={{ background: T.primaryTint, color: T.primary }}>{ordScelta[l - 1]} scelta</option>)}
+                                    </optgroup>
+                                  )}
+                                  <optgroup label="Copertura a distanza">
+                                    {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l} style={{ background: T.bluTint, color: T.bluDark }}>A distanza · {ordScelta[l - 1]} scelta</option>)}
+                                  </optgroup>
                                 </select>
                                 {isVerde && (
                                   <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}
@@ -3379,15 +3398,61 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       {g.prefestivo && <span style={{ fontSize: 9, background: "#fdf0d5", color: "#8a5a00", padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>PREFESTIVO</span>}
                     </div>
                     {g.turni.map((t, ti) => {
-                      const vuoto = !t.slots.some(Boolean);
+                      // SOLO RENDER (nessun calcolo del motore): il motore ha già prodotto t.slots/t.fis.
+                      const isExtra = !!t.extra;
+                      const isNotte = t.id === "N"; // di notte Claut/Anduins NON sono fisiche (motore, riga 491)
+                      const slotKeyT = `${g.key}|${t.id}`;
+                      // "qualcuno l'ha dichiarata a distanza (blu)?" — solo lettura dispo, per distinguere
+                      // "dichiarata ma scoperta" da "nessuno l'ha dichiarata".
+                      const dichiarataBlu = (sedeNome) => MEDICI.some((m) => normDispo(dati.dispo[m.id]?.[slotKeyT]).blu.includes(sedeNome));
+                      // Sedi DA COPRIRE in questo turno: di notte Maniago/Spilimbergo/Meduno (+ Claut/Anduins
+                      // solo se dichiarate a distanza); di giorno tutte e 5. Extra (MMG): gestito a parte.
+                      let daCoprire = [];
+                      if (!isExtra) {
+                        if (isNotte) { daCoprire = [0, 1, 2]; [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
+                        else daCoprire = [0, 1, 2, 3, 4];
+                      }
+                      const scoperte = daCoprire.filter((si) => !t.slots[si]);
+                      const grave = scoperte.some((si) => si === 0 || si === 1); // Maniago/Spilimbergo mancanti = rosso
+                      const bordoSede = (si) => scoperte.includes(si) ? (si === 0 || si === 1 ? T.danger : T.warning) : null;
+                      const vuotoExtra = isExtra && !t.slots.some(Boolean);
                       return (
                         <div key={ti} style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 0", borderTop: ti > 0 ? "1px solid #eef1ee" : "none", flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, minWidth: 140, color: T.text, paddingTop: 4 }}>{t.label}</span>
-                          {vuoto && <span style={{ background: T.dangerBg, color: T.danger, border: `1px solid ${T.dangerBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .3, padding: "2px 8px", borderRadius: 999 }}>SCOPERTO</span>}
-                          {(t.extra ? ["Copertura"] : SEDI5).map((sede, si) => {
-                            const nota = t.extra ? { testo: "", tipo: "primaria" } : notaSlot(t.slots, si, t.fis);
+                          {vuotoExtra && <span style={{ background: T.dangerBg, color: T.danger, border: `1px solid ${T.dangerBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .3, padding: "2px 8px", borderRadius: 999 }}>SCOPERTO</span>}
+                          {!isExtra && scoperte.length > 0 && (
+                            <span style={{ background: grave ? T.dangerBg : T.warningBg, color: grave ? T.danger : T.warning, border: `1px solid ${grave ? T.dangerBorder : T.warningBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .2, padding: "2px 8px", borderRadius: 999 }}>Scoperto: {scoperte.map((si) => SEDI5[si]).join(", ")}</span>
+                          )}
+                          {(isExtra ? ["Copertura"] : SEDI5).map((sede, si) => {
+                            // NOTTURNO: Claut/Anduins non hanno tendina fisica — mostra lo stato a distanza.
+                            if (!isExtra && isNotte && (si === 3 || si === 4)) {
+                              const mid = t.slots[si];
+                              if (mid) {
+                                const prim = t.fis.find((fi) => t.slots[fi] === mid); // sede fisica di chi copre
+                                return (
+                                  <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: T.bluTint, border: `1px solid ${T.blu}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                                    <span style={{ color: T.bluDark, fontWeight: 700 }}><b style={{ fontSize: 10 }}>{sede}</b> ← {byId[mid].nome}</span>
+                                    <span style={{ color: T.bluDark, fontSize: 9 }}>a distanza da {prim !== undefined ? SEDI5[prim] : "?"}</span>
+                                  </span>
+                                );
+                              }
+                              if (dichiarataBlu(sede)) {
+                                return (
+                                  <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: "#fff", border: `1px solid ${T.warning}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                                    <span style={{ color: T.warning, fontWeight: 700 }}><b style={{ fontSize: 10 }}>{sede}</b> a distanza —</span>
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: T.surfaceAlt, border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 6px", fontSize: 11, opacity: .75 }}>
+                                  <span style={{ color: T.textFaint }}><b style={{ fontSize: 10 }}>{sede}</b> solo diurno</span>
+                                </span>
+                              );
+                            }
+                            const nota = isExtra ? { testo: "", tipo: "primaria" } : notaSlot(t.slots, si, t.fis);
+                            const bd = !isExtra ? bordoSede(si) : null;
                             return (
-                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: nota.tipo === "copertura" ? "#eef3ea" : T.divider, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: nota.tipo === "copertura" ? "#eef3ea" : T.divider, border: bd ? `1px solid ${bd}` : "1px solid transparent", borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                                   <b style={{ fontSize: 10 }}>{sede}</b>
                                   <select value={t.slots[si] || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 110 }}>
