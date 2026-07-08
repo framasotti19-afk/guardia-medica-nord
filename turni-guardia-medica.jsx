@@ -136,6 +136,73 @@ function turniDelGiorno(y, m, d, extras) {
   return { turni, festivo, prefestivo, weekend, key, dow };
 }
 
+// Espande un "ambito" (insieme di giorni dichiarato in modo compatto, es. "notturni feriali",
+// "weekend", "tutto il mese", "dal 3 al 7") nei singoli slot {giorno, turno}, usando ESCLUSIVAMENTE
+// le funzioni calendario deterministiche del motore (turniDelGiorno / FESTIVI_MAP / PREFESTIVI): così
+// il calcolo dei giorni non dipende più dal ragionamento "a mente" dell'AI (che ogni tanto salta un
+// giorno) ed è sempre esatto. NON tocca la logica di assegnazione: serve solo a costruire la dispo.
+//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y }
+//     - "feriali" = feriale semplice: NON weekend, NON festivo, NON prefestivo (i feriali hanno solo N)
+//     - "weekend"  = sabato o domenica (dow 0/6), come turniDelGiorno.weekend (un festivo INFRASETTIMANALE
+//                    non rientra né in "feriali" né in "weekend": va dichiarato a parte o via "mese"/intervallo)
+//     - "mese"     = ogni giorno del mese
+//     - { da, a }  = i giorni da X a Y inclusi (robusto anche se da>a)
+//   turniRichiesti: sottoinsieme di ["G","N"] (mai MMG). Per ogni giorno si applicano SOLO i turni
+//     richiesti che ESISTONO davvero quel giorno (intersezione con turniDelGiorno(...).turni): quindi
+//     "feriali" con ["N"] dà solo N, e un "G" richiesto su un feriale viene ignorato (rete di sicurezza).
+//   escludi: numeri-giorno da saltare del tutto (NO/assenze dichiarate).
+//   anno, mese(0-based), extras: contesto calendario (extras influiscono solo sugli MMG, non su G/N).
+// Ritorna [{giorno, turno}] deterministico: giorni crescenti, turni nell'ordine G poi N.
+function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
+  const nG = new Date(anno, mese + 1, 0).getDate();
+  const esclSet = new Set((escludi || []).map(Number));
+  const richiesti = (turniRichiesti && turniRichiesti.length ? turniRichiesti : ["N"]).filter((t) => t === "G" || t === "N");
+  const ordineTurni = ["G", "N"];
+  const inAmbito = (d, info) => {
+    if (ambito === "mese") return true;
+    if (ambito === "feriali") return !info.weekend && !info.festivo && !info.prefestivo;
+    if (ambito === "weekend") return info.weekend;
+    if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) {
+      const da = Math.min(Number(ambito.da), Number(ambito.a));
+      const a = Math.max(Number(ambito.da), Number(ambito.a));
+      return d >= da && d <= a;
+    }
+    return false;
+  };
+  const out = [];
+  for (let d = 1; d <= nG; d++) {
+    if (esclSet.has(d)) continue;
+    const info = turniDelGiorno(anno, mese, d, extras);
+    if (!inAmbito(d, info)) continue;
+    const idsEsistenti = new Set(info.turni.map((t) => t.id));
+    for (const t of ordineTurni) if (richiesti.includes(t) && idsEsistenti.has(t)) out.push({ giorno: d, turno: t });
+  }
+  return out;
+}
+
+// Costruisce l'entry di dispo (verde/blu + livelli + preferito) a partire da un'azione dell'AI
+// (campi: sedi, blu, preferito, sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo
+// slot) e da dispo_set (stessa entry replicata su ogni slot dell'ambito): la logica di validazione
+// sedi/livelli/preferito è UNA sola, quindi le due azioni restano equivalenti per costruzione.
+//   etichetta: stringa usata SOLO nei messaggi d'errore (es. "ZURLO g5" oppure "ZURLO (feriali)").
+// Ritorna { entry, errori }: entry=null se non c'è nessuna sede valida (né verde né blu); errori è
+// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide / preferito ignorato).
+function costruisciEntryDispo(a, etichetta) {
+  const errori = [];
+  const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
+  const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
+  if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${etichetta}`); return { entry: null, errori }; }
+  // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
+  const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
+  if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${etichetta}: non è tra le sedi verdi dichiarate`);
+  // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
+  const verdeLiv = {};
+  verde.forEach((s) => { verdeLiv[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
+  const bluLiv = {};
+  blu.forEach((s) => { bluLiv[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
+  return { entry: { verde, verdeLiv, blu, bluLiv, no: false, preferito: pref }, errori };
+}
+
 // ============ MOTORE ============
 // dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:sede|null }
 // - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
@@ -2154,13 +2221,38 @@ SOLO DIURNO (inserisci solo G):
 • la notte non riesco, solo il giorno
 • ho problemi con i notturni, solo diurni
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INSIEMI DI GIORNI (feriali / weekend / tutto il mese / intervallo) → USA L'AZIONE dispo_set
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Quando un medico dichiara la STESSA disponibilità su un INTERO INSIEME di giorni (non un elenco di date sparse), NON elencare i giorni uno per uno con tante dispo_aggiungi — calcolarli "a mente" col calendario porta ogni tanto a saltarne uno. Emetti UNA SOLA azione dispo_set e lascia che sia il MOTORE a espandere i giorni in modo deterministico ed esatto.
+Mappa la frase all'"ambito":
+• "notturni feriali" / "notti infrasettimanali" / "le sere durante la settimana" / "i feriali" → ambito "feriali", turni ["N"] (i feriali hanno solo il notturno).
+• "i weekend" / "sabati e domeniche" / "nei fine settimana" → ambito "weekend".
+• "tutto il mese" / "tutti i giorni" / "tutte le notti del mese" → ambito "mese".
+• "dal X al Y" / "dal X al Y del mese" / "dal X a fine mese" (in questo caso Y = ultimo giorno del mese corrente) → ambito {"da":X,"a":Y}.
+"turni": deducili dalla frase ESATTAMENTE come nella sezione TURNI DIURNO/NOTTURNO — "notti/notturni/sera" → ["N"]; "diurno/giorno" → ["G"]; "sia diurno che notturno / weekend interi / tutto il giorno" → ["G","N"]. Il motore, per ogni giorno, applica solo i turni che ESISTONO quel giorno (un "G" richiesto su un feriale lo ignora da solo).
+"escludi": i numeri-giorno con un NO/ferie/eccezione ("tranne il 12", "eccetto dal 20 al 25") vanno in "escludi", così dispo_set non li tocca; se sono vere indisponibilità dichiarate (ferie/impegni) emetti ANCHE la dispo_no per quei giorni come da sezione INDISPONIBILITÀ — le due cose si combinano correttamente.
+Sede/livelli/preferito/blu: identici a dispo_aggiungi (se la sede non è dichiarata: la titolarità del medico, come sempre).
+
+QUANDO NON USARE dispo_set — queste regole valgono PRIMA e hanno la PRECEDENZA: se una di esse scatta, NON emettere dispo_set (né dispo_aggiungi, salvo dove indicato):
+1. SENZA INCARICO che non indica il numero di guardie mensili → resta il blocco+avviso in cima a questa sezione (nessun inserimento di alcun tipo).
+2. TURNO NON CHIARO su weekend/festivi/prefestivi (il medico non nomina né diurno né notturno). Distingui SINGOLO giorno da INSIEME:
+   • SINGOLO giorno weekend ("sono disponibile il 2", con il 2 = weekend) → resta la regola WEEKEND AMBIGUO più sotto: dispo_aggiungi il solo notturno di QUEL giorno + una "domanda" sul diurno di quel giorno (seSi = dispo_aggiungi con turno G quel giorno). NON usare dispo_set per un giorno singolo.
+   • INSIEME di giorni ("il weekend", "i fine settimana", "nei weekend", "tutto il mese" senza turno): la parte NOTTURNA è comunque NON ambigua (ogni giorno ha la notte) → emetti SUBITO dispo_set con turni ["N"] sull'ambito corrispondente (weekend → ambito "weekend"; tutto il mese → ambito "mese"), poi poni UNA sola "domanda" per il diurno il cui seSi è {"az":"dispo_set", stesso medico e stesse sedi/livelli/blu/preferito, "ambito":"weekend","turni":["G"]} (il diurno esiste solo nei weekend/festivi, mai nei feriali, quindi il seSi usa SEMPRE ambito "weekend" anche se il notturno era "mese") e seNo è [] (resta solo il notturno già inserito). In questa "domanda" ometti il campo "giorno" (riguarda un insieme, non un singolo giorno) e metti in "citazione" la frase esatta del medico. Così NON si enumerano i giorni e la parte certa (le notti) è già applicata.
+   L'ambito "feriali" non ha mai questa ambiguità (i feriali hanno solo N).
+3. QUALIFICATORE DI ECCEZIONE non specificato ("quasi sempre", "di solito", "spesso", "in genere", "il più delle volte", "salvo eccezioni") → NON inserire nulla, solo avviso (vedi ECCEZIONI NON SPECIFICATE): niente dispo_set.
+4. TITOLARE che chiede SOLO una o più sedi FISICHE diverse dalla propria titolarità (senza mai nominare la sua) → resta la DOMANDA di conferma al coordinatore (niente inserimento, né dispo_set né dispo_aggiungi, finché non conferma).
+5. dispo_set è SOLO per i turni ordinari G/N: MAI per i turni MMG (M/P), che seguono la loro sezione dedicata (controllo turno attivo + sede obbligatoria).
+Un ELENCO DI DATE SPECIFICHE non contigue ("il 3, il 7 e il 12") NON è un "insieme": usa più dispo_aggiungi, una per giorno.
+
 NOTTI DEI GIORNI FERIALI / INFRASETTIMANALI (insieme completo, tutte le notti feriali del mese):
 Frasi che indicano CHIARAMENTE le notti dei giorni feriali (infrasettimanali) come insieme, senza qualificatori di eccezione:
 • "faccio i miei soliti notturni infrasettimanali" / "i notturni infrasettimanali" / "i notturni feriali" / "le notti dei feriali" / "le notti durante la settimana" / "le sere infrasettimanali" / "sono disponibile le notti feriali"
-→ interpreta come TUTTE le notti dei giorni feriali del mese: inserisci il turno N su OGNI giorno feriale semplice del mese (lunedì-venerdì NON festivo/prefestivo, determinati con la sezione CALENDARIO PERPETUO sopra; nei feriali esiste solo il notturno). Questo insieme è DETERMINATO e completo: NON è una "data vaga" da segnalare. La sede segue le regole della sezione SEDI (se non dichiarata: titolarità del medico). Escludi i giorni per cui la stessa email dichiara un NO esplicito.
+→ interpreta come TUTTE le notti dei giorni feriali del mese: emetti UNA azione dispo_set con ambito "feriali" e turni ["N"] (vedi INSIEMI DI GIORNI qui sopra) — è il MOTORE a espandere ogni giorno feriale semplice del mese, senza saltarne nessuno; NON elencarli a mano con tante dispo_aggiungi. Questo insieme è DETERMINATO e completo: NON è una "data vaga" da segnalare. La sede segue le regole della sezione SEDI (se non dichiarata: titolarità del medico). I giorni con un NO esplicito nella stessa email vanno in "escludi".
 ⚠️ ECCEZIONE: se la frase contiene un qualificatore di eccezione NON specificata ("quasi sempre", "di solito", "spesso", "in genere", "il più delle volte", "salvo eccezioni") NON applicare questa regola e NON inserire nulla → vedi "ECCEZIONI NON SPECIFICATE" in CASI DA SEGNALARE AL COORDINATORE (va chiesto quali notti escludere).
 
 WEEKEND AMBIGUO — medico NON specifica NÉ diurno NÉ notturno (SOLO per weekend/festivi/prefestivi, che hanno sia diurno che notturno):
+📌 QUESTA SEZIONE VALE SOLO PER UN GIORNO SINGOLO: se invece il medico parla di un INSIEME di giorni senza turno ("il weekend", "i fine settimana", "tutto il mese") si applica la regola 2 di INSIEMI DI GIORNI (dispo_set turni ["N"] sull'ambito + una sola "domanda" il cui seSi è dispo_set ambito "weekend" turni ["G"]), NON l'inserimento per giorno singolo qui sotto.
 🔒 CONTROLLO OBBLIGATORIO, PRIMA DI TUTTO IL RESTO DI QUESTA SEZIONE: verifica sempre, per il giorno esatto in questione, se è un lunedì/martedì/mercoledì/giovedì/venerdì NON festivo (feriale semplice). Se lo è, questa intera sezione NON SI APPLICA: niente domanda, niente ambiguità, il diurno in quel giorno non esiste affatto — inserisci solo il notturno (N) e basta, senza generare alcuna "domanda". La domanda sul diurno esiste SOLO per sabato, domenica, festivi e prefestivi (giorni che hanno realmente sia G che N). Esempio concreto dell'errore da NON fare: giovedì 7 agosto è un feriale semplice — "sono disponibile il 7" va inserito come solo notturno, SENZA nessuna domanda "vuoi aggiungere anche il diurno?", perché il 7 agosto non ha alcun turno diurno da poter aggiungere.
 🔴 ATTENZIONE ALLA DIFFERENZA (per i soli weekend/festivi/prefestivi): questo caso vale SOLO quando il medico non menziona affatto il turno (né "notte/notturno/notti/sera/serale" né "giorno/diurno/mattina"). Se il medico usa esplicitamente parole come "notti" / "notturni" / "notturno" / "la notte" / "sera" / "serale" / "di sera" da sole (vedi sezione SOLO NOTTURNO sopra), NON fare mai la domanda sul diurno: inserisci direttamente e silenziosamente solo il notturno, senza generare alcuna "domanda" — quella parola è già una specifica esplicita del turno, non un'ambiguità (unica eccezione: "mattina e sera" = ENTRAMBI, perché lì è nominato anche il diurno). La domanda "Aggiungo anche il diurno?" si fa SOLO quando il medico dice semplicemente "sono disponibile il 2" o simili, senza nominare in alcun modo né il turno diurno né quello notturno, E SOLO se quel giorno è un weekend/festivo/prefestivo vero (vedi controllo obbligatorio sopra).
 • sabato 8 sono disponibile / disponibile domenica 9 / ci sono il 22 (domenica)
@@ -2469,6 +2561,7 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"TRIGODKO"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
+- {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), oppure {"da":X,"a":Y} (i giorni da X a Y inclusi). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
@@ -2613,6 +2706,15 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     return `medico ${nome} non trovato`;
   };
 
+  // Descrizione leggibile di un ambito dispo_set (per messaggi d'errore, anteprima proposta e riepilogo).
+  const etichettaAmbito = (ambito) => {
+    if (ambito === "feriali") return "feriali";
+    if (ambito === "weekend") return "weekend";
+    if (ambito === "mese") return "tutto il mese";
+    if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) return `dal ${Math.min(Number(ambito.da), Number(ambito.a))} al ${Math.max(Number(ambito.da), Number(ambito.a))}`;
+    return "ambito non valido";
+  };
+
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
   // Ritorna {errori, dispoModificata, daElaborare} per costruire il messaggio di conferma a chi chiama.
   const applicaAzioni = (azioniDaApplicare) => {
@@ -2701,19 +2803,34 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         if (a.az === "dispo_togli") delete nd[slotKey];
         else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
         else {
-          const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
-          const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
-          if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${a.medico} g${a.giorno}`); return; }
-          // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
-          const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
-          if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${a.medico} g${a.giorno}: non è tra le sedi verdi dichiarate`);
-          // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
-          const verdeLivAI = {};
-          verde.forEach((s) => { verdeLivAI[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
-          const bluLivAI = {};
-          blu.forEach((s) => { bluLivAI[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
-          nd[slotKey] = { verde, verdeLiv: verdeLivAI, blu, bluLiv: bluLivAI, no: false, preferito: pref };
+          // Entry-building condiviso con dispo_set (funzione pura del motore, unica fonte di verità)
+          const { entry, errori: errEntry } = costruisciEntryDispo(a, `${a.medico} g${a.giorno}`);
+          errEntry.forEach((e) => errori.push(e));
+          if (!entry) return;
+          nd[slotKey] = entry;
         }
+        dispo = { ...dispo, [mid]: nd };
+        dispoModificata = true;
+        return;
+      }
+      if (a.az === "dispo_set") {
+        // Azione "compatta": una sola riga dell'AI che dichiara una disponibilità su un intero AMBITO
+        // di giorni ("feriali" | "weekend" | "mese" | {da,a}), con le STESSE sedi/livelli/preferito per
+        // ogni giorno. È il MOTORE (espandiAmbito, calendario deterministico) a calcolare i singoli
+        // {giorno,turno}: l'AI non deve più espandere "a mente" i giorni (fonte di errori, es. un
+        // feriale saltato). Equivale a N dispo_aggiungi per-giorno con le stesse sedi (test di equivalenza).
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
+        const { entry, errori: errEntry } = costruisciEntryDispo(a, `${a.medico} (${etichettaAmbito(a.ambito)})`);
+        errEntry.forEach((e) => errori.push(e));
+        if (!entry) return;
+        const slots = espandiAmbito(a.ambito, a.turni, a.escludi || [], anno, mese, extras);
+        if (!slots.length) { errori.push(`nessun turno per ${a.medico}: l'ambito "${etichettaAmbito(a.ambito)}" non seleziona alcun giorno/turno valido`); return; }
+        const nd = { ...(dispo[mid] || {}) };
+        // Ogni slot riceve una COPIA indipendente dell'entry (niente aliasing tra giorni diversi)
+        slots.forEach(({ giorno, turno }) => {
+          nd[`${dk(anno, mese, giorno)}|${turno}`] = { verde: [...entry.verde], verdeLiv: { ...entry.verdeLiv }, blu: [...entry.blu], bluLiv: { ...entry.bluLiv }, no: false, preferito: entry.preferito };
+        });
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
         return;
@@ -2748,7 +2865,11 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   const riepilogoDi = (azioniDaRiepilogare) => {
     const riepilogoPerMedico = {};
     azioniDaRiepilogare.forEach((a) => {
-      if (a.medico && a.giorno !== undefined && a.giorno !== null && a.turno) {
+      if (a.az === "dispo_set" && a.medico) {
+        // dispo_set non ha un singolo giorno/turno: la si riassume con l'etichetta dell'ambito
+        riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
+        riepilogoPerMedico[a.medico].push(etichettaAmbito(a.ambito) + (a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""));
+      } else if (a.medico && a.giorno !== undefined && a.giorno !== null && a.turno) {
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(`g${a.giorno}${a.turno}`);
       }
@@ -3506,6 +3627,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       let d = "";
                       if (a.az === "schema") d = `Schema: giorno ${a.giorno} · ${a.turno} · ${a.sede} → ${a.medico || "— (svuota)"}`;
                       else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
+                      else if (a.az === "dispo_set") d = `Disponibilità ${etichettaAmbito(a.ambito)}${a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""}${a.escludi && a.escludi.length ? `, escl. ${a.escludi.join(",")}` : ""}: ${a.medico} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;

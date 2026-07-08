@@ -134,6 +134,73 @@ function turniDelGiorno(y, m, d, extras) {
   return { turni, festivo, prefestivo, weekend, key, dow };
 }
 
+// Espande un "ambito" (insieme di giorni dichiarato in modo compatto, es. "notturni feriali",
+// "weekend", "tutto il mese", "dal 3 al 7") nei singoli slot {giorno, turno}, usando ESCLUSIVAMENTE
+// le funzioni calendario deterministiche del motore (turniDelGiorno / FESTIVI_MAP / PREFESTIVI): così
+// il calcolo dei giorni non dipende più dal ragionamento "a mente" dell'AI (che ogni tanto salta un
+// giorno) ed è sempre esatto. NON tocca la logica di assegnazione: serve solo a costruire la dispo.
+//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y }
+//     - "feriali" = feriale semplice: NON weekend, NON festivo, NON prefestivo (i feriali hanno solo N)
+//     - "weekend"  = sabato o domenica (dow 0/6), come turniDelGiorno.weekend (un festivo INFRASETTIMANALE
+//                    non rientra né in "feriali" né in "weekend": va dichiarato a parte o via "mese"/intervallo)
+//     - "mese"     = ogni giorno del mese
+//     - { da, a }  = i giorni da X a Y inclusi (robusto anche se da>a)
+//   turniRichiesti: sottoinsieme di ["G","N"] (mai MMG). Per ogni giorno si applicano SOLO i turni
+//     richiesti che ESISTONO davvero quel giorno (intersezione con turniDelGiorno(...).turni): quindi
+//     "feriali" con ["N"] dà solo N, e un "G" richiesto su un feriale viene ignorato (rete di sicurezza).
+//   escludi: numeri-giorno da saltare del tutto (NO/assenze dichiarate).
+//   anno, mese(0-based), extras: contesto calendario (extras influiscono solo sugli MMG, non su G/N).
+// Ritorna [{giorno, turno}] deterministico: giorni crescenti, turni nell'ordine G poi N.
+function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
+  const nG = new Date(anno, mese + 1, 0).getDate();
+  const esclSet = new Set((escludi || []).map(Number));
+  const richiesti = (turniRichiesti && turniRichiesti.length ? turniRichiesti : ["N"]).filter((t) => t === "G" || t === "N");
+  const ordineTurni = ["G", "N"];
+  const inAmbito = (d, info) => {
+    if (ambito === "mese") return true;
+    if (ambito === "feriali") return !info.weekend && !info.festivo && !info.prefestivo;
+    if (ambito === "weekend") return info.weekend;
+    if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) {
+      const da = Math.min(Number(ambito.da), Number(ambito.a));
+      const a = Math.max(Number(ambito.da), Number(ambito.a));
+      return d >= da && d <= a;
+    }
+    return false;
+  };
+  const out = [];
+  for (let d = 1; d <= nG; d++) {
+    if (esclSet.has(d)) continue;
+    const info = turniDelGiorno(anno, mese, d, extras);
+    if (!inAmbito(d, info)) continue;
+    const idsEsistenti = new Set(info.turni.map((t) => t.id));
+    for (const t of ordineTurni) if (richiesti.includes(t) && idsEsistenti.has(t)) out.push({ giorno: d, turno: t });
+  }
+  return out;
+}
+
+// Costruisce l'entry di dispo (verde/blu + livelli + preferito) a partire da un'azione dell'AI
+// (campi: sedi, blu, preferito, sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo
+// slot) e da dispo_set (stessa entry replicata su ogni slot dell'ambito): la logica di validazione
+// sedi/livelli/preferito è UNA sola, quindi le due azioni restano equivalenti per costruzione.
+//   etichetta: stringa usata SOLO nei messaggi d'errore (es. "ZURLO g5" oppure "ZURLO (feriali)").
+// Ritorna { entry, errori }: entry=null se non c'è nessuna sede valida (né verde né blu); errori è
+// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide / preferito ignorato).
+function costruisciEntryDispo(a, etichetta) {
+  const errori = [];
+  const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
+  const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
+  if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${etichetta}`); return { entry: null, errori }; }
+  // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
+  const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
+  if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${etichetta}: non è tra le sedi verdi dichiarate`);
+  // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
+  const verdeLiv = {};
+  verde.forEach((s) => { verdeLiv[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
+  const bluLiv = {};
+  blu.forEach((s) => { bluLiv[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
+  return { entry: { verde, verdeLiv, blu, bluLiv, no: false, preferito: pref }, errori };
+}
+
 // ============ MOTORE ============
 // dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:sede|null }
 // - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
@@ -1079,4 +1146,4 @@ function notaSlot(slots, si, fis) {
 }
 
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };
