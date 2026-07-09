@@ -2845,32 +2845,84 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     for (let g = 1; g <= nG; g++) set.add(settimanaDi(dk(anno, mese, g)));
     return [...set];
   };
-  // Valore da mostrare nell'unico campo "max a settimana": il tetto se è UNIFORME (stesso su tutte le
-  // settimane del mese) e non nullo, altrimenti "" (vuoto = nessun tetto, o tetti misti da azzerare).
+  // La settimana ISO a CAVALLO di due mesi: se il giorno 1 NON è lunedì, la sua settimana inizia nel mese
+  // precedente. Ritorna il lunedì (chiave SETT:) di quella settimana, oppure null se il mese inizia di
+  // lunedì (nessun cavallo). L'effetto dei turni di luglio riguarda SOLO questa settimana.
+  const settimanaCavallo = () => {
+    const day1 = dk(anno, mese, 1);
+    const lun = settimanaDi(day1);
+    return lun < day1 ? lun : null;
+  };
+  // I giorni del MESE PRECEDENTE che cadono nella settimana a cavallo (dal lunedì fino al giorno prima
+  // dell'1 corrente): es. agosto 2026 → 27..31 luglio. Ogni giorno con dataStr, numero, mese breve, e se
+  // aveva DAVVERO il diurno G (weekend/festivo/prefestivo, via turniDelGiorno) — così il check G non
+  // compare sui feriali dove il diurno non esisteva. (Le date servono al PASSO 2, il conteggio al PASSO 1.)
+  const giorniLuglioCavallo = () => {
+    const lun = settimanaCavallo();
+    if (!lun) return [];
+    const day1 = dk(anno, mese, 1);
+    const out = [];
+    for (let d = new Date(lun + "T00:00:00"); dk(d.getFullYear(), d.getMonth(), d.getDate()) < day1; d.setDate(d.getDate() + 1)) {
+      const info = turniDelGiorno(d.getFullYear(), d.getMonth(), d.getDate(), {});
+      out.push({ dataStr: dk(d.getFullYear(), d.getMonth(), d.getDate()), giorno: d.getDate(), meseBreve: MESI_IT[d.getMonth()].slice(0, 3).toLowerCase(), haG: info.turni.some((t) => t.id === "G") });
+    }
+    return out;
+  };
+  // Totale turni (N+G) già fatti a luglio nella settimana a cavallo, letto da turniPrecedenti[mid].
+  const countLuglio = (perMid) => Object.values(perMid || {}).reduce((s, d) => s + (d.N ? 1 : 0) + (d.G ? 1 : 0), 0);
+  // Tetto DICHIARATO dal coordinatore per la settimana wk. Per la settimana a cavallo è il campo
+  // "dichiarato" (SETT:cavallo = {maxTurni: effettivo, dichiarato}); per le altre coincide con maxTurni.
+  // È il valore mostrato/editato in UI; il MOTORE legge sempre maxTurni (l'effettivo, già ridotto di luglio).
+  const capDichiaratoDi = (mid, wk) => {
+    const raw = dati.dispo[mid]?.["SETT:" + wk];
+    if (!raw) return null;
+    const v = raw.dichiarato != null ? raw.dichiarato : raw.maxTurni;
+    return typeof v === "number" && v >= 0 ? v : null;
+  };
+  // Costruisce il valore della chiave SETT: per una settimana: sul cavallo {maxTurni: max(0,dich−luglio),
+  // dichiarato}, altrove {maxTurni: dich}. UNICO punto che compone effettivo/dichiarato (V-A).
+  const valoreSett = (mid, wk, dich) => {
+    if (wk === settimanaCavallo()) return { maxTurni: Math.max(0, dich - countLuglio((dati.turniPrecedenti || {})[mid])), dichiarato: dich };
+    return { maxTurni: dich };
+  };
+  // Valore da mostrare nel campo unico: il tetto DICHIARATO se UNIFORME su tutte le settimane, altrimenti "".
   const capSettimanaleUniforme = (mid) => {
-    const vals = settimaneDelMese().map((wk) => capSettimanale(dati.dispo, mid, wk));
+    const vals = settimaneDelMese().map((wk) => capDichiaratoDi(mid, wk));
     return vals.length && vals.every((v) => v === vals[0]) && vals[0] != null ? vals[0] : "";
   };
-  // Scrive il tetto settimanale in blocco: rimuove PRIMA tutte le chiavi SETT: del medico (niente residui,
-  // anche per-settimana impostate dall'AI), poi — se valore non vuoto — lo applica a TUTTE le settimane
-  // del mese (bordi inclusi). Vuoto = solo rimozione. Non tocca elaboraSchema (il motore legge le SETT:).
+  // Scrive il tetto in blocco su TUTTE le settimane (bordi inclusi): sul cavallo scrive dichiarato+effettivo.
   const setCapSettimana = (mid, valStr) => {
     const nd = { ...(dati.dispo[mid] || {}) };
     Object.keys(nd).forEach((k) => { if (k.startsWith("SETT:")) delete nd[k]; });
-    if (valStr !== "") { const n = Math.max(0, Number(valStr) || 0); settimaneDelMese().forEach((wk) => { nd["SETT:" + wk] = { maxTurni: n }; }); }
+    if (valStr !== "") { const val = Math.max(0, Number(valStr) || 0); settimaneDelMese().forEach((wk) => { nd["SETT:" + wk] = valoreSett(mid, wk, val); }); }
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
   };
-  // Scrive/rimuove il tetto di UNA SOLA settimana (chiave SETT:+wk), lasciando invariate le altre — usato
-  // dal pannellino "per settimana". Vuoto = rimuove il tetto di quella settimana soltanto.
+  // Scrive/rimuove il tetto di UNA sola settimana (pannellino 📅). Sul cavallo il valore digitato è il
+  // DICHIARATO → si ricompone effettivo/dichiarato; vuoto = rimuove.
   const setCapSettimanaDi = (mid, wk, valStr) => {
     const nd = { ...(dati.dispo[mid] || {}) };
     if (valStr === "") delete nd["SETT:" + wk];
-    else nd["SETT:" + wk] = { maxTurni: Math.max(0, Number(valStr) || 0) };
+    else nd["SETT:" + wk] = valoreSett(mid, wk, Math.max(0, Number(valStr) || 0));
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
   };
-  // I tetti settimanali del medico sono "misti"? (almeno due settimane con valore diverso, incluso null vs numero)
+  // Marca/smarca un turno (N o G) già fatto a luglio in un giorno della settimana a cavallo, e RICALCOLA
+  // il tetto effettivo del cavallo (dichiarato − nuovo totale luglio) senza perdere il dichiarato.
+  const toggleTurnoPrec = (mid, dataStr, turno) => {
+    const tp = { ...(dati.turniPrecedenti || {}) };
+    const perMid = { ...(tp[mid] || {}) };
+    const day = { ...(perMid[dataStr] || {}) };
+    day[turno] = !day[turno];
+    if (!day.N && !day.G) delete perMid[dataStr]; else perMid[dataStr] = day;
+    tp[mid] = perMid;
+    const lun = settimanaCavallo();
+    const dich = lun ? capDichiaratoDi(mid, lun) : null; // dichiarato attuale (null = nessun tetto sul cavallo)
+    const nd = { ...(dati.dispo[mid] || {}) };
+    if (lun && dich != null) nd["SETT:" + lun] = { maxTurni: Math.max(0, dich - countLuglio(perMid)), dichiarato: dich };
+    setDati({ turniPrecedenti: tp, dispo: { ...dati.dispo, [mid]: nd }, schema: null });
+  };
+  // I tetti DICHIARATI del medico sono "misti"? (almeno due settimane diverse, incluso null vs numero)
   const tettiSettMisti = (mid) => {
-    const vals = settimaneDelMese().map((wk) => capSettimanale(dati.dispo, mid, wk));
+    const vals = settimaneDelMese().map((wk) => capDichiaratoDi(mid, wk));
     return vals.length > 0 && !vals.every((v) => v === vals[0]);
   };
   // Etichetta di una settimana ISO (dato il lunedì "YYYY-MM-DD"): intervallo lun→dom, es. "28 lug–3 ago".
@@ -3711,18 +3763,44 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
                             Tetto turni per singola settimana ISO (lun-dom) di {MESI_IT[mese]} {anno} — un valore per settimana, vuoto = nessun limite. <span style={{ color: "#c17d0f" }}>•</span> = settimana con festivo/prefestivo.
                           </div>
+                          {settimanaCavallo() && capDichiaratoDi(m.id, settimanaCavallo()) != null && (() => {
+                            const july = countLuglio((dati.turniPrecedenti || {})[m.id]);
+                            return (
+                              <div style={{ marginBottom: 10, padding: "6px 8px", border: "1px dashed #c9a24a", borderRadius: 6, background: "#fdf7e8" }}>
+                                <div style={{ fontSize: 11, color: "#8a6d1f", marginBottom: 5 }}>
+                                  Settimana a cavallo — turni già fatti a {MESI_IT[(mese + 11) % 12].toLowerCase()} (contano nel tetto di quella settimana, riducendolo; non toccano il tetto mensile):
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                                  {giorniLuglioCavallo().map((g) => {
+                                    const tp = ((dati.turniPrecedenti || {})[m.id] || {})[g.dataStr] || {};
+                                    return (
+                                      <div key={g.dataStr} style={{ textAlign: "center" }}>
+                                        <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 2, whiteSpace: "nowrap" }}>{g.giorno} {g.meseBreve}</div>
+                                        <label style={{ fontSize: 10, marginRight: g.haG ? 5 : 0, cursor: "pointer" }}><input type="checkbox" checked={!!tp.N} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "N")} /> N</label>
+                                        {g.haG && <label style={{ fontSize: 10, cursor: "pointer" }}><input type="checkbox" checked={!!tp.G} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "G")} /> G</label>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {july > 0 && <div style={{ fontSize: 10, color: "#8a6d1f", marginTop: 5 }}>Totale {july} turn{july === 1 ? "o" : "i"} a luglio → il tetto della settimana a cavallo scende di {july}.</div>}
+                              </div>
+                            );
+                          })()}
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {settimaneDelMese().map((wk) => {
                               const info = infoSettimana(wk);
+                              const dich = capDichiaratoDi(m.id, wk);
+                              const july = wk === settimanaCavallo() ? countLuglio((dati.turniPrecedenti || {})[m.id]) : 0;
                               return (
                                 <div key={wk} style={{ border: "1px solid #d9e2dd", borderRadius: 6, padding: "5px 7px", background: "#fff", textAlign: "center" }}>
                                   <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3, whiteSpace: "nowrap" }}>
                                     {info.etichetta} {info.haFestivo && <span style={{ color: "#c17d0f" }} title="settimana con festivo/prefestivo">•</span>}
                                   </div>
                                   <input type="number" min={0} step={1} placeholder="—"
-                                    value={capSettimanale(dati.dispo, m.id, wk) ?? ""}
+                                    value={dich ?? ""}
                                     onChange={(e) => setCapSettimanaDi(m.id, wk, e.target.value)}
                                     style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center" }} />
+                                  {july > 0 && dich != null && <div style={{ fontSize: 9, color: "#c17d0f", marginTop: 2, whiteSpace: "nowrap" }}>{dich} − {july} lug → {Math.max(0, dich - july)}</div>}
                                 </div>
                               );
                             })}

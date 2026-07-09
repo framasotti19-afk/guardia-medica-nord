@@ -114,4 +114,57 @@ s.test("pallino festivo: la settimana che contiene Ferragosto (15 ago) ha un fes
   s.assert(!haFestivo("2026-08-03"), "una settimana feriale pulita non dovrebbe avere il pallino");
 });
 
+// --- V-A: settimana a CAVALLO (vincolo dal mese precedente) ---
+// Il coordinatore dichiara un tetto; i turni di luglio nella settimana a cavallo lo riducono SOLO per
+// quella settimana. SETT:cavallo = {maxTurni: effettivo, dichiarato}. Il motore legge maxTurni (effettivo).
+const cavalloDi = (anno, mese0) => { const day1 = dk(anno, mese0, 1); const lun = settimanaDi(day1); return lun < day1 ? lun : null; };
+const valoreCavallo = (dich, july) => ({ maxTurni: Math.max(0, dich - july), dichiarato: dich });
+s.test("agosto 2026 HA una settimana a cavallo (lun 27 lug < 1 ago); un mese che inizia di lunedì no", () => {
+  s.eq(cavalloDi(2026, 7), "2026-07-27", "cavallo di agosto 2026 diverso da lun 27 lug");
+  // trova un mese 2026 che inizia di lunedì e verifica che NON abbia cavallo
+  let m0 = -1; for (let k = 0; k < 12; k++) if (settimanaDi(dk(2026, k, 1)) === dk(2026, k, 1)) { m0 = k; break; }
+  s.assert(m0 >= 0, "atteso almeno un mese 2026 che inizia di lunedì");
+  s.eq(cavalloDi(2026, m0), null, "un mese che inizia di lunedì non deve avere cavallo");
+});
+s.test("giorni di luglio nella settimana a cavallo di agosto = 27,28,29,30,31 lug (tutti feriali → solo N)", () => {
+  const lun = cavalloDi(2026, 7), day1 = dk(2026, 7, 1), giorni = [];
+  for (let d = new Date(lun + "T00:00:00"); dk(d.getFullYear(), d.getMonth(), d.getDate()) < day1; d.setDate(d.getDate() + 1)) {
+    const info = turniDelGiorno(d.getFullYear(), d.getMonth(), d.getDate(), {});
+    giorni.push({ g: d.getDate(), haG: info.turni.some((t) => t.id === "G") });
+  }
+  s.eq(J(giorni.map((x) => x.g)), J([27, 28, 29, 30, 31]), "giorni della settimana a cavallo diversi da 27-31 lug");
+  s.assert(giorni.every((x) => !x.haG), "nessuno dei 27-31 lug 2026 dovrebbe avere il diurno (sono feriali)");
+});
+s.test("V-A: dichiarato 2 + 1 turno a luglio → il MOTORE vede effettivo 1 sul cavallo, dichiarato preservato", () => {
+  const lun = cavalloDi(2026, 7), mid = 7;
+  const nd = { ["SETT:" + lun]: valoreCavallo(2, 1) }; // dichiarato 2, luglio 1 → effettivo 1
+  const dispo = { [mid]: nd };
+  s.eq(capSettimanale(dispo, mid, lun), 1, "il motore deve leggere l'effettivo 1 (2 − 1 luglio)");
+  s.eq(dispo[mid]["SETT:" + lun].dichiarato, 2, "il dichiarato 2 deve essere preservato nella chiave");
+});
+s.test("V-A: cambiare i turni di luglio ricalcola l'effettivo senza perdere il dichiarato", () => {
+  const lun = cavalloDi(2026, 7), mid = 7, dich = 2;
+  // luglio 0 → eff 2 ; luglio 1 → eff 1 ; luglio 2 → eff 0 ; luglio 3 (≥ dich) → eff 0
+  for (const [july, atteso] of [[0, 2], [1, 1], [2, 0], [3, 0]]) {
+    const dispo = { [mid]: { ["SETT:" + lun]: valoreCavallo(dich, july) } };
+    s.eq(capSettimanale(dispo, mid, lun), atteso, `luglio ${july}: effettivo atteso ${atteso}`);
+    s.eq(dispo[mid]["SETT:" + lun].dichiarato, dich, `luglio ${july}: dichiarato deve restare ${dich}`);
+  }
+});
+s.test("V-A: le altre settimane non sono toccate (nessun 'dichiarato', maxTurni = valore pieno)", () => {
+  const wks = settimaneDelMese(2026, 7), lun = cavalloDi(2026, 7), mid = 7;
+  const nd = {}; wks.forEach((wk) => { nd["SETT:" + wk] = wk === lun ? valoreCavallo(2, 1) : { maxTurni: 2 }; });
+  const dispo = { [mid]: nd };
+  wks.filter((wk) => wk !== lun).forEach((wk) => {
+    s.eq(capSettimanale(dispo, mid, wk), 2, `settimana ${wk} non-cavallo deve restare 2`);
+    s.assert(dispo[mid]["SETT:" + wk].dichiarato === undefined, `settimana ${wk} non-cavallo non deve avere 'dichiarato'`);
+  });
+  s.eq(capSettimanale(dispo, mid, lun), 1, "il cavallo deve essere l'effettivo 1");
+});
+s.test("V-A: senza tetto sul cavallo, i turni di luglio non hanno effetto (nessuna chiave)", () => {
+  const lun = cavalloDi(2026, 7), mid = 7;
+  const dispo = { [mid]: {} }; // nessuna SETT:cavallo
+  s.eq(capSettimanale(dispo, mid, lun), null, "senza tetto dichiarato, il cavallo non ha limite anche con turni a luglio");
+});
+
 s.finish();
