@@ -139,12 +139,19 @@ function turniDelGiorno(y, m, d, extras) {
 // le funzioni calendario deterministiche del motore (turniDelGiorno / FESTIVI_MAP / PREFESTIVI): così
 // il calcolo dei giorni non dipende più dal ragionamento "a mente" dell'AI (che ogni tanto salta un
 // giorno) ed è sempre esatto. NON tocca la logica di assegnazione: serve solo a costruire la dispo.
-//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y }
+//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y } | { giorni_settimana: ... }
 //     - "feriali" = feriale semplice: NON weekend, NON festivo, NON prefestivo (i feriali hanno solo N)
 //     - "weekend"  = sabato o domenica (dow 0/6), come turniDelGiorno.weekend (un festivo INFRASETTIMANALE
 //                    non rientra né in "feriali" né in "weekend": va dichiarato a parte o via "mese"/intervallo)
 //     - "mese"     = ogni giorno del mese
 //     - { da, a }  = i giorni da X a Y inclusi (robusto anche se da>a)
+//     - { giorni_settimana } = giorni della settimana NOMINATI dal medico ("il lunedì", "da martedì a
+//                    giovedì"): il motore calcola le date esatte del mese (l'AI non le elenca). Due forme:
+//                    elenco { giorni_settimana: ["lun","mer"] } oppure intervallo { giorni_settimana:
+//                    { da:"mar", a:"gio" } } (espanso in ordine lun→dom, con wraparound: ven→lun = ven,sab,
+//                    dom,lun). Token = prime 3 lettere ("lun"="lunedì"), sconosciuti ignorati. Match sul dow
+//                    (getDay), INDIPENDENTE da festivo/prefestivo: un giorno-settimana che cade su un festivo
+//                    infrasettimanale è incluso e ha anche G (a differenza di "feriali", che lo esclude).
 //   turniRichiesti: sottoinsieme di ["G","N"] (mai MMG). Per ogni giorno si applicano SOLO i turni
 //     richiesti che ESISTONO davvero quel giorno (intersezione con turniDelGiorno(...).turni): quindi
 //     "feriali" con ["N"] dà solo N, e un "G" richiesto su un feriale viene ignorato (rete di sicurezza).
@@ -156,10 +163,27 @@ function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
   const esclSet = new Set((escludi || []).map(Number));
   const richiesti = (turniRichiesti && turniRichiesti.length ? turniRichiesti : ["N"]).filter((t) => t === "G" || t === "N");
   const ordineTurni = ["G", "N"];
+  // Ambito { giorni_settimana }: precalcola UNA volta l'insieme dei dow (getDay) da includere.
+  // Elenco ["lun","mer"] oppure intervallo { da:"mar", a:"gio" } espanso in ordine lun→dom con wraparound.
+  let dowSet = null;
+  if (ambito && typeof ambito === "object" && ambito.giorni_settimana != null) {
+    const ORD = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]; // ordine settimanale per gli intervalli
+    const TOK = { lun: 1, mar: 2, mer: 3, gio: 4, ven: 5, sab: 6, dom: 0 }; // token → getDay (0=dom..6=sab)
+    const tok = (x) => String(x == null ? "" : x).trim().toLowerCase().slice(0, 3);
+    dowSet = new Set();
+    const gs = ambito.giorni_settimana;
+    if (Array.isArray(gs)) {
+      for (const x of gs) { const dv = TOK[tok(x)]; if (dv != null) dowSet.add(dv); }
+    } else if (gs && typeof gs === "object" && gs.da != null && gs.a != null) {
+      const pa = ORD.indexOf(tok(gs.da)), pb = ORD.indexOf(tok(gs.a));
+      if (pa >= 0 && pb >= 0) for (let i = pa; ; i = (i + 1) % 7) { dowSet.add(TOK[ORD[i]]); if (i === pb) break; }
+    }
+  }
   const inAmbito = (d, info) => {
     if (ambito === "mese") return true;
     if (ambito === "feriali") return !info.weekend && !info.festivo && !info.prefestivo;
     if (ambito === "weekend") return info.weekend;
+    if (dowSet) return dowSet.has(info.dow); // giorni della settimana nominati: match sul dow, indipendente da festivo/prefestivo
     if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) {
       const da = Math.min(Number(ambito.da), Number(ambito.a));
       const a = Math.max(Number(ambito.da), Number(ambito.a));
@@ -174,6 +198,23 @@ function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
     if (!inAmbito(d, info)) continue;
     const idsEsistenti = new Set(info.turni.map((t) => t.id));
     for (const t of ordineTurni) if (richiesti.includes(t) && idsEsistenti.has(t)) out.push({ giorno: d, turno: t });
+  }
+  return out;
+}
+
+// Dato l'elenco di slot già espansi (da espandiAmbito) + il contesto calendario, restituisce i GIORNI
+// "a sorpresa": feriali INFRASETTIMANALI (NON weekend) che però cadono su festivo/prefestivo, quindi hanno
+// anche il turno diurno (G) — ma G NON è tra gli slot inseriti (es. giorni-settimana con solo N). Sono i
+// giorni per cui il diurno esiste ma non è stato messo: vanno SEGNALATI al coordinatore (non aggiunti
+// d'ufficio). Pura, di solo calendario: nessun effetto sull'assegnazione. Ritorna [giorno] crescente.
+function diurniNascosti(slots, anno, mese, extras) {
+  const turniPerGiorno = new Map();
+  for (const s of slots) { if (!turniPerGiorno.has(s.giorno)) turniPerGiorno.set(s.giorno, new Set()); turniPerGiorno.get(s.giorno).add(s.turno); }
+  const out = [];
+  for (const g of [...turniPerGiorno.keys()].sort((a, b) => a - b)) {
+    const info = turniDelGiorno(anno, mese, g, extras);
+    // festivo/prefestivo MA non weekend (il diurno del weekend non è "a sorpresa"); il diurno esiste ma non è inserito
+    if ((info.festivo || info.prefestivo) && !info.weekend && info.turni.some((t) => t.id === "G") && !turniPerGiorno.get(g).has("G")) out.push(g);
   }
   return out;
 }
@@ -1146,4 +1187,4 @@ function notaSlot(slots, si, fis) {
 }
 
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, diurniNascosti, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };

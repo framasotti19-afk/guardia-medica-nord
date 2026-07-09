@@ -141,12 +141,19 @@ function turniDelGiorno(y, m, d, extras) {
 // le funzioni calendario deterministiche del motore (turniDelGiorno / FESTIVI_MAP / PREFESTIVI): così
 // il calcolo dei giorni non dipende più dal ragionamento "a mente" dell'AI (che ogni tanto salta un
 // giorno) ed è sempre esatto. NON tocca la logica di assegnazione: serve solo a costruire la dispo.
-//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y }
+//   ambito: "feriali" | "weekend" | "mese" | { da:X, a:Y } | { giorni_settimana: ... }
 //     - "feriali" = feriale semplice: NON weekend, NON festivo, NON prefestivo (i feriali hanno solo N)
 //     - "weekend"  = sabato o domenica (dow 0/6), come turniDelGiorno.weekend (un festivo INFRASETTIMANALE
 //                    non rientra né in "feriali" né in "weekend": va dichiarato a parte o via "mese"/intervallo)
 //     - "mese"     = ogni giorno del mese
 //     - { da, a }  = i giorni da X a Y inclusi (robusto anche se da>a)
+//     - { giorni_settimana } = giorni della settimana NOMINATI dal medico ("il lunedì", "da martedì a
+//                    giovedì"): il motore calcola le date esatte del mese (l'AI non le elenca). Due forme:
+//                    elenco { giorni_settimana: ["lun","mer"] } oppure intervallo { giorni_settimana:
+//                    { da:"mar", a:"gio" } } (espanso in ordine lun→dom, con wraparound: ven→lun = ven,sab,
+//                    dom,lun). Token = prime 3 lettere ("lun"="lunedì"), sconosciuti ignorati. Match sul dow
+//                    (getDay), INDIPENDENTE da festivo/prefestivo: un giorno-settimana che cade su un festivo
+//                    infrasettimanale è incluso e ha anche G (a differenza di "feriali", che lo esclude).
 //   turniRichiesti: sottoinsieme di ["G","N"] (mai MMG). Per ogni giorno si applicano SOLO i turni
 //     richiesti che ESISTONO davvero quel giorno (intersezione con turniDelGiorno(...).turni): quindi
 //     "feriali" con ["N"] dà solo N, e un "G" richiesto su un feriale viene ignorato (rete di sicurezza).
@@ -158,10 +165,27 @@ function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
   const esclSet = new Set((escludi || []).map(Number));
   const richiesti = (turniRichiesti && turniRichiesti.length ? turniRichiesti : ["N"]).filter((t) => t === "G" || t === "N");
   const ordineTurni = ["G", "N"];
+  // Ambito { giorni_settimana }: precalcola UNA volta l'insieme dei dow (getDay) da includere.
+  // Elenco ["lun","mer"] oppure intervallo { da:"mar", a:"gio" } espanso in ordine lun→dom con wraparound.
+  let dowSet = null;
+  if (ambito && typeof ambito === "object" && ambito.giorni_settimana != null) {
+    const ORD = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]; // ordine settimanale per gli intervalli
+    const TOK = { lun: 1, mar: 2, mer: 3, gio: 4, ven: 5, sab: 6, dom: 0 }; // token → getDay (0=dom..6=sab)
+    const tok = (x) => String(x == null ? "" : x).trim().toLowerCase().slice(0, 3);
+    dowSet = new Set();
+    const gs = ambito.giorni_settimana;
+    if (Array.isArray(gs)) {
+      for (const x of gs) { const dv = TOK[tok(x)]; if (dv != null) dowSet.add(dv); }
+    } else if (gs && typeof gs === "object" && gs.da != null && gs.a != null) {
+      const pa = ORD.indexOf(tok(gs.da)), pb = ORD.indexOf(tok(gs.a));
+      if (pa >= 0 && pb >= 0) for (let i = pa; ; i = (i + 1) % 7) { dowSet.add(TOK[ORD[i]]); if (i === pb) break; }
+    }
+  }
   const inAmbito = (d, info) => {
     if (ambito === "mese") return true;
     if (ambito === "feriali") return !info.weekend && !info.festivo && !info.prefestivo;
     if (ambito === "weekend") return info.weekend;
+    if (dowSet) return dowSet.has(info.dow); // giorni della settimana nominati: match sul dow, indipendente da festivo/prefestivo
     if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) {
       const da = Math.min(Number(ambito.da), Number(ambito.a));
       const a = Math.max(Number(ambito.da), Number(ambito.a));
@@ -176,6 +200,23 @@ function espandiAmbito(ambito, turniRichiesti, escludi, anno, mese, extras) {
     if (!inAmbito(d, info)) continue;
     const idsEsistenti = new Set(info.turni.map((t) => t.id));
     for (const t of ordineTurni) if (richiesti.includes(t) && idsEsistenti.has(t)) out.push({ giorno: d, turno: t });
+  }
+  return out;
+}
+
+// Dato l'elenco di slot già espansi (da espandiAmbito) + il contesto calendario, restituisce i GIORNI
+// "a sorpresa": feriali INFRASETTIMANALI (NON weekend) che però cadono su festivo/prefestivo, quindi hanno
+// anche il turno diurno (G) — ma G NON è tra gli slot inseriti (es. giorni-settimana con solo N). Sono i
+// giorni per cui il diurno esiste ma non è stato messo: vanno SEGNALATI al coordinatore (non aggiunti
+// d'ufficio). Pura, di solo calendario: nessun effetto sull'assegnazione. Ritorna [giorno] crescente.
+function diurniNascosti(slots, anno, mese, extras) {
+  const turniPerGiorno = new Map();
+  for (const s of slots) { if (!turniPerGiorno.has(s.giorno)) turniPerGiorno.set(s.giorno, new Set()); turniPerGiorno.get(s.giorno).add(s.turno); }
+  const out = [];
+  for (const g of [...turniPerGiorno.keys()].sort((a, b) => a - b)) {
+    const info = turniDelGiorno(anno, mese, g, extras);
+    // festivo/prefestivo MA non weekend (il diurno del weekend non è "a sorpresa"); il diurno esiste ma non è inserito
+    if ((info.festivo || info.prefestivo) && !info.weekend && info.turni.some((t) => t.id === "G") && !turniPerGiorno.get(g).has("G")) out.push(g);
   }
   return out;
 }
@@ -2232,6 +2273,7 @@ Mappa la frase all'"ambito":
 • "i weekend" / "sabati e domeniche" / "nei fine settimana" → ambito "weekend".
 • "tutto il mese" / "tutti i giorni" / "tutte le notti del mese" → ambito "mese".
 • "dal X al Y" / "dal X al Y del mese" / "dal X a fine mese" (in questo caso Y = ultimo giorno del mese corrente) → ambito {"da":X,"a":Y}.
+• GIORNI DELLA SETTIMANA NOMINATI ("il lunedì", "lunedì e mercoledì", "tutti i venerdì", "da martedì a giovedì") → ambito {"giorni_settimana": ...}: il MOTORE calcola le date esatte del mese, tu NON le elencare mai. Due forme: ELENCO {"giorni_settimana":["lun","mer"]} (token: lun, mar, mer, gio, ven, sab, dom) per giorni singoli o liste; INTERVALLO {"giorni_settimana":{"da":"mar","a":"gio"}} per "da X a Y" (il motore espande i giorni intermedi, anche con wraparound tipo ven→lun). Turni dedotti come sotto: se il turno non è specificato → ["N"] (i giorni della settimana nominati significano le notti). ⚠️ Se un giorno della serie cade su un festivo/prefestivo infrasettimanale (che ha anche il diurno), NON preoccupartene: emetti dispo_set col notturno e basta — è il SISTEMA a rilevarlo e a chiedere al coordinatore se aggiungere il diurno. Distinzione da "feriali": "feriali"/"infrasettimanali" (generico) → ambito "feriali" (feriale semplice, esclude i festivi); giorni della settimana NOMINATI → "giorni_settimana" (che invece INCLUDE i festivi/prefestivi che cadono in quel giorno della settimana).
 • ESPRESSIONI DI PERIODO (traduzione fissa in intervalli; mese di riferimento = quello di STATO ATTUALE — se il medico nomina il mese di riferimento per nome è lo stesso: con agosto = mese, "inizio agosto" = "inizio mese"): "inizio mese" / "a inizio mese" → {"da":1,"a":7}; "metà mese" / "a metà mese" → {"da":11,"a":20}; "fine mese" / "a fine mese" / "gli ultimi giorni (del mese)" → {"da":24,"a":ultimo giorno del mese}; "prima metà" (del mese) → {"da":1,"a":15}; "seconda metà" (del mese) → {"da":16,"a":ultimo giorno del mese}. Trattale come un normale ambito {da,a} con dispo_set (turni dedotti come sotto). Se l'espressione è accompagnata da un NUMERO/tetto ("a fine mese massimo 3 notti") imposta ANCHE {"az":"tetto_mese","medico":"...","maxTurni":N}. NON confondere con "verso il 20" / "intorno al 15" / "la prima/seconda settimana" / "qualche giorno": quelle restano VAGHE (vedi CASI DA SEGNALARE), perché "verso"/"intorno"/"settimana"/"qualche" non individuano confini netti.
 "turni": deducili dalla frase ESATTAMENTE come nella sezione TURNI DIURNO/NOTTURNO — "notti/notturni/sera" → ["N"]; "diurno/giorno" → ["G"]; "sia diurno che notturno / weekend interi / tutto il giorno" → ["G","N"]. Il motore, per ogni giorno, applica solo i turni che ESISTONO quel giorno (un "G" richiesto su un feriale lo ignora da solo).
 "escludi": i numeri-giorno con un NO/ferie/eccezione ("tranne il 12", "eccetto dal 20 al 25") vanno in "escludi", così dispo_set non li tocca; se sono vere indisponibilità dichiarate (ferie/impegni) emetti ANCHE la dispo_no per quei giorni come da sezione INDISPONIBILITÀ — le due cose si combinano correttamente.
@@ -2566,7 +2608,7 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"TRIGODKO"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
-- {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), oppure {"da":X,"a":Y} (i giorni da X a Y inclusi). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
+- {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), {"da":X,"a":Y} (i giorni da X a Y inclusi), oppure {"giorni_settimana":["lun","mer"]} / {"giorni_settimana":{"da":"mar","a":"gio"}} (i giorni della settimana nominati — token lun/mar/mer/gio/ven/sab/dom — con il motore che calcola le date esatte). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
@@ -2716,6 +2758,12 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     if (ambito === "feriali") return "feriali";
     if (ambito === "weekend") return "weekend";
     if (ambito === "mese") return "tutto il mese";
+    if (ambito && typeof ambito === "object" && ambito.giorni_settimana != null) {
+      const gs = ambito.giorni_settimana;
+      if (Array.isArray(gs)) return gs.join(", ");
+      if (gs && gs.da != null && gs.a != null) return `da ${gs.da} a ${gs.a}`;
+      return "giorni della settimana";
+    }
     if (ambito && typeof ambito === "object" && ambito.da != null && ambito.a != null) return `dal ${Math.min(Number(ambito.da), Number(ambito.a))} al ${Math.max(Number(ambito.da), Number(ambito.a))}`;
     return "ambito non valido";
   };
@@ -2732,6 +2780,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let schema = dati.schema;
     let daElaborare = false;
     let dispoModificata = false;
+    const domandeSuggerite = []; // domande Sì/No generate dal sistema (es. diurno "a sorpresa" su un festivo in settimana)
     const giorniNelMese = new Date(anno, mese + 1, 0).getDate(); // 28..31 secondo il mese (gestisce anche febbraio)
 
     azioniDaApplicare.forEach((a) => {
@@ -2838,6 +2887,22 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         });
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
+        // Diurno "a sorpresa": per i GIORNI DELLA SETTIMANA nominati, un giorno che cade su festivo/prefestivo
+        // infrasettimanale ha anche il diurno (G), ma abbiamo inserito solo la notte. NON lo aggiungiamo
+        // d'ufficio: proponiamo UNA domanda Sì/No per l'intera serie (Sì = dispo_aggiungi G di quei giorni).
+        if (a.ambito && typeof a.ambito === "object" && a.ambito.giorni_settimana != null) {
+          const nascosti = diurniNascosti(slots, anno, mese, extras);
+          if (nascosti.length) {
+            const plur = nascosti.length > 1;
+            domandeSuggerite.push({
+              medico: a.medico,
+              situazione: `${plur ? "i giorni" : "il giorno"} ${nascosti.join(", ")} ${MESI_IT[mese].toLowerCase()} ${plur ? "sono festivi/prefestivi e hanno" : "è festivo/prefestivo e ha"} anche il turno diurno (inserito solo il notturno)`,
+              domanda: "vuoi aggiungere anche il diurno?",
+              seSi: nascosti.map((g) => ({ az: "dispo_aggiungi", medico: a.medico, giorno: g, turno: "G", sedi: a.sedi, sedi_liv: a.sedi_liv, blu: a.blu, blu_liv: a.blu_liv, preferito: a.preferito })),
+              seNo: [],
+            });
+          }
+        }
         return;
       }
       if (a.az === "schema") {
@@ -2862,7 +2927,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let avvisiNuovi = dati.avvisi;
     if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese); schema = r.schema; avvisiNuovi = r.avvisi; }
     setDati({ dispo, extras, extraOre, turniExtra, maxTurniMese, schema, avvisi: avvisiNuovi });
-    return { errori, dispoModificata, daElaborare };
+    return { errori, dispoModificata, daElaborare, domandeSuggerite };
   };
   // Riepilogo compatto (medico: giorno+turno) per le azioni che li identificano — solo un promemoria
   // visivo di una riga, non un resoconto dettagliato. Condiviso da applicaProposta e rispondiDomanda,
@@ -2886,14 +2951,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   };
   const applicaProposta = () => {
     if (!proposta) return;
-    const { errori, dispoModificata, daElaborare } = applicaAzioni(proposta.azioni);
+    const { errori, dispoModificata, daElaborare, domandeSuggerite } = applicaAzioni(proposta.azioni);
     const { riepilogo, nuoveVociRegistro } = riepilogoDi(proposta.azioni);
     if (nuoveVociRegistro.length) setAzioniEseguite((prev) => [...prev, ...nuoveVociRegistro]);
+    if (domandeSuggerite.length) setDomande((prev) => [...prev, ...domandeSuggerite]); // es. diurno "a sorpresa" su un festivo in settimana
     let msg = errori.length ? `Applicata con avvisi: ${errori.join("; ")}. ` : `Modifiche applicate ✓${riepilogo ? " — " + riepilogo : ""} (annullabile con ↶). `;
     if (dispoModificata && !daElaborare && dati.schema) msg += "Disponibilità cambiate con schema già elaborato: valuta se rielaborarlo o correggerlo a mano.";
+    if (domandeSuggerite.length) msg += ` (${domandeSuggerite.length} domanda${domandeSuggerite.length > 1 ? "e" : ""} sul diurno qui sotto)`;
     setAiMsgs((p) => [...p, { role: "assistant", content: msg.trim() }]);
     setProposta(null);
-    if (!azioniRestanti && !domande.length) setCompletato(true); // nessun altro round o domanda in sospeso: mostra il banner "Completato ✓"
+    if (!azioniRestanti && !domande.length && !domandeSuggerite.length) setCompletato(true); // nessun altro round o domanda in sospeso: mostra il banner "Completato ✓"
   };
   const rifiutaProposta = () => {
     setAiMsgs((p) => [...p, { role: "assistant", content: "Proposta annullata, nessuna modifica applicata." }]);
@@ -2905,18 +2972,19 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     const d = domande[idx];
     if (!d) return;
     const azioniScelte = (risposta === "si" ? d.seSi : d.seNo) || [];
-    let msg;
+    let msg, sugg = [];
     if (!azioniScelte.length) {
       msg = `Risposta "${risposta === "si" ? "Sì" : "No"}" registrata, nessuna azione da applicare.`;
     } else {
-      const { errori } = applicaAzioni(azioniScelte);
+      const { errori, domandeSuggerite } = applicaAzioni(azioniScelte);
+      sugg = domandeSuggerite || [];
       const { riepilogo, nuoveVociRegistro } = riepilogoDi(azioniScelte);
       if (nuoveVociRegistro.length) setAzioniEseguite((prev) => [...prev, ...nuoveVociRegistro]);
       msg = errori.length ? `Risposta "${risposta === "si" ? "Sì" : "No"}" applicata con avvisi: ${errori.join("; ")}.` : `Risposta "${risposta === "si" ? "Sì" : "No"}" applicata ✓${riepilogo ? " — " + riepilogo : ""}.`;
     }
     setAiMsgs((p) => [...p, { role: "assistant", content: msg }]);
     setDomande((prev) => {
-      const rest = prev.filter((_, i) => i !== idx);
+      const rest = prev.filter((_, i) => i !== idx).concat(sugg); // eventuali nuove domande generate dal sistema
       if (!rest.length && !proposta && !azioniRestanti) setCompletato(true);
       return rest;
     });
