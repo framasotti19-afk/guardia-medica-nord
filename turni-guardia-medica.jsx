@@ -2834,6 +2834,32 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nPreferenze turno: ${pref}`;
   };
 
+  // TUTTE le settimane ISO (lun-dom) che contengono almeno un giorno del mese corrente — INCLUSE le
+  // troncate ai bordi (la settimana del giorno 1 inizia nel mese precedente, quella dell'ultimo giorno
+  // sfora nel successivo). settimanaDi(giorno) restituisce il lunedì della sua settimana, quindi la
+  // distinta su tutti i giorni del mese copre esattamente quelle settimane, senza buchi ai bordi.
+  const settimaneDelMese = () => {
+    const nG = new Date(anno, mese + 1, 0).getDate();
+    const set = new Set();
+    for (let g = 1; g <= nG; g++) set.add(settimanaDi(dk(anno, mese, g)));
+    return [...set];
+  };
+  // Valore da mostrare nell'unico campo "max a settimana": il tetto se è UNIFORME (stesso su tutte le
+  // settimane del mese) e non nullo, altrimenti "" (vuoto = nessun tetto, o tetti misti da azzerare).
+  const capSettimanaleUniforme = (mid) => {
+    const vals = settimaneDelMese().map((wk) => capSettimanale(dati.dispo, mid, wk));
+    return vals.length && vals.every((v) => v === vals[0]) && vals[0] != null ? vals[0] : "";
+  };
+  // Scrive il tetto settimanale in blocco: rimuove PRIMA tutte le chiavi SETT: del medico (niente residui,
+  // anche per-settimana impostate dall'AI), poi — se valore non vuoto — lo applica a TUTTE le settimane
+  // del mese (bordi inclusi). Vuoto = solo rimozione. Non tocca elaboraSchema (il motore legge le SETT:).
+  const setCapSettimana = (mid, valStr) => {
+    const nd = { ...(dati.dispo[mid] || {}) };
+    Object.keys(nd).forEach((k) => { if (k.startsWith("SETT:")) delete nd[k]; });
+    if (valStr !== "") { const n = Math.max(0, Number(valStr) || 0); settimaneDelMese().forEach((wk) => { nd["SETT:" + wk] = { maxTurni: n }; }); }
+    setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
+  };
+
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
   // Ritorna {errori, dispoModificata, daElaborare} per costruire il messaggio di conferma a chi chiama.
   const applicaAzioni = (azioniDaApplicare) => {
@@ -3538,6 +3564,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                 Le <b>ore da recuperare</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
                 I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore da recuperare, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
                 Il <b>Max turni mese</b> è un tetto superiore al numero di turni nel mese, valido per QUALSIASI categoria (anche senza incarico): il motore si ferma su quel numero anche se resta debito residuo. È indipendente dal monte ore e può essere anche inferiore ad esso.
+                Il <b>Max turni sett.</b> è un tetto per ogni settimana ISO (lun-dom): un solo valore, applicato a tutte le settimane che toccano il mese, incluse quelle a cavallo di mese ai bordi. Vuoto = nessun limite.
                 Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
@@ -3557,7 +3584,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
               })()}
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d3dad6" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni per ogni settimana ISO (lun-dom), incluse le settimane a cavallo di mese. Un solo valore, applicato a tutte le settimane del mese. Vuoto = nessun limite">Max turni sett.</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => [
@@ -3619,6 +3646,12 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           onChange={(e) => { const v = e.target.value; const nd = { ...(dati.maxTurniMese || {}) }; if (v === "") delete nd[m.id]; else nd[m.id] = Math.max(0, Number(v) || 0); setDati({ maxTurniMese: nd, schema: null }); }}
                           style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                       </td>
+                      <td style={{ padding: "6px 8px" }}>
+                        <input type="number" min={0} step={1} placeholder="—" value={capSettimanaleUniforme(m.id)}
+                          onChange={(e) => setCapSettimana(m.id, e.target.value)}
+                          title="Massimo turni per settimana (lun-dom, bordi mese inclusi): applicato a tutte le settimane del mese. Vuoto = nessun limite"
+                          style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
+                      </td>
                       <td style={{ padding: "6px 8px", color: T.textMuted }}>
                         {dati.schema ? `${oreAssegnateDi[m.id] || 0}h` : "—"}
                       </td>
@@ -3636,7 +3669,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                     </tr>,
                     statoAperto === m.id ? (
                       <tr key={m.id + "-stato"}>
-                        <td colSpan={11} style={{ padding: "0 8px 12px", background: T.primaryTint }}>
+                        <td colSpan={12} style={{ padding: "0 8px 12px", background: T.primaryTint }}>
                           <pre style={{ margin: 0, fontSize: 11, whiteSpace: "pre-wrap", fontFamily: "inherit", color: T.text }}>{formattaStatoReale(m.nome, statoRealeMedico(m.id, dati.dispo, dati.maxTurniMese), mese, anno)}</pre>
                         </td>
                       </tr>
