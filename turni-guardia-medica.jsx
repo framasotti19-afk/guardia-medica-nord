@@ -1283,6 +1283,7 @@ export default function App() {
   const [, forceRender] = useState(0);
   const [tab, setTab] = useState("dispo");
   const [statoAperto, setStatoAperto] = useState(null); // id del medico con il pannello "stato reale" aperto nel tab Medici
+  const [settAperto, setSettAperto] = useState(null); // id del medico con il pannellino "tetti per settimana" aperto
   const [editCella, setEditCella] = useState(null); // {mid, slotKey}
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMsgs, setAiMsgs] = useState([]);
@@ -2859,6 +2860,33 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     if (valStr !== "") { const n = Math.max(0, Number(valStr) || 0); settimaneDelMese().forEach((wk) => { nd["SETT:" + wk] = { maxTurni: n }; }); }
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
   };
+  // Scrive/rimuove il tetto di UNA SOLA settimana (chiave SETT:+wk), lasciando invariate le altre — usato
+  // dal pannellino "per settimana". Vuoto = rimuove il tetto di quella settimana soltanto.
+  const setCapSettimanaDi = (mid, wk, valStr) => {
+    const nd = { ...(dati.dispo[mid] || {}) };
+    if (valStr === "") delete nd["SETT:" + wk];
+    else nd["SETT:" + wk] = { maxTurni: Math.max(0, Number(valStr) || 0) };
+    setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
+  };
+  // I tetti settimanali del medico sono "misti"? (almeno due settimane con valore diverso, incluso null vs numero)
+  const tettiSettMisti = (mid) => {
+    const vals = settimaneDelMese().map((wk) => capSettimanale(dati.dispo, mid, wk));
+    return vals.length > 0 && !vals.every((v) => v === vals[0]);
+  };
+  // Etichetta di una settimana ISO (dato il lunedì "YYYY-MM-DD"): intervallo lun→dom, es. "28 lug–3 ago".
+  // haFestivo: true se un qualsiasi giorno lun..dom è festivo o prefestivo (per il pallino "Ferragosto & co.").
+  const infoSettimana = (wk) => {
+    const lun = new Date(wk + "T00:00:00");
+    const dom = new Date(lun); dom.setDate(dom.getDate() + 6);
+    const gg = (dt) => `${dt.getDate()} ${MESI_IT[dt.getMonth()].slice(0, 3).toLowerCase()}`;
+    let haFestivo = false;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(lun); d.setDate(d.getDate() + i);
+      const info = turniDelGiorno(d.getFullYear(), d.getMonth(), d.getDate(), {});
+      if (info.festivo || info.prefestivo) { haFestivo = true; break; }
+    }
+    return { etichetta: `${gg(lun)}–${gg(dom)}`, haFestivo };
+  };
 
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
   // Ritorna {errori, dispoModificata, daElaborare} per costruire il messaggio di conferma a chi chiama.
@@ -3564,7 +3592,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                 Le <b>ore da recuperare</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
                 I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore da recuperare, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
                 Il <b>Max turni mese</b> è un tetto superiore al numero di turni nel mese, valido per QUALSIASI categoria (anche senza incarico): il motore si ferma su quel numero anche se resta debito residuo. È indipendente dal monte ore e può essere anche inferiore ad esso.
-                Il <b>Max turni sett.</b> è un tetto per ogni settimana ISO (lun-dom): un solo valore, applicato a tutte le settimane che toccano il mese, incluse quelle a cavallo di mese ai bordi. Vuoto = nessun limite.
+                Il <b>Max turni sett.</b> è un tetto per ogni settimana ISO (lun-dom): un solo valore, applicato a tutte le settimane che toccano il mese, incluse quelle a cavallo di mese ai bordi. Vuoto = nessun limite. Per tetti <b>diversi per settimana</b> (es. "2 a settimana ma solo 1 nella settimana di Ferragosto") apri 📅: il campo unico mostra "misto" e resta evidenziato quando le settimane non sono tutte uguali.
                 Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
                 Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
                 <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
@@ -3646,11 +3674,14 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           onChange={(e) => { const v = e.target.value; const nd = { ...(dati.maxTurniMese || {}) }; if (v === "") delete nd[m.id]; else nd[m.id] = Math.max(0, Number(v) || 0); setDati({ maxTurniMese: nd, schema: null }); }}
                           style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                       </td>
-                      <td style={{ padding: "6px 8px" }}>
-                        <input type="number" min={0} step={1} placeholder="—" value={capSettimanaleUniforme(m.id)}
+                      <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                        <input type="number" min={0} step={1} placeholder={tettiSettMisti(m.id) ? "misto" : "—"} value={capSettimanaleUniforme(m.id)}
                           onChange={(e) => setCapSettimana(m.id, e.target.value)}
-                          title="Massimo turni per settimana (lun-dom, bordi mese inclusi): applicato a tutte le settimane del mese. Vuoto = nessun limite"
-                          style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
+                          title="Massimo turni per settimana (lun-dom, bordi mese inclusi): un valore uguale per tutte le settimane del mese. Vuoto = nessun limite. Per tetti DIVERSI per settimana usa 📅. Scrivere qui riporta tutte le settimane allo stesso valore."
+                          style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: `1px solid ${tettiSettMisti(m.id) ? "#c17d0f" : "#e5e9e6"}` }} />
+                        <button onClick={() => setSettAperto(settAperto === m.id ? null : m.id)}
+                          title="Tetti per singola settimana (diversi per settimana)"
+                          style={{ marginLeft: 4, padding: "3px 5px", borderRadius: 5, border: "1px solid #cfe0da", background: (settAperto === m.id || tettiSettMisti(m.id)) ? T.primary : "#fff", color: (settAperto === m.id || tettiSettMisti(m.id)) ? "#fff" : T.primary, cursor: "pointer", fontSize: 11 }}>📅</button>
                       </td>
                       <td style={{ padding: "6px 8px", color: T.textMuted }}>
                         {dati.schema ? `${oreAssegnateDi[m.id] || 0}h` : "—"}
@@ -3671,6 +3702,31 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       <tr key={m.id + "-stato"}>
                         <td colSpan={12} style={{ padding: "0 8px 12px", background: T.primaryTint }}>
                           <pre style={{ margin: 0, fontSize: 11, whiteSpace: "pre-wrap", fontFamily: "inherit", color: T.text }}>{formattaStatoReale(m.nome, statoRealeMedico(m.id, dati.dispo, dati.maxTurniMese), mese, anno)}</pre>
+                        </td>
+                      </tr>
+                    ) : null,
+                    settAperto === m.id ? (
+                      <tr key={m.id + "-sett"}>
+                        <td colSpan={12} style={{ padding: "4px 8px 12px", background: "#f3f7f5" }}>
+                          <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
+                            Tetto turni per singola settimana ISO (lun-dom) di {MESI_IT[mese]} {anno} — un valore per settimana, vuoto = nessun limite. <span style={{ color: "#c17d0f" }}>•</span> = settimana con festivo/prefestivo.
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {settimaneDelMese().map((wk) => {
+                              const info = infoSettimana(wk);
+                              return (
+                                <div key={wk} style={{ border: "1px solid #d9e2dd", borderRadius: 6, padding: "5px 7px", background: "#fff", textAlign: "center" }}>
+                                  <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3, whiteSpace: "nowrap" }}>
+                                    {info.etichetta} {info.haFestivo && <span style={{ color: "#c17d0f" }} title="settimana con festivo/prefestivo">•</span>}
+                                  </div>
+                                  <input type="number" min={0} step={1} placeholder="—"
+                                    value={capSettimanale(dati.dispo, m.id, wk) ?? ""}
+                                    onChange={(e) => setCapSettimanaDi(m.id, wk, e.target.value)}
+                                    style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center" }} />
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                       </tr>
                     ) : null,

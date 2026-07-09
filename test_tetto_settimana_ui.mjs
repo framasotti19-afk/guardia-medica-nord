@@ -2,7 +2,7 @@
 // che toccano il mese deve includere le settimane TRONCATE ai bordi (era il buco di De Candido), e le
 // chiavi SETT: scritte devono essere lette dal motore via capSettimanale. Il wiring UI è glue; qui si
 // verifica la logica pura (settimanaDi/capSettimanale sono funzioni del motore). NON tocca elaboraSchema.
-import { settimanaDi, capSettimanale, dk } from "./engine_test.mjs";
+import { settimanaDi, capSettimanale, turniDelGiorno, dk } from "./engine_test.mjs";
 import { makeSuite } from "./test_utils.mjs";
 
 const s = makeSuite("Tetto settimanale UI — enumerazione settimane del mese (bordi inclusi)");
@@ -60,6 +60,58 @@ s.test("febbraio 2026 (mese corto): settimane coerenti e bordi inclusi", () => {
     const g = (new Date(wks[i] + "T00:00:00") - new Date(wks[i - 1] + "T00:00:00")) / 86400000;
     s.eq(g, 7, "salto diverso da 7 giorni");
   }
+});
+
+// --- Tetti DIVERSI per settimana (il nuovo pannellino "per settimana") ---
+s.test("tetti per-settimana divergenti [2,2,1,2,2]: capSettimanale legge il valore giusto per ogni settimana", () => {
+  const mid = 7;
+  const wks = settimaneDelMese(2026, 7); // 6 settimane di agosto 2026
+  // simula il pannellino: scrive un valore per settimana (la settimana di Ferragosto = 1, le altre = 2)
+  const ferragosto = settimanaDi(dk(2026, 7, 15)); // lunedì della settimana del 15 ago
+  const nd = {};
+  wks.forEach((wk) => { nd["SETT:" + wk] = { maxTurni: wk === ferragosto ? 1 : 2 }; });
+  const dispo = { [mid]: nd };
+  for (const wk of wks) s.eq(capSettimanale(dispo, mid, wk), wk === ferragosto ? 1 : 2, `cap sbagliato per ${wk}`);
+  // "misto" = non tutte le settimane uguali
+  const vals = wks.map((wk) => capSettimanale(dispo, mid, wk));
+  s.assert(!vals.every((v) => v === vals[0]), "i tetti divergenti dovrebbero risultare 'misti'");
+});
+s.test("svuotare UNA settimana lascia le altre intatte (rimozione mirata)", () => {
+  const mid = 7;
+  const wks = settimaneDelMese(2026, 7);
+  const nd = {};
+  wks.forEach((wk) => { nd["SETT:" + wk] = { maxTurni: 2 }; });
+  // svuota solo la 3ª settimana (come farebbe setCapSettimanaDi con valore vuoto)
+  delete nd["SETT:" + wks[2]];
+  const dispo = { [mid]: nd };
+  s.eq(capSettimanale(dispo, mid, wks[2]), null, "la settimana svuotata dovrebbe non avere tetto");
+  s.eq(capSettimanale(dispo, mid, wks[0]), 2, "le altre settimane non devono cambiare");
+  s.eq(capSettimanale(dispo, mid, wks[1]), 2, "le altre settimane non devono cambiare");
+});
+s.test("uniforme vs misto: [2,2,2,2,2,2] è uniforme, [2,2,1,2,2,2] è misto", () => {
+  const wks = settimaneDelMese(2026, 7);
+  const uni = {}; wks.forEach((wk) => { uni["SETT:" + wk] = { maxTurni: 2 }; });
+  const mix = {}; wks.forEach((wk, i) => { mix["SETT:" + wk] = { maxTurni: i === 2 ? 1 : 2 }; });
+  const valsU = wks.map((wk) => capSettimanale({ 7: uni }, 7, wk));
+  const valsM = wks.map((wk) => capSettimanale({ 7: mix }, 7, wk));
+  s.assert(valsU.every((v) => v === valsU[0]) && valsU[0] === 2, "il caso uniforme non è riconosciuto come uniforme");
+  s.assert(!valsM.every((v) => v === valsM[0]), "il caso misto non è riconosciuto come misto");
+});
+s.test("pallino festivo: la settimana che contiene Ferragosto (15 ago) ha un festivo/prefestivo", () => {
+  // replica la rilevazione di infoSettimana().haFestivo con turniDelGiorno (funzione del motore)
+  const haFestivo = (wk) => {
+    const lun = new Date(wk + "T00:00:00");
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(lun); d.setDate(d.getDate() + i);
+      const info = turniDelGiorno(d.getFullYear(), d.getMonth(), d.getDate(), {});
+      if (info.festivo || info.prefestivo) return true;
+    }
+    return false;
+  };
+  const ferragosto = settimanaDi(dk(2026, 7, 15));
+  s.assert(haFestivo(ferragosto), "la settimana di Ferragosto non risulta avere festivi (pallino mancante)");
+  // una settimana "pulita" di agosto (quella del 3 ago = 3-9, nessun festivo) non ha il pallino
+  s.assert(!haFestivo("2026-08-03"), "una settimana feriale pulita non dovrebbe avere il pallino");
 });
 
 s.finish();
