@@ -1186,5 +1186,38 @@ function notaSlot(slots, si, fis) {
   return { testo: `*coperto da ${SEDI5[prim]}`, tipo: "copertura" };
 }
 
+// Legge lo STATO REALE di un medico direttamente dai DATI (dispo + tetto mensile), senza passare dal
+// riassunto dell'AI: è la fonte di verità per verificare cosa è DAVVERO stato inserito nel mese corrente.
+// Pura; ritorna un oggetto strutturato (la formattazione per chat/pannello sta nel COMPONENTE).
+//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}], preferito}] ordinati per giorno/turno
+//   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
+function statoRealeMedico(mid, dispo, maxTurniMese) {
+  const d = dispo[mid] || {};
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [];
+  Object.keys(d).forEach((sk) => {
+    if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
+    if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
+    const [dt, tu] = sk.split("|");
+    const nv = normDispo(d[sk]);
+    disponibilita.push({
+      giorno: Number(dt.slice(8, 10)), turno: tu, no: nv.no,
+      verde: nv.no ? [] : ordinaPerLivello(nv.verde, nv.verdeLiv, MAX_LIV_VERDE).map((s) => ({ sede: s, liv: nv.verdeLiv[s] || 1 })),
+      blu: nv.no ? [] : ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => ({ sede: s, liv: nv.bluLiv[s] || 1 })),
+      preferito: nv.no ? null : (nv.preferito || null),
+    });
+  });
+  disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
+  tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
+  preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno };
+}
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, diurniNascosti, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi };
+// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze
+// turno "TURNOPREF:"), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
+// parte e va azzerato dal chiamante. Pura: ritorna una nuova dispo, non muta l'originale.
+function azzeraDispoMedico(dispo, mid) {
+  return { ...dispo, [mid]: {} };
+}
+
+
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, diurniNascosti, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi, statoRealeMedico, azzeraDispoMedico };

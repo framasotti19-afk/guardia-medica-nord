@@ -1188,6 +1188,39 @@ function notaSlot(slots, si, fis) {
   return { testo: `*coperto da ${SEDI5[prim]}`, tipo: "copertura" };
 }
 
+// Legge lo STATO REALE di un medico direttamente dai DATI (dispo + tetto mensile), senza passare dal
+// riassunto dell'AI: è la fonte di verità per verificare cosa è DAVVERO stato inserito nel mese corrente.
+// Pura; ritorna un oggetto strutturato (la formattazione per chat/pannello sta nel COMPONENTE).
+//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}], preferito}] ordinati per giorno/turno
+//   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
+function statoRealeMedico(mid, dispo, maxTurniMese) {
+  const d = dispo[mid] || {};
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [];
+  Object.keys(d).forEach((sk) => {
+    if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
+    if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
+    const [dt, tu] = sk.split("|");
+    const nv = normDispo(d[sk]);
+    disponibilita.push({
+      giorno: Number(dt.slice(8, 10)), turno: tu, no: nv.no,
+      verde: nv.no ? [] : ordinaPerLivello(nv.verde, nv.verdeLiv, MAX_LIV_VERDE).map((s) => ({ sede: s, liv: nv.verdeLiv[s] || 1 })),
+      blu: nv.no ? [] : ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => ({ sede: s, liv: nv.bluLiv[s] || 1 })),
+      preferito: nv.no ? null : (nv.preferito || null),
+    });
+  });
+  disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
+  tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
+  preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno };
+}
+
+// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze
+// turno "TURNOPREF:"), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
+// parte e va azzerato dal chiamante. Pura: ritorna una nuova dispo, non muta l'originale.
+function azzeraDispoMedico(dispo, mid) {
+  return { ...dispo, [mid]: {} };
+}
+
 // ============ COMPONENTE ============
 
 // ---- Indicatore "iniquità percepita" sui turni extra (tab Medici) — SOLO VISUALIZZAZIONE ----
@@ -1249,6 +1282,7 @@ function App() {
   const historyRef = useRef({ past: [], future: [] });
   const [, forceRender] = useState(0);
   const [tab, setTab] = useState("dispo");
+  const [statoAperto, setStatoAperto] = useState(null); // id del medico con il pannello "stato reale" aperto nel tab Medici
   const [editCella, setEditCella] = useState(null); // {mid, slotKey}
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMsgs, setAiMsgs] = useState([]);
@@ -2600,6 +2634,7 @@ Il medico ESPRIME una disponibilità reale, non un'incertezza da chiarire (diver
 
 RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal JSON, in uno di questi formati. La tua risposta deve iniziare DIRETTAMENTE con il carattere "{" e finire con "}": nessun preambolo, nessun ragionamento scritto, nessuna frase introduttiva o di chiusura, nemmeno se la marchi come "interna" o "non visibile all'utente" — qualsiasi testo tu scriva viene mostrato integralmente, non esiste alcun canale nascosto per note o ragionamenti.
 1) Domanda informativa → {"tipo":"risposta","testo":"..."}
+1b) Verifica dello STATO REALE di un medico → {"tipo":"stato_medico","medico":"IENGO"} — usalo quando il coordinatore chiede di vedere/verificare lo stato vero di un medico ("mostra lo stato reale di X", "cosa risulta davvero per X", "verifica le disponibilità/i tetti di X"). NON riassumere tu lo stato a memoria né dedurlo dalla cronologia: rispondi con questo tipo e sarà l'APP a stampare disponibilità e tetti (mensile + settimanali) letti dai dati veri. Read-only, nessuna conferma.
 2) Cambio mese visualizzato → {"tipo":"vai_mese","mese":"Dicembre","anno":2026}
 3) Qualsiasi modifica → {"tipo":"modifiche","spiegazione":"riassunto breve","azioni":[ ...una o più azioni... ],"domande":[ ...opzionale, vedi sotto... ],"altreAzioniRestanti":true} — "altreAzioniRestanti" è booleano e opzionale (default false): vedi sopra. "azioni" può essere vuoto/omesso se la risposta è fatta SOLO di "domande".
 "domande" (array opzionale) — SOLO per ambiguità con una scelta binaria chiara, dove sia il Sì che il No corrispondono a un'azione concreta e ben definita da applicare (es. attivare o no un turno MMG mancante, aggiungere o no il diurno quando un weekend non è stato specificato): {"giorno":11,"medico":"PITAU","citazione":"vorrei fare la mattina MMG l'11","domanda":"la mattina non è attiva, solo il pomeriggio — vuoi attivare anche la mattina?","seSi":[ ...azioni da applicare se l'utente risponde Sì... ],"seNo":[ ...azioni da applicare se risponde No... ]}. "citazione" è OBBLIGATORIA: riporta tra virgolette la frase ESATTA scritta dal medico nel testo incollato (non un riassunto), così il coordinatore vede subito il contesto originale senza doverlo ricordare a memoria. In "citazione" e "domanda" scrivi SEMPRE in italiano completo, MAI abbreviazioni o codici interni (niente "g11", "g8N", "MA", "SP": scrivi "giorno 11", "agosto", "notturno", "Maniago", "Spilimbergo"). L'utente vede ogni domanda come una card con due pulsanti Sì/No: NON scrivere questi casi come testo "🔴 ATTENZIONE" nella spiegazione, usa SEMPRE "domande" quando la scelta è binaria e concreta. Per le ambiguità SENZA un'azione concreta definibile per entrambe le risposte (sede non identificabile, date vaghe, condizionali, contraddizioni — vedi CASI DA SEGNALARE AL COORDINATORE) continua a usare il testo "🔴 ATTENZIONE" nella spiegazione: lì non c'è nulla di binario da proporre, serve solo un avviso.
@@ -2610,7 +2645,8 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
 - {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), {"da":X,"a":Y} (i giorni da X a Y inclusi), oppure {"giorni_settimana":["lun","mer"]} / {"giorni_settimana":{"da":"mar","a":"gio"}} (i giorni della settimana nominati — token lun/mar/mer/gio/ven/sab/dom — con il motore che calcola le date esatte). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
-- {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità
+- {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità di UN singolo slot
+- {"az":"azzera_medico","medico":"IENGO"} → CANCELLA IN BLOCCO tutte le disponibilità del mese di quel medico (tutti gli slot + tetti settimanali + preferenze turno + tetto mensile), lasciando intatti recupero ore e turni extra volontari. Usalo quando il coordinatore vuole "rifare/correggere da capo" un medico (es. "azzera X e reinserisci", "cancella tutto per X e metti solo…", "ricomincia da zero con X"): metti questa azione INSIEME alle azioni di reinserimento nello stesso elenco "azioni" (dispo_set/dispo_aggiungi/tetto_mese/…). L'app applica SEMPRE l'azzeramento PRIMA dei reinserimenti, qualunque sia l'ordine, quindi non restano residui dei giorni vecchi. NON serve elencare tanti dispo_togli: uno solo azzera_medico basta e non dimentica nulla. Esempio "rifai Iengo da capo, solo notti da mar a gio a Spilimbergo, max 8": azioni = [{"az":"azzera_medico","medico":"IENGO"},{"az":"dispo_set","medico":"IENGO","ambito":{"giorni_settimana":{"da":"mar","a":"gio"}},"turni":["N"],"sedi":["Spilimbergo"]},{"az":"tetto_mese","medico":"IENGO","maxTurni":8}]
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20)
 - {"az":"ore_extra","medico":"MARTINETTI","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
 - {"az":"turni_extra","medico":"MARTINETTI","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
@@ -2701,6 +2737,15 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         setAiMsgs((p) => [...p, { role: "assistant", content: azioni.length ? `PROPOSTA: ${msg}` : msg }]);
       } else if (obj?.tipo === "risposta") {
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.testo }]);
+      } else if (obj?.tipo === "stato_medico") {
+        // Verifica read-only dello stato REALE di un medico: il testo lo costruisce l'app dai dati veri
+        // (statoRealeMedico), MAI l'AI — così non può "raccontare" uno stato diverso da quello effettivo.
+        const mid = nomeToId(obj.medico);
+        if (mid === undefined || mid === null) setAiMsgs((p) => [...p, { role: "assistant", content: erroreMedico(obj.medico) }]);
+        else {
+          const st = statoRealeMedico(mid, dati.dispo, dati.maxTurniMese);
+          setAiMsgs((p) => [...p, { role: "assistant", content: formattaStatoReale(byId[mid].nome, st, mese, anno) }]);
+        }
       } else if (obj) {
         // JSON valido ma di struttura non riconosciuta (es. "modifiche" con azioni vuote/mancanti):
         // NON mostrare mai il JSON grezzo in chat. Recupera un testo leggibile se presente, altrimenti
@@ -2768,6 +2813,27 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     return "ambito non valido";
   };
 
+  // Formatta in testo leggibile lo stato reale restituito da statoRealeMedico (per la chat e il pannello Medici).
+  const formattaStatoReale = (nome, st, mese, anno) => {
+    const sd = (arr) => arr.map((x) => `${SEDI_BREVI[x.sede] || x.sede}${x.liv}`).join(",");
+    const righeDispo = st.disponibilita.length
+      ? st.disponibilita.map((x) => {
+          if (x.no) return `  • g${x.giorno} ${x.turno}: NON disponibile`;
+          const parti = [];
+          if (x.verde.length) parti.push(sd(x.verde));
+          if (x.blu.length) parti.push(`blu:${sd(x.blu)}`);
+          if (x.preferito) parti.push(`★${SEDI_BREVI[x.preferito] || x.preferito}`);
+          return `  • g${x.giorno} ${x.turno}: ${parti.join(" | ")}`;
+        }).join("\n")
+      : "  (nessuna)";
+    const tettoM = st.tettoMese != null ? `${st.tettoMese} turni` : "nessuno";
+    const tettiS = st.tettiSettimanali.length ? st.tettiSettimanali.map((t) => `${t.settimana}: max ${t.max}`).join(" · ") : "nessuno";
+    const pref = st.preferenzeTurno.length ? st.preferenzeTurno.map((p) => `g${p.giorno}→${p.turno === "G" ? "diurno" : "notturno"}`).join(" · ") : "nessuna";
+    return `📋 Stato reale di ${nome} — ${MESI_IT[mese]} ${anno} (letto dai dati, non dall'AI)\n`
+      + `Disponibilità (${st.disponibilita.length}):\n${righeDispo}\n`
+      + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nPreferenze turno: ${pref}`;
+  };
+
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
   // Ritorna {errori, dispoModificata, daElaborare} per costruire il messaggio di conferma a chi chiama.
   const applicaAzioni = (azioniDaApplicare) => {
@@ -2783,7 +2849,22 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     const domandeSuggerite = []; // domande Sì/No generate dal sistema (es. diurno "a sorpresa" su un festivo in settimana)
     const giorniNelMese = new Date(anno, mese + 1, 0).getDate(); // 28..31 secondo il mese (gestisce anche febbraio)
 
+    // PRE-PASSATA "azzera_medico": applica PRIMA di tutto il resto ogni azzeramento, qualunque sia la sua
+    // posizione nell'array, così i reinserimenti (dispo_set/dispo_aggiungi/tetto_*) dello stesso batch
+    // atterrano SEMPRE sulla dispo già ripulita — "correggi da capo" atomico e senza residui, a prescindere
+    // dall'ordine prodotto dall'AI. Cancella dispo[mid] (slot + tetti settimanali + preferenze turno) e il
+    // tetto mensile; NON tocca recupero ore né turni extra volontari (dati durevoli, non "disponibilità").
     azioniDaApplicare.forEach((a) => {
+      if (a.az !== "azzera_medico") return;
+      const mid = nomeToId(a.medico);
+      if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
+      dispo = azzeraDispoMedico(dispo, mid);
+      const { [mid]: _drop, ...restMax } = maxTurniMese; maxTurniMese = restMax;
+      dispoModificata = true;
+    });
+
+    azioniDaApplicare.forEach((a) => {
+      if (a.az === "azzera_medico") return; // già applicata nella pre-passata sopra
       if (a.az === "elabora") { daElaborare = true; return; }
       if (a.az === "vai_mese") return;
       // Validazione del giorno: le azioni che citano un giorno (mmg, dispo_*, schema, tetto/pref
@@ -2935,7 +3016,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   const riepilogoDi = (azioniDaRiepilogare) => {
     const riepilogoPerMedico = {};
     azioniDaRiepilogare.forEach((a) => {
-      if (a.az === "dispo_set" && a.medico) {
+      if (a.az === "azzera_medico" && a.medico) {
+        riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
+        riepilogoPerMedico[a.medico].push("azzerato");
+      } else if (a.az === "dispo_set" && a.medico) {
         // dispo_set non ha un singolo giorno/turno: la si riassume con l'etichetta dell'ambito
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(etichettaAmbito(a.ambito) + (a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""));
@@ -3476,7 +3560,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                   <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
-                  {mediciOrd.map((m) => (
+                  {mediciOrd.map((m) => [
                     <tr key={m.id} style={{ borderBottom: "1px solid #eef1ee" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 600 }}>{m.nome}</td>
                       <td style={{ padding: "6px 8px" }}>
@@ -3543,12 +3627,21 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           ? `${(CAT_INFO[m.cat].ore + (dati.extraOre[m.id] || 0)) - (oreAssegnateDi[m.id] || 0)}h`
                           : "—"}
                       </td>
-                      <td style={{ padding: "6px 8px" }}>
+                      <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => setStatoAperto(statoAperto === m.id ? null : m.id)} title="Mostra/nascondi lo STATO REALE (disponibilità e tetti letti dai dati, non riassunti dall'AI)"
+                          style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid #cfe0da", background: statoAperto === m.id ? T.primary : "#fff", color: statoAperto === m.id ? "#fff" : T.primary, cursor: "pointer", fontSize: 11, fontWeight: 700, marginRight: 4 }}>🔍</button>
                         <button onClick={() => rimuoviMedico(m.id)} title="Rimuovi medico dall'elenco"
                           style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #eecac4", background: "#fff", color: T.danger, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✕</button>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>,
+                    statoAperto === m.id ? (
+                      <tr key={m.id + "-stato"}>
+                        <td colSpan={11} style={{ padding: "0 8px 12px", background: T.primaryTint }}>
+                          <pre style={{ margin: 0, fontSize: 11, whiteSpace: "pre-wrap", fontFamily: "inherit", color: T.text }}>{formattaStatoReale(m.nome, statoRealeMedico(m.id, dati.dispo, dati.maxTurniMese), mese, anno)}</pre>
+                        </td>
+                      </tr>
+                    ) : null,
+                  ])}
                 </tbody>
               </table>
               <div style={{ marginTop: 14, padding: 12, border: "1px dashed #1c8066", borderRadius: 8, background: T.primaryTint }}>
@@ -3701,6 +3794,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       if (a.az === "schema") d = `Schema: giorno ${a.giorno} · ${a.turno} · ${a.sede} → ${a.medico || "— (svuota)"}`;
                       else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
                       else if (a.az === "dispo_set") d = `Disponibilità ${etichettaAmbito(a.ambito)}${a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""}${a.escludi && a.escludi.length ? `, escl. ${a.escludi.join(",")}` : ""}: ${a.medico} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
+                      else if (a.az === "azzera_medico") d = `Azzera e reinserisci: ${a.medico} — cancella TUTTE le disponibilità del mese (+ tetti settimanali, preferenze turno, tetto mensile); restano recupero ore e turni extra`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;
