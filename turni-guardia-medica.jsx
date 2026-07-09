@@ -806,7 +806,7 @@ function debitoOrdinarioIniziale(mid, extraOre, mese) {
   return baseAggiustato + (extraOre[mid] || 0);
 }
 
-function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}, riferimentiCavallo = {}) {
   const debiti0 = {};
   const debitiExtra0 = {};
   MEDICI.forEach((m) => {
@@ -947,7 +947,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     });
     const livelliOrdinati = [...perLivello.keys()].sort((a, b) => a - b);
     const kept = new Set();
-    const giorniFissi = []; // giorni già tenuti dai livelli migliori già processati (interi o ridotti)
+    const giorniFissi = [...(riferimentiCavallo[m.id] || [])]; // seed: i giorni di luglio (settimana a cavallo, offset ≤0) da cui allontanarsi (§10 voce 46 PASSO 2); vuoto = comportamento identico a prima
     let residuo = cap;
     livelliOrdinati.forEach((liv) => {
       if (residuo <= 0) return;
@@ -1440,7 +1440,7 @@ export default function App() {
     setDati({ extras: { ...dati.extras, [dateKey]: ex }, schema: null });
   };
   const elabora = () => {
-    const r = elaboraSchema(dati.dispo, dati.extraOre, anno, mese, dati.extras, dati.turniExtra || {}, dati.maxTurniMese || {});
+    const r = elaboraSchema(dati.dispo, dati.extraOre, anno, mese, dati.extras, dati.turniExtra || {}, dati.maxTurniMese || {}, riferimentiCavalloDi());
     setDati({ schema: r.schema, avvisi: r.avvisi });
   };
 
@@ -2870,6 +2870,21 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   };
   // Totale turni (N+G) già fatti a luglio nella settimana a cavallo, letto da turniPrecedenti[mid].
   const countLuglio = (perMid) => Object.values(perMid || {}).reduce((s, d) => s + (d.N ? 1 : 0) + (d.G ? 1 : 0), 0);
+  // Mappa passata al motore per la distribuzione §3.11 (PASSO 2): mid -> giorni-riferimento dei turni di
+  // luglio in OFFSET non-positivo rispetto all'1 del mese (30 lug → −1, 31 lug → 0). Giorni DISTINTI
+  // (N+G lo stesso giorno = un solo riferimento). Il motore la usa solo per allontanare da luglio i turni
+  // in eccesso tenuti da chi supera un tetto; vuota → comportamento identico a prima.
+  const riferimentiCavalloDi = () => {
+    const tp = dati.turniPrecedenti || {};
+    const daysPrev = new Date(anno, mese, 0).getDate(); // ultimo giorno del mese precedente
+    const out = {};
+    Object.keys(tp).forEach((mid) => {
+      const giorni = new Set();
+      Object.entries(tp[mid] || {}).forEach(([dataStr, v]) => { if (v && (v.N || v.G)) giorni.add(Number(dataStr.slice(8, 10)) - daysPrev); });
+      if (giorni.size) out[mid] = [...giorni];
+    });
+    return out;
+  };
   // Tetto DICHIARATO dal coordinatore per la settimana wk. Per la settimana a cavallo è il campo
   // "dichiarato" (SETT:cavallo = {maxTurni: effettivo, dichiarato}); per le altre coincide con maxTurni.
   // È il valore mostrato/editato in UI; il MOTORE legge sempre maxTurni (l'effettivo, già ridotto di luglio).
@@ -3112,7 +3127,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     });
 
     let avvisiNuovi = dati.avvisi;
-    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese); schema = r.schema; avvisiNuovi = r.avvisi; }
+    if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese, riferimentiCavalloDi()); schema = r.schema; avvisiNuovi = r.avvisi; }
     setDati({ dispo, extras, extraOre, turniExtra, maxTurniMese, schema, avvisi: avvisiNuovi });
     return { errori, dispoModificata, daElaborare, domandeSuggerite };
   };

@@ -804,7 +804,7 @@ function debitoOrdinarioIniziale(mid, extraOre, mese) {
   return baseAggiustato + (extraOre[mid] || 0);
 }
 
-function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}) {
+function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, maxTurniMese = {}, riferimentiCavallo = {}) {
   const debiti0 = {};
   const debitiExtra0 = {};
   MEDICI.forEach((m) => {
@@ -945,7 +945,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     });
     const livelliOrdinati = [...perLivello.keys()].sort((a, b) => a - b);
     const kept = new Set();
-    const giorniFissi = []; // giorni già tenuti dai livelli migliori già processati (interi o ridotti)
+    const giorniFissi = [...(riferimentiCavallo[m.id] || [])]; // seed: i giorni di luglio (settimana a cavallo, offset ≤0) da cui allontanarsi (§10 voce 46 PASSO 2); vuoto = comportamento identico a prima
     let residuo = cap;
     livelliOrdinati.forEach((liv) => {
       if (residuo <= 0) return;
