@@ -736,6 +736,7 @@ times(8, () => {
   ];
   aggiungi("turno_precedente_giorno_mancante", m, [], pick(varianti), {
     azioniRichieste: [], azioniVietate: [{ az: "turno_precedente", match: { medico: m.nome } }], nessunaAzione: true,
+    domandaVietata: true, // il giorno mancante va chiesto come TESTO, MAI con una card Sì/No (seSi/seNo)
   });
 });
 
