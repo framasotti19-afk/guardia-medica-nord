@@ -584,6 +584,8 @@ node test_email_runner.mjs --batch-fetch <batch_id>      # solo a batch "ended":
 
 Nota di sicurezza: durante lo sviluppo di questo harness, importare `test_email_runner.mjs` senza controllarne l'entry point ha innescato una run reale accidentale — per questo il file ha una guardia esplicita (`main()` parte solo se eseguito come CLI diretta, mai se importato come modulo) e la soglia `--yes` sopra descritta.
 
+**DECISIONE — accorciamento del prompt AI (luglio 2026): NON accorciare per ora.** Il prompt (`const sys` in `chiediAI`, ~14.400 parole) è in gran parte "cicatriziale" (difese anti-bug reali): il margine sicuro è piccolo e il rischio alto e **non verificabile senza credito API**. **Principio guida:** preferire SEMPRE un **principio consolidante** (es. `REGOLA GENERALE: AZIONE vs CONTESTO`, §10 voce 47) agli esempi sparsi — la domanda giusta è la **coerenza/ordine**, non la brevità.
+
 ---
 
 ## 9. COME VERIFICARE CHE NON HAI ROTTO NIENTE
