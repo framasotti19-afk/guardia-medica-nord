@@ -3917,13 +3917,21 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                   <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3, whiteSpace: "nowrap" }}>
                                     {info.etichetta} {info.haFestivo && <span style={{ color: "#c17d0f" }} title="settimana con festivo/prefestivo">•</span>}
                                   </div>
-                                  {wk === settimanaCavallo() ? (
+                                  {wk === settimanaCavallo() ? (() => {
                                     // BUG 1/2: box cavallo = solo calcolatore, read-only, mostra l'EFFETTIVO live (dichiarato − turni luglio).
                                     // Il dichiarato si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo.
-                                    <input type="number" value={dich == null ? "" : Math.max(0, dich - july)} readOnly disabled
-                                      title="Settimana a cavallo: valore calcolato (dichiarato − turni di luglio), non modificabile qui. Il tetto si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo."
-                                      style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center", background: "#eceff1", color: "#607d8b", cursor: "not-allowed" }} />
-                                  ) : (() => {
+                                    // Feedback visivo: senza tetto ma con turni di fine mese prec. registrati, mostra il conteggio
+                                    // (arancio) invece di lasciare il box vuoto — così la spunta non sembra "persa".
+                                    const soloJuly = dich == null && july > 0;
+                                    const mesePrec = MESI_IT[(mese + 11) % 12].toLowerCase();
+                                    return (
+                                      <input type="number" value={dich == null ? (july > 0 ? july : "") : Math.max(0, dich - july)} readOnly disabled
+                                        title={soloJuly
+                                          ? `${july} turn${july === 1 ? "o" : "i"} di ${mesePrec} registrat${july === 1 ? "o" : "i"} (nessun tetto impostato)`
+                                          : "Settimana a cavallo: valore calcolato (dichiarato − turni di luglio), non modificabile qui. Il tetto si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo."}
+                                        style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center", background: "#eceff1", color: soloJuly ? "#c17d0f" : "#607d8b", cursor: "not-allowed" }} />
+                                    );
+                                  })() : (() => {
                                     // BUG 3: tetto max = numero di turni realmente possibili nella settimana (slot N+G, tronche incluse).
                                     const mx = maxTurniSettimana(wk);
                                     return (
