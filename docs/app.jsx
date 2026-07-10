@@ -1284,6 +1284,7 @@ function App() {
   const [tab, setTab] = useState("dispo");
   const [statoAperto, setStatoAperto] = useState(null); // id del medico con il pannello "stato reale" aperto nel tab Medici
   const [settAperto, setSettAperto] = useState(null); // id del medico con il pannellino "tetti per settimana" aperto
+  const [turniPrecAperto, setTurniPrecAperto] = useState(null); // id del medico col riquadro collassabile "turni già fatti a fine mese prec." aperto
   const [editCella, setEditCella] = useState(null); // {mid, slotKey}
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMsgs, setAiMsgs] = useState([]);
@@ -3867,26 +3868,42 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
                             Tetto turni per singola settimana ISO (lun-dom) di {MESI_IT[mese]} {anno} — un valore per settimana, vuoto = nessun limite. <span style={{ color: "#c17d0f" }}>•</span> = settimana con festivo/prefestivo.
                           </div>
-                          {settimanaCavallo() && capDichiaratoDi(m.id, settimanaCavallo()) != null && (() => {
+                          {settimanaCavallo() && (() => {
+                            // Riquadro collassabile (CHIUSO di default) per registrare i turni già svolti a fine mese
+                            // PRECEDENTE nella settimana a cavallo. NON dipende più da un tetto dichiarato: i turni di
+                            // fine mese precedente contano SEMPRE nella distribuzione (§10 voce 46/47), e se quella
+                            // settimana ha un tetto lo riducono. Generico su qualsiasi mese (usa mesePrec/mese corrente).
                             const july = countLuglio((dati.turniPrecedenti || {})[m.id]);
+                            const mesePrec = MESI_IT[(mese + 11) % 12].toLowerCase();
+                            const aperto = turniPrecAperto === m.id;
+                            const haCap = capDichiaratoDi(m.id, settimanaCavallo()) != null;
                             return (
-                              <div style={{ marginBottom: 10, padding: "6px 8px", border: "1px dashed #c9a24a", borderRadius: 6, background: "#fdf7e8" }}>
-                                <div style={{ fontSize: 11, color: "#8a6d1f", marginBottom: 5 }}>
-                                  Settimana a cavallo — turni già fatti a {MESI_IT[(mese + 11) % 12].toLowerCase()} (contano nel tetto di quella settimana, riducendolo; non toccano il tetto mensile):
-                                </div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                                  {giorniLuglioCavallo().map((g) => {
-                                    const tp = ((dati.turniPrecedenti || {})[m.id] || {})[g.dataStr] || {};
-                                    return (
-                                      <div key={g.dataStr} style={{ textAlign: "center" }}>
-                                        <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 2, whiteSpace: "nowrap" }}>{g.giorno} {g.meseBreve}</div>
-                                        <label style={{ fontSize: 10, marginRight: g.haG ? 5 : 0, cursor: "pointer" }}><input type="checkbox" checked={!!tp.N} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "N")} /> N</label>
-                                        {g.haG && <label style={{ fontSize: 10, cursor: "pointer" }}><input type="checkbox" checked={!!tp.G} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "G")} /> G</label>}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                                {july > 0 && <div style={{ fontSize: 10, color: "#8a6d1f", marginTop: 5 }}>Totale {july} turn{july === 1 ? "o" : "i"} a luglio → il tetto della settimana a cavallo scende di {july}.</div>}
+                              <div style={{ marginBottom: 10 }}>
+                                <button onClick={() => setTurniPrecAperto(aperto ? null : m.id)}
+                                  title="Registra i turni già svolti a fine mese precedente nella settimana a cavallo (contano nella distribuzione; se quella settimana ha un tetto, lo riducono)"
+                                  style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #c9a24a", background: aperto ? "#fdf7e8" : "#fff", color: "#8a6d1f", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                                  {aperto ? "▾" : "▸"} Turni già fatti a fine {mesePrec}{july > 0 ? ` (${july})` : ""}
+                                </button>
+                                {aperto && (
+                                  <div style={{ marginTop: 6, padding: "6px 8px", border: "1px dashed #c9a24a", borderRadius: 6, background: "#fdf7e8" }}>
+                                    <div style={{ fontSize: 11, color: "#8a6d1f", marginBottom: 5 }}>
+                                      Spunta i turni svolti a {mesePrec} nella settimana a cavallo: allontanano i turni di {MESI_IT[mese].toLowerCase()} da fine {mesePrec} nella distribuzione{haCap ? " e riducono il tetto di quella settimana" : ""} (non toccano il tetto mensile).
+                                    </div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                                      {giorniLuglioCavallo().map((g) => {
+                                        const tp = ((dati.turniPrecedenti || {})[m.id] || {})[g.dataStr] || {};
+                                        return (
+                                          <div key={g.dataStr} style={{ textAlign: "center" }}>
+                                            <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 2, whiteSpace: "nowrap" }}>{g.giorno} {g.meseBreve}</div>
+                                            <label style={{ fontSize: 10, marginRight: g.haG ? 5 : 0, cursor: "pointer" }}><input type="checkbox" checked={!!tp.N} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "N")} /> N</label>
+                                            {g.haG && <label style={{ fontSize: 10, cursor: "pointer" }}><input type="checkbox" checked={!!tp.G} onChange={() => toggleTurnoPrec(m.id, g.dataStr, "G")} /> G</label>}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    {july > 0 && haCap && <div style={{ fontSize: 10, color: "#8a6d1f", marginTop: 5 }}>Totale {july} turn{july === 1 ? "o" : "i"} a {mesePrec} → il tetto della settimana a cavallo scende di {july}.</div>}
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
