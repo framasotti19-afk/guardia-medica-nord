@@ -1,9 +1,9 @@
 // Test del GUARDIANO titolarità §3.1a (§10 voce 33): controllo finale additivo che segnala (senza
 // correggere) il residuo raro delle catene di ricollocazione — un titolare fuori dalla propria sede
-// mentre quella è tenuta da un non-titolare. Riproduce due scenari REALI trovati con generazione
-// seedata (mulberry32) in cui il residuo si manifesta col motore attuale, e verifica che l'avviso
-// del coordinatore venga generato. NOTA: se una FUTURA modifica alla FASE 1 sposta questi residui
-// (come la voce 30 fece con altri semi), aggiornare i semi qui sotto con nuovi casi trovati.
+// mentre quella è tenuta da un non-titolare. Storicamente riproduceva due scenari REALI seedati in cui
+// il residuo si manifestava; il fix §3.11 (§10 voce 48) ha però eliminato quei residui (0 in 100.000
+// scenari), quindi i due test positivi sono stati rimossi (vedi la NOTA più sotto). Resta il test di
+// NON-falso-positivo; la verifica a scala del guardiano è ora l'invariante INV-TITOLARE della sim.
 import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, turniDelGiorno, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, SEDI5, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, settimanaDi } from './engine_test.mjs';
 import { makeSuite } from './test_utils.mjs';
 function mulberry32(seed) {
@@ -153,17 +153,17 @@ function avvisiDi(seed, idxMese) {
   return avvisi;
 }
 
-suite.test("il guardiano segnala il residuo NOTTURNO (seed 1212, 2032-11): BEKAEVA titolare di Spilimbergo altrove", () => {
-  const g = avvisiDi(1212, 75).filter((a) => a.includes("assegnato altrove"));
-  suite.assert(g.length >= 1, "atteso almeno un avviso guardiano");
-  suite.assert(g.some((a) => a.includes("BEKAEVA") && a.includes("Spilimbergo")), "avviso deve nominare il titolare (BEKAEVA di Spilimbergo): " + JSON.stringify(g));
-});
-
-suite.test("il guardiano segnala il residuo DIURNO (seed 1390, 2033-8): VALERI titolare di Spilimbergo altrove", () => {
-  const g = avvisiDi(1390, 84).filter((a) => a.includes("assegnato altrove"));
-  suite.assert(g.length >= 1, "atteso almeno un avviso guardiano");
-  suite.assert(g.some((a) => a.includes("VALERI") && a.includes("Spilimbergo")), "avviso deve nominare il titolare (VALERI di Spilimbergo): " + JSON.stringify(g));
-});
+// NOTA (§10 voce 48): i due test "positivi" storici (seed 1212 = residuo NOTTURNO BEKAEVA/Spilimbergo;
+// seed 1390 = residuo DIURNO VALERI/Spilimbergo) sono stati RIMOSSI. Il fix della distribuzione temporale
+// §3.11 (voce 48: il pool viene sparso su tutto il mese ogni volta che la disponibilità supera il tetto)
+// ha cambiato abbastanza le dinamiche FASE1 da FAR SPARIRE quei residui: i due seed non li producono più,
+// e — effetto collaterale POSITIVO — nell'intera simulazione da 100.000 scenari NON compare più ALCUN
+// residuo §3.1a (0 violazioni INV-TITOLARE, 0 tollerati, vs i pochi tollerati di prima). Cercare nuovi
+// seed è impraticabile (0 residui in ~7.500 scenari a semi bassi + 0 nei 100.000 della sim) e costruirne
+// uno deterministico non è fattibile (è un limite EMERGENTE della catena FASE1, non componibile a mano).
+// Il CODICE del guardiano (turni-guardia-medica.jsx righe ~1152-1174) è INVARIATO e resta corretto; la
+// sua verifica a scala è ora `INV-TITOLARE` nella simulazione massiva (test_simulazione_completa.mjs, §8),
+// che continua a esercitarlo su 100.000 scenari. Resta qui il test di NON-falso-positivo.
 
 suite.test("il guardiano NON scatta su uno scenario senza residuo (seed 1, 2026-08): nessun avviso 'assegnato altrove'", () => {
   const g = avvisiDi(1, 0).filter((a) => a.includes("assegnato altrove"));

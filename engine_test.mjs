@@ -898,27 +898,37 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     }
   });
 
-  // CORREZIONE §3.11 (pool su tutto il mese quando morde un cap ESPLICITO): un contrattualizzato
+  // CORREZIONE §3.11 (pool su tutto il mese quando morde un tetto di distribuzione): un contrattualizzato
   // disponibile su gran parte del mese esaurisce il monte ore nei primi giorni, quindi nel passaggio
   // 1 "vince" solo turni ammucchiati all'inizio — e l'equidistante su quel pool ristretto li tiene
   // ammucchiati (bug del collaudo reale: DET24 disponibile tutte le notti + Max turni mese 4 →
-  // giorni 1,2,4,7 invece di ~4,12,20,28). Solo quando il vincolo che morde è un Max turni mese
-  // ESPLICITO più restrittivo del monte ore (cap < turni impliciti), il pool va ricalcolato su TUTTO
-  // il mese: un oracolo per-medico che esenta SOLO quel medico dal blocco monte ore (§3.4) — così
-  // "vince" tutti i turni di cui è il legittimo vincitore per gerarchia sull'intero mese, e
-  // l'equidistante li sparge davvero. Il passaggio 2 resta invariato (blocco monte ore + tetto
-  // rigido live): il medico non supera mai né monte ore né tetto (cap turni ≤ (implicito-1) turni <
-  // monte ore, quindi le ore bastano sempre per i turni tenuti). Gate ristretto ai soli
-  // contrattualizzati: i senza incarico non hanno monte ore, non si esauriscono mai, il loro pool
-  // già copre tutto il mese e non serve alcun oracolo dedicato.
+  // giorni 1,2,4,7 invece di ~4,12,20,28; e il caso più comune: INDET tutte le notti + tetto_mese 8 =
+  // monte ore → 8 turni ammucchiati invece che sparsi). L'ammucchiamento nasce OGNI VOLTA che il medico
+  // è disponibile su più turni del proprio tetto (§3.11 = min(monte ore implicito, Max turni mese)),
+  // indipendentemente dal PERCHÉ il tetto morde — non solo quando un cap esplicito è più restrittivo
+  // del monte ore. Per questo il pool va ricalcolato su TUTTO il mese per OGNI medico con un tetto:
+  // un oracolo per-medico che esenta SOLO quel medico dal blocco monte ore (§3.4) — così "vince" tutti
+  // i turni di cui è il legittimo vincitore per gerarchia sull'intero mese, e l'equidistante li sparge
+  // davvero. Il pool esente ⊇ pool P1 (esentare aggiunge solo candidature, mai ne toglie): si adotta
+  // solo se più ampio, altrimenti resta il P1 (medico che non esaurisce il monte ore → nessun cambio).
+  // Il passaggio 2 resta invariato (blocco monte ore + tetto rigido live): il medico non supera mai né
+  // monte ore né tetto. Gate ristretto ai contrattualizzati con tetto: i senza incarico non hanno monte
+  // ore, non si esauriscono mai, il loro pool già copre tutto il mese e non serve alcun oracolo dedicato.
   MEDICI.forEach((m) => {
     if (debiti0[m.id] === null) return; // senza incarico: nessun monte ore da esaurire, pool già completo
-    const capDich = capMensileDi(maxTurniMese, m.id);
-    if (capDich === null) return; // nessun cap esplicito: morde (al più) solo il monte ore, comportamento invariato
+    if (tetto[m.id] === null) return; // nessun tetto di distribuzione: niente da correggere
+    // Il pool esente differisce dal P1 SOLO se m ha ESAURITO il monte ore in P1 (l'esenzione aggiunge
+    // esclusivamente i turni che m avrebbe vinto DOPO l'esaurimento). Se non l'ha esaurito, esente == P1
+    // e il ricalcolo sarebbe un no-op: lo si salta (correttezza-neutra, evita un eseguiMese inutile per
+    // ogni contrattualizzato non ammucchiato). Esaurito ⟺ pool P1 == turni del monte ore (P1 ≤ implicito
+    // sempre, per il blocco §3.4): quando la disponibilità supera il tetto tramite un cap esplicito più
+    // basso ma SENZA esaurire il monte ore, il pool P1 copre già tutta la disponibilità e la distribuzione
+    // ci lavora direttamente sotto (nessun turno "nascosto" da recuperare).
     const implicito = Math.max(0, Math.round((debiti0[m.id] + (debitiExtra0[m.id] || 0)) / 12));
-    if (capDich >= implicito) return; // il cap non è più restrittivo del monte ore: nessun ammucchiamento da correggere
+    if (poolDi[m.id].length < implicito) return; // monte ore NON esaurito in P1: esente == P1, nessun ricalcolo utile
     const { risultati: rM } = eseguiMese({ ...debiti0 }, { ...debitiExtra0 }, {}, null, null, new Set([m.id]));
-    poolDi[m.id] = estraiVinti(rM, m.id);
+    const esente = estraiVinti(rM, m.id);
+    if (esente.length > poolDi[m.id].length) poolDi[m.id] = esente; // adotta il pool esente solo se più ampio del P1
   });
 
   // Per ogni medico che supera il proprio tetto: raggruppa i turni EFFETTIVAMENTE vinti per

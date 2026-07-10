@@ -115,7 +115,11 @@ suite.test("blocco rigido oltre il monte ore: un esaurito rimasto l'UNICO dispon
   const vincitori = GIORNI.map((g) => schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N").slots[0]);
   const notti = vincitori.filter((v) => v === TRIGODKO).length;
   suite.eq(notti, 9, "TRIGODKO (104h monte ore ÷ 12h a notte = 9 notti, arrotondato) non deve mai superare le 9 notti assegnate, anche restando l'unico disponibile per tutte le 20");
-  suite.assert(vincitori.slice(9).every((v) => v === null), "dalla 10ª notte in poi (monte ore esaurito) il turno deve restare scoperto, non assegnato a TRIGODKO oltre il limite");
+  // Col fix §3.11 i 9 turni sono SPARSI su tutte le 20 notti disponibili (non i primi 9): l'invariante
+  // rigido (mai più di 9) resta, ma le 11 notti cedute restano scoperte perché non c'è alcun backup —
+  // e ora sono sparse tra i turni tenuti invece di essere tutte in coda. Verifico il conteggio, non le posizioni.
+  suite.eq(vincitori.filter((v) => v === null).length, 20 - 9, "le 11 notti non tenute da TRIGODKO restano scoperte (nessun backup): monte ore mai superato, la distribuzione sparge i 9 turni tenuti");
+  suite.assert(vincitori.every((v) => v === TRIGODKO || v === null), "ogni notte è o di TRIGODKO o scoperta: nessun altro medico è mai disponibile qui");
 });
 
 suite.test("stessa categoria, debiti uguali dopo un giro di conflitti → il grad torna a decidere", () => {

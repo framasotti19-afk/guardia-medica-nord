@@ -81,9 +81,13 @@ suite.test("il budget di turni extra si esaurisce dopo il numero di turni dichia
   // 2 turni extra dichiarati = 24h di budget = esattamente 2 notti da 12h
   const { schema } = elaboraSchema(d, { [PRESSACCO]: -104 }, ANNO_TEST, MESE_TEST, {}, { [PRESSACCO]: 2 });
   const vince = (g) => schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N").slots[0];
-  suite.eq(vince(G1), PRESSACCO, "prima notte: budget extra disponibile, PRESSACCO vince per grad");
-  suite.eq(vince(G2), PRESSACCO, "seconda notte: budget extra ancora disponibile (24h - 12h = 12h residue)");
-  suite.eq(vince(G3), DE_CANDIDO, "terza notte: budget extra esaurito (12h - 12h = 0), PRESSACCO torna al bucket più debole e perde");
+  // PRESSACCO ha tetto di distribuzione = 2 (dal budget extra: 24h/12h) ma è disponibile su 3 notti →
+  // il fix §3.11 sparge i suoi 2 turni sulle 3 disponibili (G1,G3) invece di consumarli consecutivi
+  // (G1,G2). L'invariante vero — budget extra mai superato (esattamente 2 turni) — resta; cambia solo
+  // QUALE delle 3 notti resta al backup DE_CANDIDO. Verifico il conteggio, non le posizioni.
+  const vincitori = [G1, G2, G3].map(vince);
+  suite.eq(vincitori.filter((v) => v === PRESSACCO).length, 2, "PRESSACCO usa ESATTAMENTE 2 turni extra (24h/12h): il budget non si supera mai");
+  suite.eq(vincitori.filter((v) => v === DE_CANDIDO).length, 1, "la notte che PRESSACCO cede (budget esaurito) va a DE_CANDIDO: torna a perdere una volta finito il budget");
   resetMedici();
 });
 
