@@ -127,6 +127,19 @@ function generaScenario(seed, anno, mese) {
         dispo[m.id]["SETT:" + wk] = { maxTurni: capSett };
       }
     }
+    // Slot obbligatori (§3.11, §10 voce 49): ogni tanto un medico marca qualcuno dei suoi slot dichiarati
+    // come obbligatorio (chiave OBBL:), per far attraversare alla sim il ramo dei "punti fissi" nella
+    // distribuzione. Non deve MAI causare violazioni: un obbligatorio consuma il tetto come un turno
+    // qualsiasi (INV-MAXTURNI/INV-TETTO-IMPLICITO restano validi) ed è un turno legittimamente vinto.
+    if (!ferieTotali.has(m.id) && chance(0.15)) {
+      Object.keys(dispo[m.id]).forEach((sk) => {
+        if (sk.startsWith("SETT:") || sk.startsWith("TURNOPREF:") || sk.startsWith("OBBL:")) return;
+        const v = dispo[m.id][sk];
+        if (v.no || !chance(0.2)) return;
+        // 40% pin SEDE (una delle sedi verdi dichiarate, se ce ne sono), altrimenti pin libero (true).
+        dispo[m.id]["OBBL:" + sk] = (v.verde && v.verde.length && chance(0.4)) ? v.verde[Math.floor(rnd() * v.verde.length)] : true;
+      });
+    }
   });
   const extraOre = {};
   MEDICI.forEach((m) => { if (chance(0.15)) extraOre[m.id] = Math.floor((rnd() - 0.3) * 60); });

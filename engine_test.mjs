@@ -873,9 +873,9 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     voci.forEach(({ d, turno, slotKey }) => {
       const r = risultati[`${d}|${turno.id}`];
       if (turno.extra) {
-        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
       } else {
-        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) }); });
+        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false }); });
       }
     });
     return out;
@@ -889,11 +889,11 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const out = risultatiP1[`${d}|${turno.id}`];
     if (turno.extra) {
       const mid = out.slots[0];
-      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
     } else {
       out.fis.forEach((si) => {
         const mid = out.slots[si];
-        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
+        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false });
       });
     }
   });
@@ -957,9 +957,30 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const kept = new Set();
     const giorniFissi = [...(riferimentiCavallo[m.id] || [])]; // seed: i giorni di luglio (settimana a cavallo, offset ≤0) da cui allontanarsi (§10 voce 46 PASSO 2); vuoto = comportamento identico a prima
     let residuo = cap;
+    // Slot OBBLIGATORI (§10 voce 49): slot che il medico vuole tenere ASSOLUTAMENTE se li vince per
+    // gerarchia (chiave dispo[mid]["OBBL:"+slotKey]). Sono già nel pool (= vinti; se non vinti sono
+    // ignorati). Entrano SEMPRE in kept, fanno da PUNTI FISSI per la distribuzione (seed di giorniFissi,
+    // così l'equidistante ci costruisce attorno) e CONSUMANO il tetto (residuo = cap − obbligatori).
+    // Possono scavalcare la priorità di livello (un obbligatorio di livello peggiore è tenuto comunque).
+    // Se sono PIÙ del tetto, se ne tiene un sottoinsieme equidistante (il tetto resta rigido). Vuoto =
+    // comportamento identico a prima (nessuna chiave OBBL: → residuo = cap, filtro kept vuoto).
+    const dm = dispo[m.id] || {};
+    // Slot da tenere SEMPRE come PUNTI FISSI (§10 voce 49): (a) slot OBBLIGATORI espliciti — valore OBBL:
+    // true = pin LIBERO (qualsiasi sede vinta va bene), stringa = pin SEDE (scatta solo se la sede vinta
+    // in P1 combacia, altrimenti ignorato); (b) turni MMG (extra) vinti in P1 — l'MMG conta nel tetto come
+    // un turno qualsiasi (invariante preservato) ma NON è mai cedibile dalla distribuzione: è un'ancora, e
+    // le guardie libere si distribuiscono attorno ai suoi giorni. Consumano il tetto; se sono più del tetto
+    // se ne tiene un sottoinsieme equidistante (tetto rigido). Vuoto = comportamento identico a prima.
+    const obblVinti = pool.filter((v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); });
+    if (obblVinti.length) {
+      const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi);
+      tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
+      residuo = cap - kept.size;
+    }
     livelliOrdinati.forEach((liv) => {
       if (residuo <= 0) return;
-      const gruppo = perLivello.get(liv);
+      const gruppo = perLivello.get(liv).filter((v) => !kept.has(v.slotKey)); // esclude gli obbligatori già tenuti
+      if (!gruppo.length) return;
       if (gruppo.length <= residuo) {
         gruppo.forEach((v) => { kept.add(v.slotKey); giorniFissi.push(v.giorno); });
         residuo -= gruppo.length;
@@ -1203,10 +1224,11 @@ function notaSlot(slots, si, fis) {
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
-  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [];
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [];
   Object.keys(d).forEach((sk) => {
     if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
     if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
+    if (sk.startsWith("OBBL:")) { if (d[sk]) { const [dt2, tu2] = sk.slice(5).split("|"); slotObbligatori.push({ giorno: Number(dt2.slice(8, 10)), turno: tu2, sede: typeof d[sk] === "string" ? d[sk] : null }); } return; }
     const [dt, tu] = sk.split("|");
     const nv = normDispo(d[sk]);
     disponibilita.push({
@@ -1219,7 +1241,8 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
   tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
   preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
-  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno };
+  slotObbligatori.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno, slotObbligatori };
 }
 
 // Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze

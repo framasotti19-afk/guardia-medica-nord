@@ -875,9 +875,9 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     voci.forEach(({ d, turno, slotKey }) => {
       const r = risultati[`${d}|${turno.id}`];
       if (turno.extra) {
-        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
       } else {
-        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) }); });
+        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false }); });
       }
     });
     return out;
@@ -891,11 +891,11 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const out = risultatiP1[`${d}|${turno.id}`];
     if (turno.extra) {
       const mid = out.slots[0];
-      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0) });
+      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
     } else {
       out.fis.forEach((si) => {
         const mid = out.slots[si];
-        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si) });
+        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false });
       });
     }
   });
@@ -959,9 +959,30 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const kept = new Set();
     const giorniFissi = [...(riferimentiCavallo[m.id] || [])]; // seed: i giorni di luglio (settimana a cavallo, offset ≤0) da cui allontanarsi (§10 voce 46 PASSO 2); vuoto = comportamento identico a prima
     let residuo = cap;
+    // Slot OBBLIGATORI (§10 voce 49): slot che il medico vuole tenere ASSOLUTAMENTE se li vince per
+    // gerarchia (chiave dispo[mid]["OBBL:"+slotKey]). Sono già nel pool (= vinti; se non vinti sono
+    // ignorati). Entrano SEMPRE in kept, fanno da PUNTI FISSI per la distribuzione (seed di giorniFissi,
+    // così l'equidistante ci costruisce attorno) e CONSUMANO il tetto (residuo = cap − obbligatori).
+    // Possono scavalcare la priorità di livello (un obbligatorio di livello peggiore è tenuto comunque).
+    // Se sono PIÙ del tetto, se ne tiene un sottoinsieme equidistante (il tetto resta rigido). Vuoto =
+    // comportamento identico a prima (nessuna chiave OBBL: → residuo = cap, filtro kept vuoto).
+    const dm = dispo[m.id] || {};
+    // Slot da tenere SEMPRE come PUNTI FISSI (§10 voce 49): (a) slot OBBLIGATORI espliciti — valore OBBL:
+    // true = pin LIBERO (qualsiasi sede vinta va bene), stringa = pin SEDE (scatta solo se la sede vinta
+    // in P1 combacia, altrimenti ignorato); (b) turni MMG (extra) vinti in P1 — l'MMG conta nel tetto come
+    // un turno qualsiasi (invariante preservato) ma NON è mai cedibile dalla distribuzione: è un'ancora, e
+    // le guardie libere si distribuiscono attorno ai suoi giorni. Consumano il tetto; se sono più del tetto
+    // se ne tiene un sottoinsieme equidistante (tetto rigido). Vuoto = comportamento identico a prima.
+    const obblVinti = pool.filter((v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); });
+    if (obblVinti.length) {
+      const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi);
+      tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
+      residuo = cap - kept.size;
+    }
     livelliOrdinati.forEach((liv) => {
       if (residuo <= 0) return;
-      const gruppo = perLivello.get(liv);
+      const gruppo = perLivello.get(liv).filter((v) => !kept.has(v.slotKey)); // esclude gli obbligatori già tenuti
+      if (!gruppo.length) return;
       if (gruppo.length <= residuo) {
         gruppo.forEach((v) => { kept.add(v.slotKey); giorniFissi.push(v.giorno); });
         residuo -= gruppo.length;
@@ -1205,10 +1226,11 @@ function notaSlot(slots, si, fis) {
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
-  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [];
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [];
   Object.keys(d).forEach((sk) => {
     if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
     if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
+    if (sk.startsWith("OBBL:")) { if (d[sk]) { const [dt2, tu2] = sk.slice(5).split("|"); slotObbligatori.push({ giorno: Number(dt2.slice(8, 10)), turno: tu2, sede: typeof d[sk] === "string" ? d[sk] : null }); } return; }
     const [dt, tu] = sk.split("|");
     const nv = normDispo(d[sk]);
     disponibilita.push({
@@ -1221,7 +1243,8 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
   tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
   preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
-  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno };
+  slotObbligatori.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno, slotObbligatori };
 }
 
 // Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze
@@ -1937,7 +1960,8 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         // disponibilità inserita per ciascun medico, incluso ogni medico senza nessuna (array vuoto).
         // Serve a confrontare direttamente cosa manca rispetto a una richiesta/email, invece di
         // doverlo dedurre dalla cronologia dei round precedenti (causa di loop, vedi sotto).
-        disponibilitaPresenti: Object.fromEntries(MEDICI.map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:")).map((sk) => { const [dt, tu] = sk.split("|"); return `g${Number(dt.slice(8, 10))}${tu}`; })])),
+        disponibilitaPresenti: Object.fromEntries(MEDICI.map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:") && !sk.startsWith("OBBL:")).map((sk) => { const [dt, tu] = sk.split("|"); return `g${Number(dt.slice(8, 10))}${tu}`; })])),
+        slotObbligatoriPresenti: Object.fromEntries(MEDICI.filter((m) => Object.keys(dati.dispo[m.id] || {}).some((sk) => sk.startsWith("OBBL:"))).map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => sk.startsWith("OBBL:")).map((sk) => { const [dt, tu] = sk.slice(5).split("|"); const sede = dati.dispo[m.id][sk]; return `g${Number(dt.slice(8, 10))}${tu}${typeof sede === "string" ? "@" + sede : ""}`; })])),
         // Registro (solo in memoria, mai persistito) delle azioni già confermate in QUESTA
         // conversazione, in formato compatto "MEDICO g{giorno}{turno}" — ulteriore rete di sicurezza
         // anti-loop, azzerato con "Nuova conversazione".
@@ -2673,9 +2697,10 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"tetto_mese","medico":"ZURLO","maxTurni":8} → imposta il tetto massimo di turni per l'INTERO mese corrente (vale per QUALSIASI categoria, anche senza incarico): il motore si ferma su quel numero anche con debito residuo; maxTurni null o assente rimuove il tetto. Usalo SEMPRE quando un senza incarico dichiara un numero massimo di guardie/turni che può fare nel mese (es. "posso fare al massimo 8 turni questo mese") — è il vincolo reale nel motore, non solo un'indicazione testuale
 - {"az":"turno_pref","medico":"TRIGODKO","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
 - {"az":"turno_precedente","medico":"BERTUZZI","giorno":30,"turno":"N"} → registra un turno che il medico ha GIÀ SVOLTO a fine mese PRECEDENTE (luglio, nella settimana che è a cavallo con il mese in lavorazione). "giorno" = numero del giorno del mese precedente (es. 30 = 30 luglio). "turno": "N"=notturno, "G"=diurno; OMETTILO se il coordinatore non lo specifica (l'app registra il notturno sui feriali e, sui giorni che hanno sia diurno sia notturno, ti chiede da sola quale). "presente":false per TOGLIERE una registrazione già fatta ("BERTUZZI non ha fatto nulla il 30, toglilo"; con "turno" toglie solo quel turno, senza "turno" azzera l'intero giorno). NON calcolare tu se il giorno è valido, se è nella settimana a cavallo o se ha il diurno: ci pensa l'app (ti avvisa se qualcosa non torna). Se manca il GIORNO, non indovinare e NON usare una domanda Sì/No (la risposta è un giorno, non un sì/no): chiedilo come TESTO nella "spiegazione" (es. "Dimmi quale giorno di luglio ha fatto il turno"). Se nel messaggio ci sono anche altre azioni applicabili (es. i tetti settimanali), applicale comunque e aggiungi lì la richiesta del giorno; se non c'è nient'altro da fare, usa tipo "risposta". Vedi la regola PASSATO vs FUTURO più sotto: questa azione la usa SOLO il coordinatore in chat, MAI a partire da una mail di disponibilità
+- {"az":"slot_obbligatorio","medico":"BERTUZZI","giorno":15,"turno":"N"} → segna quel turno come SLOT OBBLIGATORIO: un turno che il medico vuole tenere ASSOLUTAMENTE se lo vince per gerarchia. Diventa un punto fisso della distribuzione mensile (la spaziatura costruisce gli altri turni ATTORNO ad esso) e consuma un posto del suo tetto. NON crea disponibilità (va dichiarata a parte con dispo_*): se il medico non è disponibile o non vince quel turno, viene ignorato. Campo opzionale "sede":"Spilimbergo" → pin SEDE: lo slot è obbligatorio SOLO se il medico ottiene quella sede specifica (altrimenti ignorato); senza "sede" è un pin libero (qualsiasi sede vinta va bene). Frasi trigger sede: "il 15 lo voglio ma solo a Spilimbergo", "tengo il sabato se mi date Maniago". "presente":false per rimuoverlo. Frasi trigger pin libero: "il 15 lo voglio assolutamente", "il ferragosto lo faccio di sicuro", "quel sabato mattina lo tengo", "il 22 di notte non me lo togliete". Applicabile solo a un turno che esiste quel giorno (N sempre, G solo weekend/festivi/prefestivi)
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
-Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati, null per maxTurniMese se nessun tetto) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra/tetto_mese; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
+Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati, null per maxTurniMese se nessun tetto) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra/tetto_mese; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "slotObbligatoriPresenti" elenca, per i medici che ne hanno, i turni g{giorno}{N|G} già marcati come slot obbligatori (azione slot_obbligatorio) — non riproporli; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
       // Timeout lato client: se la risposta è molto lunga, l'ambiente artifact può bloccare la
       // fetch senza mai risolverla né rifiutarla (nessun errore, nessuna risposta: silenzio totale
@@ -2849,9 +2874,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     const tettoM = st.tettoMese != null ? `${st.tettoMese} turni` : "nessuno";
     const tettiS = st.tettiSettimanali.length ? st.tettiSettimanali.map((t) => `${t.settimana}: max ${t.max}`).join(" · ") : "nessuno";
     const pref = st.preferenzeTurno.length ? st.preferenzeTurno.map((p) => `g${p.giorno}→${p.turno === "G" ? "diurno" : "notturno"}`).join(" · ") : "nessuna";
+    const obbl = (st.slotObbligatori || []).length ? st.slotObbligatori.map((o) => `g${o.giorno}${o.turno}${o.sede ? ` (⚓${SEDI_BREVI[o.sede] || o.sede})` : ""}`).join(" · ") : "nessuno";
     return `📋 Stato reale di ${nome} — ${MESI_IT[mese]} ${anno} (letto dai dati, non dall'AI)\n`
       + `Disponibilità (${st.disponibilita.length}):\n${righeDispo}\n`
-      + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nPreferenze turno: ${pref}`;
+      + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nPreferenze turno: ${pref}\n📌 Slot obbligatori: ${obbl}`;
   };
 
   // TUTTE le settimane ISO (lun-dom) che contengono almeno un giorno del mese corrente — INCLUSE le
@@ -3149,6 +3175,26 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         dispoModificata = true;
         return;
       }
+      if (a.az === "slot_obbligatorio") {
+        // Slot che il medico vuole tenere ASSOLUTAMENTE se lo vince per gerarchia (§10 voce 49): punto
+        // fisso nella distribuzione §3.11. Chiave dispo[mid]["OBBL:"+slotKey]=true; presente:false rimuove.
+        // Ortogonale alla disponibilità (non la crea): se il medico non è disponibile lì o non lo vince,
+        // il motore lo ignora silenziosamente. Il turno (N/G) deve esistere quel giorno.
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
+        const info = turniDelGiorno(anno, mese, a.giorno, extras);
+        const turno = a.turno === "G" || a.turno === "N" ? a.turno : null;
+        if (!turno || !info.turni.some((t) => t.id === turno)) { errori.push(`${a.medico} g${a.giorno}: turno "${a.turno}" inesistente quel giorno, slot obbligatorio non applicabile`); return; }
+        // "sede" opzionale = pin SEDE (vale solo se il medico ottiene quella sede); assente = pin libero (true).
+        let valObbl = true;
+        if (a.sede != null && a.sede !== "") { if (!SEDI5.includes(a.sede)) { errori.push(`${a.medico} g${a.giorno}: sede "${a.sede}" non valida per lo slot obbligatorio`); return; } valObbl = a.sede; }
+        const key = "OBBL:" + `${dk(anno, mese, a.giorno)}|${turno}`;
+        const nd = { ...(dispo[mid] || {}) };
+        if (a.presente === false) delete nd[key]; else nd[key] = valObbl;
+        dispo = { ...dispo, [mid]: nd };
+        dispoModificata = true;
+        return;
+      }
       if (a.az === "dispo_aggiungi" || a.az === "dispo_togli" || a.az === "dispo_no") {
         const mid = nomeToId(a.medico);
         if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
@@ -3247,6 +3293,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         // precedente, quindi va tenuto distinto dai g{giorno}{turno} del mese corrente.
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(`lug${a.giorno}${a.turno || ""}${a.presente === false ? "✕" : ""}`);
+      } else if (a.az === "slot_obbligatorio" && a.medico) {
+        // Slot obbligatorio: riassunto "📌{g}{N|G}" — distinto da una dispo g{giorno}{turno} nell'anti-loop.
+        riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
+        riepilogoPerMedico[a.medico].push(`📌${a.giorno}${a.turno || ""}${a.presente === false ? "✕" : ""}`);
       } else if (a.medico && a.giorno !== undefined && a.giorno !== null && a.turno) {
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(`g${a.giorno}${a.turno}`);
@@ -3480,7 +3530,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.textMuted}}>non disponibile</b> (grigia, con un puntino discreto) — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). In cella la disponibilità è resa con dei <b>pallini</b>: un <b style={{color:T.primary}}>pallino verde</b> = sede fisica, un <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza; accanto compare la <b>sigla</b> della sede se è una sola, oppure il <b>numero</b> se sono più d'una (con l'elenco delle sigle in grigetto sotto). I <b>livelli di preferenza</b> (1ª, 2ª scelta…) e i <b style={{color:"#8a5a00"}}>★ preferiti</b> non si mostrano più nella griglia: si vedono e si impostano aprendo la cella. Ogni azione è annullabile con ↶.
+Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.textMuted}}>non disponibile</b> (grigia, con un puntino discreto) — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). In cella la disponibilità è resa con dei <b>pallini</b>: un <b style={{color:T.primary}}>pallino verde</b> = sede fisica, un <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza; accanto compare la <b>sigla</b> della sede se è una sola, oppure il <b>numero</b> se sono più d'una (con l'elenco delle sigle in grigetto sotto). I <b>livelli di preferenza</b> (1ª, 2ª scelta…) e i <b style={{color:"#8a5a00"}}>★ preferiti</b> non si mostrano più nella griglia: si vedono e si impostano aprendo la cella. Un piccolo <b>📌</b> in alto a sinistra di una cella indica uno <b>slot obbligatorio</b>: un turno che il medico vuole tenere assolutamente se lo vince (lo imposti nel popup) — la distribuzione del mese lo tiene sempre e costruisce gli altri turni attorno. Un <b>⚓</b> in alto a destra indica invece uno slot obbligatorio <b>legato a una sede specifica</b> (vale solo se il medico ottiene quella sede — nel popup, l'⚓ accanto alla ☆ di una sede). Ogni azione è annullabile con ↶.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -3599,6 +3649,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           const sk = `${c.key}|${c.turno.id}`;
                           const sedi = normDispo(dati.dispo[m.id]?.[sk]);
                           const on = !sedi.no && (sedi.verde.length + sedi.blu.length > 0);
+                          const obblVal = dati.dispo[m.id]?.["OBBL:" + sk]; // slot obbligatorio (§10 voce 49): 📌 pin libero (alto-sx), ⚓ pin sede (alto-dx)
                           const inEdit = editCella && editCella.mid === m.id && editCella.slotKey === sk;
                           // Dicotomico: SOLO 2 stati visivi possibili — disponibile (verde) o non disponibile
                           // (rosso). "Non specificato" e "NO esplicito" appaiono identici: la distinzione
@@ -3640,6 +3691,8 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                   </span>
                                 );
                               })() : <span style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: T.textFaint, opacity: .45 }} />}
+                              {obblVal === true && <span title="Slot obbligatorio: se lo vince, la distribuzione lo tiene sempre" style={{ position: "absolute", top: 0, left: 1, fontSize: 8, lineHeight: 1, pointerEvents: "none" }}>📌</span>}
+                              {typeof obblVal === "string" && <span title={`Slot obbligatorio solo se ottiene ${SEDI_BREVI[obblVal] || obblVal}`} style={{ position: "absolute", top: 0, right: 1, fontSize: 8, lineHeight: 1, pointerEvents: "none" }}>⚓</span>}
                             </td>
                           );
                         })}
@@ -3693,6 +3746,20 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       </div>
                     ) : (
                       <>
+                        {(() => {
+                          const obblKey = "OBBL:" + editCella.slotKey;
+                          const obblVal = dati.dispo[editCella.mid]?.[obblKey];
+                          const isObbl = !!obblVal;
+                          return (
+                            <div onClick={() => { const nd = { ...(dati.dispo[editCella.mid] || {}) }; if (isObbl) delete nd[obblKey]; else nd[obblKey] = true; setDati({ dispo: { ...dati.dispo, [editCella.mid]: nd }, schema: null }); }}
+                              title="Slot obbligatorio: se il medico lo VINCE per gerarchia, la distribuzione del mese lo tiene SEMPRE e costruisce gli altri turni attorno; consuma un posto del suo tetto. Se non lo vince, è ignorato. Per volerlo solo su una sede precisa, usa ⚓ accanto alla sede."
+                              style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "7px 9px", borderRadius: 8, cursor: "pointer", userSelect: "none", background: isObbl ? T.primaryTint : T.surfaceAlt, border: isObbl ? `1px solid ${T.primary}` : "1px solid transparent" }}>
+                              <span style={{ fontSize: 15 }}>📌</span>
+                              <span style={{ fontSize: 11, fontWeight: isObbl ? 700 : 500, color: isObbl ? T.primary : T.textMuted }}>Voglio questo turno{typeof obblVal === "string" ? ` — solo a ${SEDI_BREVI[obblVal] || obblVal} ⚓` : ""} {isObbl ? "✓" : ""}</span>
+                              <span style={{ fontSize: 9, color: T.textFaint, marginLeft: "auto", textAlign: "right" }}>se lo vinco, la<br />distribuzione ci costruisce attorno</span>
+                            </div>
+                          );
+                        })()}
                         <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: T.primary }}>1ª–5ª scelta</b> = sede principale FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: T.blu }}>A distanza · 1ª–4ª scelta</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Di notte Claut e Anduins offrono solo le opzioni "a distanza" (lì non sono sedi fisiche). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
@@ -3721,11 +3788,22 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                 </select>
                                 {isVerde && (
                                   <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}
-                                    title={sedi.preferito === s ? "Sede preferita: tocca per togliere" : "Marca come sede preferita"}
-                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#8a5a00" : T.border, userSelect: "none" }}>
+                                    title={sedi.preferito === s ? "Sede preferita: tocca per togliere" : "Marca come sede preferita (☆): se ottiene questa sede è soddisfatto"}
+                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#c9911a" : T.textMuted, userSelect: "none" }}>
                                     {sedi.preferito === s ? "★" : "☆"}
                                   </span>
                                 )}
+                                {isVerde && (() => {
+                                  const obblKey = "OBBL:" + editCella.slotKey;
+                                  const pinnedHere = dati.dispo[editCella.mid]?.[obblKey] === s;
+                                  return (
+                                    <span onClick={() => { const nd = { ...(dati.dispo[editCella.mid] || {}) }; if (pinnedHere) delete nd[obblKey]; else nd[obblKey] = s; setDati({ dispo: { ...dati.dispo, [editCella.mid]: nd }, schema: null }); }}
+                                      title={`Voglio questo turno SOLO se ottengo ${SEDI_BREVI[s] || s} (⚓ pin sede)${pinnedHere ? " — tocca per togliere" : ""}`}
+                                      style={{ cursor: "pointer", fontSize: 13, minWidth: 16, textAlign: "center", color: pinnedHere ? T.primary : T.textFaint, userSelect: "none" }}>
+                                      ⚓
+                                    </span>
+                                  );
+                                })()}
                               </label>
                             );
                           })}
@@ -4124,6 +4202,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;
                       else if (a.az === "tetto_mese") d = `Max turni mese: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/mese"}`;
                       else if (a.az === "turno_pref") d = `Preferenza turno: ${a.medico} · giorno ${a.giorno} → ${(a.turno === "G" || a.turno === "N") ? `preferisce il ${a.turno === "G" ? "diurno" : "notturno"} se vince entrambi` : "rimuovi preferenza"}`;
+                      else if (a.az === "slot_obbligatorio") d = `📌 Slot obbligatorio: ${a.medico} · giorno ${a.giorno} · ${a.turno === "G" ? "diurno" : "notturno"}${a.sede ? ` ⚓ solo se ottiene ${SEDI_BREVI[a.sede] || a.sede}` : ""} → ${a.presente === false ? "rimuovi" : "lo vuole tenere se lo vince (punto fisso della distribuzione)"}`;
                       else if (a.az === "turno_precedente") d = `Turno di luglio (settimana a cavallo): ${a.medico} · ${a.giorno} lug${(a.turno === "G" || a.turno === "N") ? ` · ${a.turno === "G" ? "diurno" : "notturno"}` : ""} → ${a.presente === false ? "TOGLI" : "registra come già fatto"}`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";
                       else d = JSON.stringify(a);

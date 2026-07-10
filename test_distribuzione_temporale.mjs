@@ -233,4 +233,64 @@ suite.test("selezione CROSS-LIVELLO (CONTEXT.md §3.11): quando anche il livello
   });
 });
 
+// --- SLOT OBBLIGATORI (§10 voce 49): punti fissi nella distribuzione §3.11 ---
+suite.test("slot obbligatori vinti: entrano SEMPRE nei turni tenuti, consumano il tetto, e gli altri si distribuiscono ATTORNO a loro", () => {
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
+  [1, 15, 22].forEach((g) => { d[BERTUZZI]["OBBL:" + N(g)] = true; }); // 3 slot obbligatori (tutti vinti: BERTUZZI è INDET, li vince)
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 8 });
+  const notti = vincitoriNotte(schema, BERTUZZI);
+  suite.eq(notti.length, 8, "il tetto (8) resta rigido: 3 obbligatori + 5 distribuiti");
+  suite.assert([1, 15, 22].every((g) => notti.includes(g)), "i 3 slot obbligatori (1,15,22) sono SEMPRE tra i turni tenuti: " + JSON.stringify(notti));
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 4, 8, 11, 15, 22, 26, 31]), "gli altri 5 turni si distribuiscono ATTORNO ai 3 punti fissi (equidistante col seed 1,15,22)");
+});
+suite.test("slot obbligatorio NON vinto per gerarchia (slot non nel pool): ignorato silenziosamente, la distribuzione non cambia", () => {
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
+  // BERTUZZI dichiara solo i NOTTURNI; marco obbligatorio un DIURNO (G) del 2 ago (weekend) che NON ha
+  // dichiarato → quello slot non è nel suo pool → obbligatorio ignorato. La sua distribuzione notturna
+  // resta identica al caso senza obbligatori ([1,5,10,14,18,22,27,31]).
+  d[BERTUZZI]["OBBL:" + `${dk(ANNO_TEST, MESE_TEST, 2)}|G`] = true;
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {});
+  const notti = vincitoriNotte(schema, BERTUZZI);
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 5, 10, 14, 18, 22, 27, 31]), "obbligatorio su slot non vinto = nessun effetto: stessa distribuzione del caso senza obbligatori");
+  const g2 = schema.find((x) => x.giorno === 2).turni.find((t) => t.id === "G");
+  suite.eq(g2.slots.includes(BERTUZZI), false, "il diurno del 2 ago NON è forzato a BERTUZZI (non l'aveva dichiarato)");
+});
+suite.test("slot obbligatorio di livello PEGGIORE scavalca la priorità di livello (è tenuto comunque, consumando il tetto)", () => {
+  const d = dispoBase(MEDICI);
+  const liv1 = [3, 10, 17, 24]; // Maniago livello 1
+  const liv2 = [6, 13, 20, 27]; // Spilimbergo livello 2
+  liv1.forEach((g) => { d[BERTUZZI][N(g)] = turnoDisp(["Maniago"]); d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]); });
+  liv2.forEach((g) => { d[BERTUZZI][N(g)] = turnoDisp(["Spilimbergo"], [], { verdeLiv: { Spilimbergo: 2 } }); d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]); });
+  // Senza obbligatori + tetto 3 → [3,17,24] (tutti livello 1, vedi test priorità di sede). Marco
+  // obbligatorio il giorno 6 (livello 2): DEVE essere tenuto comunque, scavalcando la priorità di livello.
+  d[BERTUZZI]["OBBL:" + N(6)] = true;
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
+  const notti = vincitoriNotte(schema, BERTUZZI);
+  suite.eq(notti.length, 3, "tetto 3 rigido: l'obbligatorio consuma un posto");
+  suite.assert(notti.includes(6), "il giorno 6 (livello 2, obbligatorio) è tenuto pur essendo di livello peggiore: " + JSON.stringify(notti));
+});
+suite.test("⚓ pin SEDE: l'obbligatorio scatta solo se la sede VINTA combacia con quella pinnata, altrimenti ignorato", () => {
+  const base = () => { const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] }); return d; };
+  const notti = (d) => vincitoriNotte(elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 8 }).schema, BERTUZZI);
+  // BERTUZZI vince sempre Maniago (unica sede dichiarata). Pin "Maniago" sul 15 → MATCH → 15 tenuto.
+  const dM = base(); dM[BERTUZZI]["OBBL:" + N(15)] = "Maniago";
+  const nM = notti(dM);
+  suite.assert(nM.includes(15), "pin sede Maniago (sede vinta) → il 15 è tenuto: " + JSON.stringify(nM));
+  // Pin "Spilimbergo" sul 15 → MISMATCH (vince Maniago) → ignorato → distribuzione = caso base [1,5,10,14,18,22,27,31].
+  const dS = base(); dS[BERTUZZI]["OBBL:" + N(15)] = "Spilimbergo";
+  suite.eq(JSON.stringify(notti(dS)), JSON.stringify([1, 5, 10, 14, 18, 22, 27, 31]), "pin sede Spilimbergo (sede NON vinta) → ignorato: stessa distribuzione del caso senza pin");
+});
+
+suite.test("MMG vinto = punto fisso automatico (§10 voce 49, opzione C): l'MMG conta nel tetto ma NON è mai ceduto, le guardie si distribuiscono attorno al suo giorno", () => {
+  const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
+  d[BERTUZZI][`${dk(ANNO_TEST, MESE_TEST, 15)}|M`] = turnoDisp(["Maniago"]); // MMG mattina il 15, BERTUZZI lo vince
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, { [dk(ANNO_TEST, MESE_TEST, 15)]: { M: true } }, {}, { [BERTUZZI]: 4 });
+  const notti = vincitoriNotte(schema, BERTUZZI);
+  const mmg = schema.find((g) => g.giorno === 15).turni.find((t) => t.id === "M").slots[0];
+  suite.eq(mmg, BERTUZZI, "l'MMG del 15 NON è mai ceduto: resta assegnato a BERTUZZI (protetto dalla cessione)");
+  suite.eq(notti.length + 1, 4, "l'MMG consuma un posto del tetto (invariante): 1 MMG + 3 notturni = tetto 4");
+  suite.assert(!notti.includes(15), "il 15 è occupato dall'MMG: nessun notturno lì");
+  suite.assert(Math.min(...notti.map((g) => Math.abs(g - 15))) >= 5, "le 3 guardie si distribuiscono LONTANO dal 15 (ancora): " + JSON.stringify(notti));
+});
+
 suite.finish();

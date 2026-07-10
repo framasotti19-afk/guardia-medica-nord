@@ -18,6 +18,8 @@ const dispoBase = () => ({
     [key(8, "N")]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null },
     ["SETT:2026-08-04"]: { maxTurni: 2 },
     ["TURNOPREF:" + dk(A, M, 15)]: "G",
+    ["OBBL:" + key(4, "N")]: true,
+    ["OBBL:" + key(6, "N")]: "Spilimbergo",
   },
   6: { [key(10, "N")]: { verde: ["Meduno"], verdeLiv: { Meduno: 1 }, blu: [], bluLiv: {}, no: false, preferito: null } },
 });
@@ -33,10 +35,11 @@ s.test("statoRealeMedico: disponibilità, tetto mensile, tetti settimanali, pref
   ]), "disponibilità strutturate diverse dall'atteso");
   s.eq(J(st.tettiSettimanali), J([{ settimana: "2026-08-04", max: 2 }]), "tetti settimanali");
   s.eq(J(st.preferenzeTurno), J([{ giorno: 15, turno: "G" }]), "preferenze turno");
+  s.eq(J(st.slotObbligatori), J([{ giorno: 4, turno: "N", sede: null }, { giorno: 6, turno: "N", sede: "Spilimbergo" }]), "slot obbligatori (§10 voce 49): pin libero (sede null) e pin sede (⚓ Spilimbergo), la chiave OBBL: non inquina la disponibilità");
 });
 s.test("statoRealeMedico: medico senza dati → tutto vuoto, tetto null", () => {
   const st = statoRealeMedico(99, dispoBase(), { 5: 8 });
-  s.eq(J(st), J({ tettoMese: null, disponibilita: [], tettiSettimanali: [], preferenzeTurno: [] }), "medico vuoto non è tutto-vuoto");
+  s.eq(J(st), J({ tettoMese: null, disponibilita: [], tettiSettimanali: [], preferenzeTurno: [], slotObbligatori: [] }), "medico vuoto non è tutto-vuoto");
 });
 s.test("statoRealeMedico è read-only: non muta la dispo", () => {
   const d = dispoBase(), snap = J(d);
