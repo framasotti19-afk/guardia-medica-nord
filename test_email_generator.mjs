@@ -689,6 +689,56 @@ times(5, () => {
   });
 });
 
+// ============ 35. TURNO PRECEDENTE — REGISTRAZIONE DAL COORDINATORE (fase 3) ============
+// Il COORDINATORE in chat dichiara un turno GIÀ SVOLTO a fine luglio (settimana a cavallo): l'AI deve
+// emettere turno_precedente coi dati grezzi (chi/giorno/N-G), MAI dispo_*. I giorni 27-31 lug 2026 sono
+// feriali → solo notturno. (Il mese di STATO ATTUALE è agosto 2026, che HA una settimana a cavallo.)
+times(10, () => {
+  const g = randInt(27, 31);
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    `Segna che ${m.nome} ha fatto un notturno il ${g} luglio.`,
+    `${m.nome} ha già coperto la notte del ${g} luglio, registralo.`,
+    `Il ${g} luglio ${m.nome} ha fatto il turno di notte, mettilo tra i turni già svolti.`,
+    `Annota che ${m.nome} ha lavorato la notte del ${g} luglio.`,
+  ];
+  aggiungi("turno_precedente_registra", m, [], pick(varianti), {
+    azioniRichieste: [{ az: "turno_precedente", match: { medico: m.nome, giorno: g, turno: "N" } }],
+    azioniVietate: [{ az: "dispo_aggiungi" }, { az: "dispo_set" }], nessunaAzione: false,
+  });
+});
+
+// ============ 36. TURNO PRECEDENTE — TEST #1: una MAIL di disponibilità NON deve mai innescarlo ============
+// Una normale email di disponibilità FUTURA di un medico (anche se cita date tardive) resta dispo_*, MAI
+// turno_precedente (che è passato + solo coordinatore). Distingue passato/futuro (§ regola PASSATO vs FUTURO).
+times(10, () => {
+  const m = pick(contrattualizzati);
+  const varianti = [
+    `Confermo che sarò disponibile per le notti dei feriali a Maniago.`,
+    `Sono disponibile a Spilimbergo per le notti dal 28 al 31.`,
+    `Per questo mese posso fare le notti dei feriali a Maniago.`,
+    `Mi rendo disponibile per i notturni del weekend a Meduno.`,
+  ];
+  aggiungi("turno_precedente_mail_futura", m, [], pick(varianti), {
+    azioniRichieste: [], azioniVietate: [{ az: "turno_precedente", match: { medico: m.nome } }], nessunaAzione: false,
+  });
+});
+
+// ============ 37. TURNO PRECEDENTE — TEST #7: giorno mancante → l'AI CHIEDE, non inventa ============
+// Il coordinatore dichiara un turno passato SENZA il giorno preciso: l'AI non deve indovinare né emettere
+// turno_precedente con una data inventata; deve chiedere quale giorno (risposta aperta, nessuna azione).
+times(8, () => {
+  const m = pick(MEDICI_DEFAULT);
+  const varianti = [
+    `Segna che ${m.nome} ha fatto un turno a fine luglio.`,
+    `${m.nome} ha coperto una notte nell'ultima settimana di luglio, registralo.`,
+    `Metti tra i turni già svolti che ${m.nome} ha lavorato a fine luglio.`,
+  ];
+  aggiungi("turno_precedente_giorno_mancante", m, [], pick(varianti), {
+    azioniRichieste: [], azioniVietate: [{ az: "turno_precedente", match: { medico: m.nome } }], nessunaAzione: true,
+  });
+});
+
 export function generaCorpus() {
   return casi;
 }

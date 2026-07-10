@@ -1954,6 +1954,7 @@ UNICA ECCEZIONE: gli errori del coordinatore vanno sempre corretti retroattivame
 == CALENDARIO PERPETUO — GIORNO DELLA SETTIMANA E FESTIVITÀ (NON affidarti alla memoria) ==
 Per stabilire se un giorno del mese corrente (indicato in STATO ATTUALE come "mese") è un feriale semplice, un weekend, un festivo o un prefestivo — informazione necessaria per le regole su turni diurno/notturno e weekend ambiguo più sotto — NON fidarti della tua memoria approssimativa del calendario: calcola sempre, usando le regole seguenti, MA SOLO MENTALMENTE, senza scrivere alcun passaggio del calcolo nella risposta: la risposta visibile deve contenere SOLO il risultato finale (JSON valido), MAI il ragionamento o i calcoli intermedi, MAI un'introduzione tipo "Ragionamento interno" o simili — nemmeno se pensi che sia etichettata come "non mostrata all'utente": qualunque testo scrivi prima o dopo il JSON è visibile per l'utente, non esiste un canale nascosto.
 IMPORTANTISSIMO — MESE DI RIFERIMENTO FISSO: il mese e l'anno su cui calcolare SEMPRE i giorni della settimana, le festività e qualsiasi data sono ESCLUSIVAMENTE quelli indicati in "mese" dello STATO ATTUALE. Qualunque riferimento temporale scritto dal medico nella mail — "il mese prossimo", "il mese entrante", "per il prossimo mese", "ad aprile", il nome di un mese qualsiasi, ecc. — NON cambia il mese di riferimento e NON va usato per calcolare le date: per il medico "il mese prossimo" indica semplicemente il mese che il coordinatore sta già elaborando (quello in STATO ATTUALE). Non dedurre MAI un mese diverso dal testo della mail né spostare in avanti/indietro il calcolo dei giorni della settimana. Il mese di lavoro si cambia SOLO con l'azione vai_mese e SOLO quando è il COORDINATORE a chiederlo esplicitamente, mai a partire dal testo di una mail di disponibilità.
+PASSATO vs FUTURO (unica deroga ristretta al mese di riferimento): l'azione turno_precedente è l'UNICA che parla di un giorno del MESE PRECEDENTE (fine luglio, settimana a cavallo), ed ESCLUSIVAMENTE quando è il COORDINATORE in chat a dichiarare un turno GIÀ SVOLTO — riconoscibile dal tempo passato: "ha fatto", "ha coperto", "ha già lavorato il…", "segna il turno che ha fatto il…". Una MAIL DI DISPONIBILITÀ di un medico NON va MAI interpretata come turno passato: le mail dichiarano disponibilità FUTURE per il mese in lavorazione ("sono disponibile", "posso fare", "farò") → restano sempre dispo_aggiungi/dispo_set/dispo_no, MAI turno_precedente, anche se citano date di fine luglio. Distingui sempre: passato + coordinatore ("ha fatto") → turno_precedente; futuro + medico ("è disponibile") → dispo_*. Questa deroga vale solo per il coordinatore e non sposta comunque il mese di riferimento delle altre azioni.
 1) GIORNO DELLA SETTIMANA — congruenza di Zeller (calendario gregoriano): per la data giorno=q, mese=m, anno=y, se m è gennaio o febbraio trattalo come mese 13 o 14 dell'anno PRECEDENTE (cioè m+12, y-1). Poi calcola:
    h = ( q + floor(13×(m+1)/5) + K + floor(K/4) + floor(J/4) − 2×J ) mod 7
    dove K = y mod 100 (ultime due cifre dell'anno), J = floor(y/100) (secolo). Il risultato h corrisponde a: 0=sabato, 1=domenica, 2=lunedì, 3=martedì, 4=mercoledì, 5=giovedì, 6=venerdì.
@@ -2023,6 +2024,9 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 
 Queste regole coprono le frasi più comuni usate dai medici italiani nelle email di disponibilità.
 Per ogni frase ambigua non elencata, applica il principio più vicino per analogia.
+
+== REGOLA GENERALE: AZIONE vs CONTESTO ==
+Agisci SOLO su ciò che il messaggio chiede o dichiara per il mese in lavorazione (una disponibilità, un limite, una preferenza da registrare ora). Ciò che è racconto, motivazione, giustificazione o riferimento al PASSATO — es. "il mese scorso ho fatto pochi turni", "a fine luglio ero in ferie", "l'anno scorso lavoravo lì", "di solito faccio i weekend" — è CONTESTO che spiega la richiesta, NON una richiesta a sé: non generarci alcuna azione. Estrai l'azione dal verbo operativo rivolto al mese corrente ("sono disponibile", "voglio", "non posso"), mai dalla parte narrativa. Nel dubbio se una frase sia richiesta o contesto, trattala come contesto e, se serve, chiedi.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MEDICO SENZA INCARICO — NUMERO DI GUARDIE MENSILI (controllo OBBLIGATORIO, PRIMA di ogni altra regola di questa sezione)
@@ -2654,6 +2658,7 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"tetto_settimana","medico":"TRIGODKO","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
 - {"az":"tetto_mese","medico":"ZURLO","maxTurni":8} → imposta il tetto massimo di turni per l'INTERO mese corrente (vale per QUALSIASI categoria, anche senza incarico): il motore si ferma su quel numero anche con debito residuo; maxTurni null o assente rimuove il tetto. Usalo SEMPRE quando un senza incarico dichiara un numero massimo di guardie/turni che può fare nel mese (es. "posso fare al massimo 8 turni questo mese") — è il vincolo reale nel motore, non solo un'indicazione testuale
 - {"az":"turno_pref","medico":"TRIGODKO","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
+- {"az":"turno_precedente","medico":"BERTUZZI","giorno":30,"turno":"N"} → registra un turno che il medico ha GIÀ SVOLTO a fine mese PRECEDENTE (luglio, nella settimana che è a cavallo con il mese in lavorazione). "giorno" = numero del giorno del mese precedente (es. 30 = 30 luglio). "turno": "N"=notturno, "G"=diurno; OMETTILO se il coordinatore non lo specifica (l'app registra il notturno sui feriali e, sui giorni che hanno sia diurno sia notturno, ti chiede da sola quale). "presente":false per TOGLIERE una registrazione già fatta ("BERTUZZI non ha fatto nulla il 30, toglilo"; con "turno" toglie solo quel turno, senza "turno" azzera l'intero giorno). NON calcolare tu se il giorno è valido, se è nella settimana a cavallo o se ha il diurno: ci pensa l'app (ti avvisa se qualcosa non torna). Se manca il GIORNO, non indovinare: rispondi con una "risposta" chiedendo quale giorno di luglio. Vedi la regola PASSATO vs FUTURO più sotto: questa azione la usa SOLO il coordinatore in chat, MAI a partire da una mail di disponibilità
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
 Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati, null per maxTurniMese se nessun tetto) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra/tetto_mese; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
@@ -2964,6 +2969,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     let extraOre = { ...dati.extraOre };
     let turniExtra = { ...(dati.turniExtra || {}) };
     let maxTurniMese = { ...(dati.maxTurniMese || {}) };
+    let turniPrecedenti = { ...(dati.turniPrecedenti || {}) }; // turni di fine luglio nella settimana a cavallo (az turno_precedente)
     let schema = dati.schema;
     let daElaborare = false;
     let dispoModificata = false;
@@ -2988,6 +2994,67 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       if (a.az === "azzera_medico") return; // già applicata nella pre-passata sopra
       if (a.az === "elabora") { daElaborare = true; return; }
       if (a.az === "vai_mese") return;
+      if (a.az === "turno_precedente") {
+        // Registra (o toglie) un turno che il medico ha GIÀ fatto a fine luglio, nella settimana ISO a
+        // cavallo con il mese in lavorazione. Il "giorno" è del MESE PRECEDENTE → NON passa dalla
+        // validazione-giorno generica qui sotto (che è sul mese corrente): la sua rete di sicurezza è
+        // tutta qui. L'AI fa solo il linguaggio (chi/giorno/N-G se detto, presente:false per togliere);
+        // il MOTORE fa tutte le verifiche di calendario (settimana a cavallo, esistenza del turno). NON
+        // tocca elaboraSchema: scrive turniPrecedenti e ricalcola il tetto EFFETTIVO del cavallo (V-A),
+        // esattamente come il checkbox N/G del pannellino 📅 (toggleTurnoPrec).
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
+        const lun = settimanaCavallo();
+        if (!lun) { errori.push(`${a.medico}: ${MESI_IT[mese]} ${anno} inizia di lunedì, non ha una settimana a cavallo — nessun turno di luglio da registrare`); return; }
+        const giorniCav = giorniLuglioCavallo();
+        const gRec = giorniCav.find((x) => x.giorno === Number(a.giorno));
+        if (!gRec) {
+          const mb = giorniCav[0] ? giorniCav[0].meseBreve : "lug";
+          const range = giorniCav.length ? `${giorniCav[0].giorno}–${giorniCav[giorniCav.length - 1].giorno} ${mb}` : "—";
+          errori.push(`${a.medico}: il ${a.giorno} ${mb} non è nella settimana a cavallo — i giorni che incidono su ${MESI_IT[mese].toLowerCase()} sono ${range}. Nessuna registrazione`);
+          return;
+        }
+        const dataStr = gRec.dataStr;
+        const rimuovi = a.presente === false;
+        let turno = (a.turno === "N" || a.turno === "G") ? a.turno : null;
+        // Cavolata 1 — "diurno" su un feriale (che ha solo il notturno): segnala, non registrare.
+        if (turno === "G" && !gRec.haG) { errori.push(`${a.medico}: il ${gRec.giorno} ${gRec.meseBreve} è un feriale, non esiste il diurno — intendevi il notturno? Se sì, dimmelo`); return; }
+        // Turno non specificato: sui feriali (solo N) default N; sui giorni con SIA diurno SIA notturno
+        // è ambiguo → il sistema CHIEDE (domanda Sì/No), non decide da solo. (In rimozione senza turno
+        // si toglie l'intero giorno, senza ambiguità.)
+        if (!turno && !rimuovi) {
+          if (gRec.haG) {
+            domandeSuggerite.push({
+              medico: a.medico,
+              situazione: `il ${gRec.giorno} ${gRec.meseBreve} ha sia il turno diurno sia quello notturno`,
+              domanda: "il turno che ha fatto era il diurno?",
+              seSi: [{ az: "turno_precedente", medico: a.medico, giorno: a.giorno, turno: "G" }],
+              seNo: [{ az: "turno_precedente", medico: a.medico, giorno: a.giorno, turno: "N" }],
+            });
+            return;
+          }
+          turno = "N";
+        }
+        const perMid = { ...(turniPrecedenti[mid] || {}) };
+        if (rimuovi) {
+          if (turno) { const day = { ...(perMid[dataStr] || {}) }; delete day[turno]; if (!day.N && !day.G) delete perMid[dataStr]; else perMid[dataStr] = day; }
+          else delete perMid[dataStr]; // "toglilo" senza turno = azzera l'intero giorno
+        } else {
+          perMid[dataStr] = { ...(perMid[dataStr] || {}), [turno]: true };
+        }
+        turniPrecedenti = { ...turniPrecedenti, [mid]: perMid };
+        // Ricalcolo del tetto EFFETTIVO del cavallo (dichiarato − nuovo totale luglio), senza perdere il
+        // dichiarato — identico a toggleTurnoPrec, ma sul dispo LOCALE del batch.
+        const raw = dispo[mid]?.["SETT:" + lun];
+        const dich = raw ? (raw.dichiarato != null ? raw.dichiarato : raw.maxTurni) : null;
+        if (typeof dich === "number" && dich >= 0) {
+          const nd = { ...(dispo[mid] || {}) };
+          nd["SETT:" + lun] = { maxTurni: Math.max(0, dich - countLuglio(perMid)), dichiarato: dich };
+          dispo = { ...dispo, [mid]: nd };
+        }
+        dispoModificata = true;
+        return;
+      }
       // Validazione del giorno: le azioni che citano un giorno (mmg, dispo_*, schema, tetto/pref
       // settimanali/turno) costruiscono dk(anno, mese, a.giorno) — un giorno fuori dal mese (es. 31
       // in novembre, o il 30 febbraio proposto per errore dall'AI da una data che non torna) creerebbe
@@ -3128,7 +3195,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
 
     let avvisiNuovi = dati.avvisi;
     if (daElaborare) { const r = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese, riferimentiCavalloDi()); schema = r.schema; avvisiNuovi = r.avvisi; }
-    setDati({ dispo, extras, extraOre, turniExtra, maxTurniMese, schema, avvisi: avvisiNuovi });
+    setDati({ dispo, extras, extraOre, turniExtra, maxTurniMese, turniPrecedenti, schema, avvisi: avvisiNuovi });
     return { errori, dispoModificata, daElaborare, domandeSuggerite };
   };
   // Riepilogo compatto (medico: giorno+turno) per le azioni che li identificano — solo un promemoria
@@ -3144,6 +3211,11 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         // dispo_set non ha un singolo giorno/turno: la si riassume con l'etichetta dell'ambito
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(etichettaAmbito(a.ambito) + (a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""));
+      } else if (a.az === "turno_precedente" && a.medico) {
+        // Turno passato di luglio: riassunto "lug{g}{N|G}" (con ✕ se rimozione); il giorno è del mese
+        // precedente, quindi va tenuto distinto dai g{giorno}{turno} del mese corrente.
+        riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
+        riepilogoPerMedico[a.medico].push(`lug${a.giorno}${a.turno || ""}${a.presente === false ? "✕" : ""}`);
       } else if (a.medico && a.giorno !== undefined && a.giorno !== null && a.turno) {
         riepilogoPerMedico[a.medico] = riepilogoPerMedico[a.medico] || [];
         riepilogoPerMedico[a.medico].push(`g${a.giorno}${a.turno}`);
@@ -3985,6 +4057,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;
                       else if (a.az === "tetto_mese") d = `Max turni mese: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/mese"}`;
                       else if (a.az === "turno_pref") d = `Preferenza turno: ${a.medico} · giorno ${a.giorno} → ${(a.turno === "G" || a.turno === "N") ? `preferisce il ${a.turno === "G" ? "diurno" : "notturno"} se vince entrambi` : "rimuovi preferenza"}`;
+                      else if (a.az === "turno_precedente") d = `Turno di luglio (settimana a cavallo): ${a.medico} · ${a.giorno} lug${(a.turno === "G" || a.turno === "N") ? ` · ${a.turno === "G" ? "diurno" : "notturno"}` : ""} → ${a.presente === false ? "TOGLI" : "registra come già fatto"}`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";
                       else d = JSON.stringify(a);
                       return <li key={i}>{d}</li>;
