@@ -2959,6 +2959,23 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     }
     return { etichetta: `${gg(lun)}–${gg(dom)}`, haFestivo };
   };
+  // Numero MASSIMO di turni che un medico può fare nella settimana wk (tetto max del campo): è il numero
+  // di SLOT-TURNO (N sempre + G nei weekend/festivi/prefestivi, MAI gli MMG) nei giorni della settimana
+  // che ricadono NEL MESE CORRENTE — il filtro sul mese gestisce da solo le settimane tronche (prima,
+  // ultima, e cavallo, dove solo i giorni del mese corrente possono ospitare turni assegnabili). Coerente
+  // col conteggio del motore (settimanaCount incrementa di 1 per ogni turno assegnato, N e G separati).
+  const maxTurniSettimana = (wk) => {
+    const lun = new Date(wk + "T00:00:00");
+    let n = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(lun); d.setDate(d.getDate() + i);
+      if (d.getFullYear() === anno && d.getMonth() === mese) {
+        const info = turniDelGiorno(d.getFullYear(), d.getMonth(), d.getDate(), {});
+        n += info.turni.filter((t) => t.id === "N" || t.id === "G").length;
+      }
+    }
+    return n;
+  };
 
   // Applica un elenco di azioni (condiviso da applicaProposta e rispondiDomanda) e aggiorna dati.
   // Ritorna {errori, dispoModificata, daElaborare} per costruire il messaggio di conferma a chi chiama.
@@ -3883,10 +3900,22 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                   <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3, whiteSpace: "nowrap" }}>
                                     {info.etichetta} {info.haFestivo && <span style={{ color: "#c17d0f" }} title="settimana con festivo/prefestivo">•</span>}
                                   </div>
-                                  <input type="number" min={0} step={1} placeholder="—"
-                                    value={dich ?? ""}
-                                    onChange={(e) => setCapSettimanaDi(m.id, wk, e.target.value)}
-                                    style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center" }} />
+                                  {wk === settimanaCavallo() ? (
+                                    // BUG 1/2: box cavallo = solo calcolatore, read-only, mostra l'EFFETTIVO live (dichiarato − turni luglio).
+                                    // Il dichiarato si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo.
+                                    <input type="number" value={dich == null ? "" : Math.max(0, dich - july)} readOnly disabled
+                                      title="Settimana a cavallo: valore calcolato (dichiarato − turni di luglio), non modificabile qui. Il tetto si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo."
+                                      style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center", background: "#eceff1", color: "#607d8b", cursor: "not-allowed" }} />
+                                  ) : (() => {
+                                    // BUG 3: tetto max = numero di turni realmente possibili nella settimana (slot N+G, tronche incluse).
+                                    const mx = maxTurniSettimana(wk);
+                                    return (
+                                      <input type="number" min={0} max={mx} step={1} placeholder="—" value={dich ?? ""}
+                                        title={`Massimo ${mx} turni possibili in questa settimana`}
+                                        onChange={(e) => { const v = e.target.value; setCapSettimanaDi(m.id, wk, v === "" ? "" : String(Math.min(mx, Math.max(0, Number(v) || 0)))); }}
+                                        style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center" }} />
+                                    );
+                                  })()}
                                   {july > 0 && dich != null && <div style={{ fontSize: 9, color: "#c17d0f", marginTop: 2, whiteSpace: "nowrap" }}>{dich} − {july} lug → {Math.max(0, dich - july)}</div>}
                                 </div>
                               );
