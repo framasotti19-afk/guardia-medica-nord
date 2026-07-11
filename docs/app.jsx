@@ -1070,7 +1070,21 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       const giaPin = pw.filter(èObbligatorioBase).length;
       pw.filter((v) => !èObbligatorioBase(v)).slice(0, Math.max(0, N - giaPin)).forEach((v) => finestreForzate.add(v.slotKey));
     });
-    const obblVinti = pool.filter((v) => èObbligatorioBase(v) || finestreForzate.has(v.slotKey));
+    // PREFERENZA TURNO §3.9 (§10 voce 61): se il medico ha vinto sia il diurno sia il notturno dello
+    // STESSO giorno e ha dichiarato una preferenza (TURNOPREF), il turno PREFERITO diventa un punto fisso
+    // (pin in kept, come un obbligatorio) — così la distribuzione §3.11 gli costruisce attorno invece di
+    // cederlo, e nel PASSAGGIO 2 il medico lavora il turno che voleva. Il turno non preferito resta un
+    // candidato ordinario (tipicamente ceduto a un backup). Si attiva SOLO quando vince ENTRAMBI i turni
+    // del giorno (unico caso in cui §3.9 avrebbe senso): se ne vince uno solo, nessun effetto. Vuoto =
+    // comportamento identico a prima (nessuna chiave TURNOPREF, o preferenza non corrispondente a un vinto).
+    const prefForzati = new Set();
+    pool.forEach((v) => {
+      const pref = turnoPrefDi(dispo, m.id, v.slotKey.split("|")[0]);
+      if (!pref || !v.slotKey.endsWith(`|${pref}`)) return;
+      const altroKey = v.slotKey.replace(/\|[GN]$/, pref === "G" ? "|N" : "|G");
+      if (pool.some((p) => p.slotKey === altroKey)) prefForzati.add(v.slotKey); // ha vinto anche l'altro turno
+    });
+    const obblVinti = pool.filter((v) => èObbligatorioBase(v) || finestreForzate.has(v.slotKey) || prefForzati.has(v.slotKey));
     if (obblVinti.length) {
       const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi, giorniBluDelMedico);
       tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
