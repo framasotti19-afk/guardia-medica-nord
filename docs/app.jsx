@@ -4146,6 +4146,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                               </div>
                             );
                           })()}
+                          <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 6 }}><b>Al massimo</b> = limite di disponibilità settimanale · <b>Vorrei assolutamente</b> = settimana prioritaria in cui il medico vorrebbe quei turni</div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {settimaneDelMese().map((wk) => {
                               const info = infoSettimana(wk);
