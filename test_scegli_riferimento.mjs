@@ -96,4 +96,56 @@ s.test("deterministica: stessa chiamata → stesso risultato", () => {
   s.eq(JSON.stringify(a), JSON.stringify(b), "output deterministico");
 });
 
+// ---- Tiebreak COPERTURA A DISTANZA — BLU (§10 voce 56) ----
+// A parità di gap massimo OTTIMALE, lo swap-nudge preferisce i giorni con blu dichiarata. Scatta solo su
+// blu PARZIALE (né assente, né uniforme) e non peggiora mai l'ottimo min-maxGap.
+const giorniDiSel = (slotKeys) => slotKeys.map((k) => Number(k.slice(1)));
+
+s.test("blu: a parità di gap ottimo, lo swap-nudge preferisce il giorno con blu", () => {
+  const cand = mk([10, 11]); // due giorni interscambiabili tra i pin 1 e 20 (stesso gap massimo = 10)
+  const senza = giorniDiSel(scegliConRiferimento(cand, 1, [1, 20]));
+  s.eq(senza[0], 11, "senza blu l'algoritmo tiene 11 (farthest-reach)");
+  const con = giorniDiSel(scegliConRiferimento(cand, 1, [1, 20], new Set([10])));
+  s.eq(con[0], 10, "con blu su 10 lo swap-nudge tiene 10 invece di 11");
+  s.eq(maxGapTail([10, 11], con, [1, 20]), bruteOptMaxGap([10, 11], 1, [1, 20]), "gap massimo resta l'ottimo brute force");
+});
+
+s.test("blu uniforme / vuota / null → output byte-identico a nessuna blu (no-op)", () => {
+  const cand = mk([2, 4, 6, 9, 12, 14, 18, 23, 27, 30]);
+  const fissi = [1, 16, 31];
+  const base = JSON.stringify(scegliConRiferimento(cand, 4, fissi));
+  const tuttiBlu = new Set(cand.map((c) => c.giorno)); // blu su TUTTI i candidati = caso uniforme
+  s.eq(JSON.stringify(scegliConRiferimento(cand, 4, fissi, tuttiBlu)), base, "blu uniforme inerte");
+  s.eq(JSON.stringify(scegliConRiferimento(cand, 4, fissi, new Set())), base, "blu vuota inerte");
+  s.eq(JSON.stringify(scegliConRiferimento(cand, 4, fissi, null)), base, "blu null inerte");
+});
+
+s.test("blu: lo swap-nudge non peggiora MAI il gap ottimo e non riduce la copertura (300 casi random)", () => {
+  let rng = 987654321;
+  const rnd = () => { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff; };
+  let tutti = 0, gapOk = 0, coperturaOk = 0, migliorati = 0;
+  for (let t = 0; t < 300; t++) {
+    const D = 8 + Math.floor(rnd() * 12);
+    const days = [...Array(D)].map((_, i) => i + 1);
+    const nPin = 1 + Math.floor(rnd() * 3);
+    const pin = new Set(); while (pin.size < nPin) pin.add(1 + Math.floor(rnd() * D));
+    const fissi = [...pin];
+    const cand = days.filter((d) => !pin.has(d));
+    if (cand.length < 2) continue;
+    const n = 1 + Math.floor(rnd() * Math.min(cand.length - 1, 6));
+    const bluSet = new Set(cand.filter(() => rnd() < 0.4).map((d) => d)); // blu PARZIALE casuale
+    tutti++;
+    const selBase = giorniDi(scegliConRiferimento(mk(cand), n, fissi));
+    const selBlu = giorniDi(scegliConRiferimento(mk(cand), n, fissi, bluSet));
+    if (maxGapTail(cand, selBlu, fissi) === bruteOptMaxGap(cand, n, fissi)) gapOk++;
+    const cBase = selBase.filter((d) => bluSet.has(d)).length;
+    const cBlu = selBlu.filter((d) => bluSet.has(d)).length;
+    if (cBlu >= cBase) coperturaOk++;
+    if (cBlu > cBase) migliorati++;
+  }
+  s.eq(gapOk, tutti, `gap massimo ottimo mantenuto su tutti i ${tutti} casi`);
+  s.eq(coperturaOk, tutti, "la copertura blu non cala mai rispetto al baseline");
+  s.assert(migliorati > 0, `in almeno un caso la copertura blu migliora (migliorati=${migliorati})`);
+});
+
 s.finish();

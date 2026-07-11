@@ -77,8 +77,15 @@ function generaScenario(seed, anno, mese) {
     // in provaFisica) viene finalmente esercitata dalla simulazione. Il livello di verde2 viene poi
     // rerollato per-giorno (vedi sotto), così a volte casa è migliore, a volte verde2.
     const verde2DiffLiv = verde2 !== null && chance(0.4);
+    // §10 voce 56: una frazione dei medici dichiara la copertura a distanza (blu) SOLO su un sotto-periodo
+    // del mese (es. "copro X a distanza dal 10 al 20") invece che su tutti i giorni. Così la blu VARIA
+    // per-giorno e la sim esercita lo swap-nudge di scegliConRiferimento (inerte sulla blu uniforme).
+    const bluParziale = blu.length > 0 && chance(0.25);
+    const bluDa = 1 + Math.floor(rnd() * nGiorni);
+    const bluA = bluDa + Math.floor(rnd() * (nGiorni - bluDa + 1));
 
     for (let d = 1; d <= nGiorni; d++) {
+      const bluAttiva = !bluParziale || (d >= bluDa && d <= bluA); // giorno dentro la finestra blu parziale
       const info = turniDelGiorno(anno, mese, d, extras);
       info.turni.forEach((turno) => {
         const slotKey = `${info.key}|${turno.id}`;
@@ -105,7 +112,7 @@ function generaScenario(seed, anno, mese) {
           }
         }
         dispo[m.id][slotKey] = {
-          verde, verdeLiv, blu: [...blu], bluLiv: { ...bluLiv },
+          verde, verdeLiv, blu: bluAttiva ? [...blu] : [], bluLiv: bluAttiva ? { ...bluLiv } : {},
           no: false, preferito: chance(0.03) ? pick(verde) : null,
         };
       });

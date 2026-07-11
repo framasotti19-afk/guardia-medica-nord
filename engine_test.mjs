@@ -373,7 +373,7 @@ function scegliIndiciEquidistanti(k, n) {
 // L'ottimizzazione ragiona sui GIORNI DISTINTI (due turni lo stesso giorno sono a distanza 0, non
 // aiutano la spaziatura); il conteggio resta in SLOT (n), quindi si mappano i giorni scelti agli slot
 // e, se servono più slot dei giorni distinti disponibili, si aggiungono gli slot residui. Deterministico.
-function scegliConRiferimento(candidati, n, giorniFissi) {
+function scegliConRiferimento(candidati, n, giorniFissi, giorniBlu = null) {
   if (n <= 0) return [];
   if (n >= candidati.length) return candidati.map((c) => c.slotKey);
   if (!giorniFissi.length) return scegliIndiciEquidistanti(candidati.length, n).map((i) => candidati[i].slotKey);
@@ -422,6 +422,33 @@ function scegliConRiferimento(candidati, n, giorniFissi) {
     let bi = 0, bd = -1;
     restGiorni.forEach((d, i) => { const dist = Math.min(...rif.map((g) => Math.abs(d - g))); if (dist > bd) { bd = dist; bi = i; } });
     sceltiGiorni.push(restGiorni[bi]); rif.push(restGiorni[bi]); restGiorni.splice(bi, 1);
+  }
+
+  // Tiebreak COPERTURA A DISTANZA — BLU (§10 voce 56): a parità di gap massimo OTTIMALE, preferisci
+  // tenere i giorni su cui il medico ha una blu dichiarata (chance di copertura a distanza). Post-pass
+  // di soli SCAMBI: sostituisce un giorno scelto SENZA blu con uno scartato CON blu, ma SOLO se la nuova
+  // selezione non peggiora il gap oltre l'ottimo `best` (metrica maxGapDi identica al maxGapTail dei test:
+  // diff massima consecutiva su {L, R} ∪ fissi ∪ scelti). Conteggio invariato (kGiorni), deterministico.
+  // No-op esatto quando giorniBlu è vuoto (blu assente) o contiene TUTTI i giorni-candidato (blu uniforme:
+  // nessun giorno scelto è "senza blu") → output byte-identico a prima. Scatta solo su blu PARZIALE.
+  if (giorniBlu && giorniBlu.size) {
+    const maxGapDi = (gg) => {
+      const pts = [...new Set([L, R, ...fissi, ...gg])].sort((a, b) => a - b);
+      let mx = 0; for (let i = 1; i < pts.length; i++) mx = Math.max(mx, pts[i] - pts[i - 1]);
+      return mx;
+    };
+    const scel = new Set(sceltiGiorni), rest = new Set(restGiorni);
+    for (const dOut of [...sceltiGiorni].sort((a, b) => a - b)) {
+      if (giorniBlu.has(dOut) || !scel.has(dOut)) continue;
+      for (const dIn of [...rest].sort((a, b) => a - b)) {
+        if (!giorniBlu.has(dIn)) continue;
+        if (maxGapDi(sceltiGiorni.filter((d) => d !== dOut).concat(dIn)) <= best) {
+          sceltiGiorni.splice(sceltiGiorni.indexOf(dOut), 1); sceltiGiorni.push(dIn);
+          scel.delete(dOut); scel.add(dIn); rest.delete(dIn); rest.add(dOut);
+          break;
+        }
+      }
+    }
   }
 
   // Mappa i giorni scelti agli slotKey (uno per giorno). Se n eccede i giorni distinti (più turni-slot
@@ -1003,6 +1030,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     // Se sono PIÙ del tetto, se ne tiene un sottoinsieme equidistante (il tetto resta rigido). Vuoto =
     // comportamento identico a prima (nessuna chiave OBBL: → residuo = cap, filtro kept vuoto).
     const dm = dispo[m.id] || {};
+    // Giorni su cui il medico ha una blu dichiarata (copertura a distanza): tiebreak per scegliConRiferimento
+    // (§10 voce 56). Vuoto o "tutti i giorni" (blu assente / uniforme) → nessun effetto; utile solo su blu parziale.
+    const giorniBluDelMedico = new Set();
+    pool.forEach((v) => { if (normDispo(dm[v.slotKey]).blu.length) giorniBluDelMedico.add(v.giorno); });
     // Slot da tenere SEMPRE come PUNTI FISSI (§10 voce 49): (a) slot OBBLIGATORI espliciti — valore OBBL:
     // true = pin LIBERO (qualsiasi sede vinta va bene), stringa = pin SEDE (scatta solo se la sede vinta
     // in P1 combacia, altrimenti ignorato); (b) turni MMG (extra) vinti in P1 — l'MMG conta nel tetto come
@@ -1011,7 +1042,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     // se ne tiene un sottoinsieme equidistante (tetto rigido). Vuoto = comportamento identico a prima.
     const obblVinti = pool.filter((v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); });
     if (obblVinti.length) {
-      const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi);
+      const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi, giorniBluDelMedico);
       tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
       residuo = cap - kept.size;
     }
@@ -1023,7 +1054,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
         gruppo.forEach((v) => { kept.add(v.slotKey); giorniFissi.push(v.giorno); });
         residuo -= gruppo.length;
       } else {
-        scegliConRiferimento(gruppo, residuo, giorniFissi).forEach((slotKey) => kept.add(slotKey));
+        scegliConRiferimento(gruppo, residuo, giorniFissi, giorniBluDelMedico).forEach((slotKey) => kept.add(slotKey));
         residuo = 0;
       }
     });
