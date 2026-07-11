@@ -77,7 +77,7 @@ suite.test("un turno EXTRA conta ai fini del tetto mensile, esattamente come un 
   const d = dispoBase(MEDICI_DEFAULT);
   // giorno G1 con turno extra MMG mattina: unico candidato BERTUZZI, per verificare che
   // vincerlo consumi comunque il tetto mensile dichiarato.
-  const extras = { [dk(ANNO_TEST, MESE_TEST, G1)]: { M: true, P: false } };
+  const extras = { [dk(ANNO_TEST, MESE_TEST, G1)]: { M: true, M_sede: "Maniago", P: false } };
   const M = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|M`;
   d[BERTUZZI][M(G1)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][N(G2)] = turnoDisp(["Maniago"]);

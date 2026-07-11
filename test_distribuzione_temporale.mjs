@@ -283,8 +283,8 @@ suite.test("⚓ pin SEDE: l'obbligatorio scatta solo se la sede VINTA combacia c
 
 suite.test("MMG vinto = punto fisso automatico (§10 voce 49, opzione C): l'MMG conta nel tetto ma NON è mai ceduto, le guardie si distribuiscono attorno al suo giorno", () => {
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
-  d[BERTUZZI][`${dk(ANNO_TEST, MESE_TEST, 15)}|M`] = turnoDisp(["Maniago"]); // MMG mattina il 15, BERTUZZI lo vince
-  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, { [dk(ANNO_TEST, MESE_TEST, 15)]: { M: true } }, {}, { [BERTUZZI]: 4 });
+  d[BERTUZZI][`${dk(ANNO_TEST, MESE_TEST, 15)}|M`] = turnoDisp(["Maniago"]); // MMG mattina il 15 a Maniago, BERTUZZI lo vince
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, { [dk(ANNO_TEST, MESE_TEST, 15)]: { M: true, M_sede: "Maniago" } }, {}, { [BERTUZZI]: 4 });
   const notti = vincitoriNotte(schema, BERTUZZI);
   const mmg = schema.find((g) => g.giorno === 15).turni.find((t) => t.id === "M").slots[0];
   suite.eq(mmg, BERTUZZI, "l'MMG del 15 NON è mai ceduto: resta assegnato a BERTUZZI (protetto dalla cessione)");

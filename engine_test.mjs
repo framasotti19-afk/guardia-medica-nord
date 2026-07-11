@@ -119,14 +119,14 @@ function turniDelGiorno(y, m, d, extras) {
   const weekend = dow === 0 || dow === 6;
   const turni = [];
   const ex = (extras && extras[key]) || {};
-  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true });
+  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true, sede: ex.M_sede || null, blu: ex.M_blu || null });
   if (festivo || prefestivo || weekend) {
     let lbl = "DIURNO 8-20";
     if (festivo) lbl = "SUPERFESTIVO DIURNO 08-20";
     else if (prefestivo) lbl = "PREFESTIVO(SUPER) DIURNO 8-20";
     turni.push({ id: "G", label: lbl, ore: 12 });
   }
-  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true });
+  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true, sede: ex.P_sede || null, blu: ex.P_blu || null });
   let nlbl = "NOTTURNO";
   if (festivo) nlbl = "SUPERFESTIVO NOTTURNO 20-08";
   else if (prefestivo) nlbl = "PREFESTIVO(SUPER) NOTTURNO 20-08";
@@ -397,10 +397,8 @@ function scegliConRiferimento(candidati, n, giorniFissi) {
 // dichiarate per quello slot, semplice indicatore di preferenza.
 function livelloVintoDi(dispo, mid, slotKey, turno, si) {
   const v = normDispo(dispo[mid]?.[slotKey]);
-  if (turno.extra) {
-    if (!v.verde.length) return 1;
-    return Math.min(...v.verde.map((s) => v.verdeLiv[s] || 1));
-  }
+  // Livello della sede vinta (vale identico per ordinari e MMG: dopo l'unificazione anche un turno
+  // MMG ha una sede fisica reale — quella attivata dal coordinatore — e `si` ne è l'indice).
   const sede = SEDI5[si];
   return v.verde.includes(sede) ? (v.verdeLiv[sede] || 1) : 1;
 }
@@ -547,16 +545,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
   let fisiche = [];
   let avviso = null;
 
-  if (turno.extra) {
-    const sel = ordinati[0] || null;
-    slots = [sel ? sel.id : null];
-    fisiche = [0];
-    if (sel) {
-      scalaDebito(sel.id, turno.ore);
-      settimanaCount[sel.id] = settimanaCount[sel.id] || {};
-      settimanaCount[sel.id][wk] = (settimanaCount[sel.id][wk] || 0) + 1;
-    }
-  } else {
+  {
     // Bucket di priorità a DUE livelli (0=con debito ordinario residuo, 1=senza incarico/turni
     // extra), usato sia per il confronto fisico che per quello a distanza. I contrattualizzati
     // completamente esauriti (senza turni extra residui) non arrivano mai qui: sono già esclusi
@@ -594,15 +583,26 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
     // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
     // niente doppione, senza toccare la FASE 2.
-    const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
-    const nFisici = Math.min(ordinati.length, sediFisiche.length);
+    // Sedi fisiche del turno. MMG (extra): l'UNICA sede fisica è quella ATTIVATA dal coordinatore
+    // (turno.sede) — imposta, mai scelta dalla preferenza del medico (niente ramo dinamico
+    // nFisici===1). Se la sede MMG manca (dati vecchi/non impostata) sediFisiche resta vuoto → turno
+    // attivo ma SCOPERTO, con avviso dedicato (§10 migrazione 3a). Ordinario: Maniago/Spilimbergo/
+    // Meduno sempre, +Claut/Anduins nel diurno.
+    const sediFisiche = turno.extra
+      ? (turno.sede && SEDI5.indexOf(turno.sede) >= 0 ? [SEDI5.indexOf(turno.sede)] : [])
+      : (turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2]);
     let target = [];
-    if (nFisici === 1) {
-      const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
-      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
-      if (top !== undefined) target = [SEDI5.indexOf(top)];
+    if (turno.extra) {
+      target = sediFisiche; // MMG: target = la sola sede attivata dal coordinatore
     } else {
-      target = sediFisiche.slice(0, nFisici);
+      const nFisici = Math.min(ordinati.length, sediFisiche.length);
+      if (nFisici === 1) {
+        const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
+        const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
+        if (top !== undefined) target = [SEDI5.indexOf(top)];
+      } else {
+        target = sediFisiche.slice(0, nFisici);
+      }
     }
 
     const accVerdeDi = (mid) => {
@@ -754,17 +754,40 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
+    // MMG con copertura a distanza scelta dal coordinatore (§10 voce 53): `turno.blu` (da extras.M_blu/
+    // P_blu) viene attribuita al VINCITORE fisico dell'MMG come se l'avesse dichiarata lui, in una COPIA
+    // LOCALE della dispo (mai mutata quella reale), così `risolviBlu` la copre con gli STESSI vincoli
+    // territoriali degli ordinari (Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno) — se non è
+    // raggiungibile dalla sede attivata, resta semplicemente scoperta. Solo per gli MMG: sul percorso
+    // ordinario `turno.blu` è undefined → dispoBlu === dispo → comportamento invariato.
+    let dispoBlu = dispo;
+    if (turno.extra && turno.blu && fisMids.length) {
+      dispoBlu = { ...dispo };
+      fisMids.forEach((mid) => {
+        const base = normDispo(dispo[mid]?.[slotKey]);
+        if (!base.blu.includes(turno.blu)) {
+          dispoBlu[mid] = { ...(dispo[mid] || {}), [slotKey]: { ...base, blu: [...base.blu, turno.blu], bluLiv: { ...base.bluLiv, [turno.blu]: base.bluLiv[turno.blu] || 1 } } };
+        }
+      });
+    }
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispoBlu, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
-    const scoperte = [0, 1, 2, 3, 4].filter((si) => slots[si] === null);
-    if (scoperte.length && ordinati.length) {
-      avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): ${scoperte.map((si) => SEDI5[si]).join(", ")}.`;
+    // MMG senza sede impostata (dati vecchi/da completare): avviso di migrazione dedicato (§10, 3a),
+    // nessun blocco. Per un MMG "da coprire" è SOLO la sede attivata; per un ordinario tutte e 5.
+    if (turno.extra && !turno.sede) {
+      avviso = `Giorno ${d} · ${turno.label}: turno MMG attivo ma senza sede impostata — scegliere la sede (nessuna assegnazione possibile).`;
+    } else {
+      const daCoprire = turno.extra ? sediFisiche : [0, 1, 2, 3, 4];
+      const scoperte = daCoprire.filter((si) => slots[si] === null);
+      if (scoperte.length && ordinati.length) {
+        avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): ${scoperte.map((si) => SEDI5[si]).join(", ")}.`;
+      }
     }
   }
 
-  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
+  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, sede: turno.sede || null, blu: turno.blu || null, slots, fis: fisiche }, avviso };
 }
 
 // Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo
@@ -872,11 +895,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const out = [];
     voci.forEach(({ d, turno, slotKey }) => {
       const r = risultati[`${d}|${turno.id}`];
-      if (turno.extra) {
-        if (r.slots[0] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
-      } else {
-        r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false }); });
-      }
+      // Dopo l'unificazione i MMG hanno una sede fisica reale come gli ordinari: si estraggono dai
+      // FISICI (r.fis). Si conserva solo il flag `extra` — è ciò che li rende punti fissi protetti
+      // nella distribuzione §3.11 (§10 voce 49, opzione C): contano nel tetto ma non sono mai ceduti.
+      r.fis.forEach((si) => { if (r.slots[si] === mid) out.push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: !!turno.extra }); });
     });
     return out;
   };
@@ -887,15 +909,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   MEDICI.forEach((m) => (poolDi[m.id] = []));
   voci.forEach(({ d, turno, slotKey }) => {
     const out = risultatiP1[`${d}|${turno.id}`];
-    if (turno.extra) {
-      const mid = out.slots[0];
-      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, 0), sede: null, extra: true });
-    } else {
-      out.fis.forEach((si) => {
-        const mid = out.slots[si];
-        if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: false });
-      });
-    }
+    out.fis.forEach((si) => {
+      const mid = out.slots[si];
+      if (mid) poolDi[mid].push({ slotKey, giorno: d, livello: livelloVintoDi(dispo, mid, slotKey, turno, si), sede: SEDI5[si], extra: !!turno.extra });
+    });
   });
 
   // CORREZIONE §3.11 (pool su tutto il mese quando morde un tetto di distribuzione): un contrattualizzato
@@ -1015,11 +1032,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     return esclusi;
   };
   const aggiornaContoMensile = (turno, turnoOut) => {
-    if (turno.extra) {
-      if (turnoOut.slots[0]) contoMensile[turnoOut.slots[0]]++;
-    } else {
-      turnoOut.fis.forEach((si) => { if (turnoOut.slots[si]) contoMensile[turnoOut.slots[si]]++; });
-    }
+    // MMG unificati: il vincitore fisico (r.fis) consuma il tetto come un turno qualsiasi.
+    turnoOut.fis.forEach((si) => { if (turnoOut.slots[si]) contoMensile[turnoOut.slots[si]]++; });
   };
   const { risultati, avvisiRaw } = eseguiMese(debiti, debitiExtra, settimanaCount, escludiPerSlot, aggiornaContoMensile);
 
@@ -1131,16 +1145,10 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       const tid = sk.split("|")[1];
       const out = risultati[`${d}|${tid}`];
       if (!out) return;
+      // MMG unificati: la sede ottenuta si legge dai FISICI come per gli ordinari (niente più
+      // sentinella "MMG"); il ★ su un MMG è valutato sulla sede esatta, esattamente come un turno normale.
       let sedeOttenuta = null;
-      if (out.extra) {
-        if (out.slots[0] === m.id) sedeOttenuta = "MMG";
-      } else {
-        for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
-      }
-      if (out.extra) {
-        if (sedeOttenuta === null) avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva questo turno come preferito, ma non gli è stato assegnato (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
-        return;
-      }
+      for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
       if (sedeOttenuta === v.preferito) return; // preferito soddisfatto: sede esatta ottenuta
       if (sedeOttenuta === null) {
         avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma non gli è stata assegnata alcuna sede (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });

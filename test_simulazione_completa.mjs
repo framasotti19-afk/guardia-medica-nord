@@ -47,7 +47,19 @@ function generaScenario(seed, anno, mese) {
   const chance = (p) => rnd() < p;
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
   const extras = {};
-  for (let d = 1; d <= nGiorni; d++) if (chance(0.1)) extras[dk(anno, mese, d)] = { M: chance(0.5), P: chance(0.5) };
+  // MMG attivati casualmente CON sede (§10 voce 51): ogni turno MMG si svolge in una sede fisica —
+  // extras.M_sede/P_sede — su cui il motore assegna come per un turno ordinario. La sede è casuale tra
+  // le 5: a volte combacia con la "casa" di un medico che ha dichiarato l'MMG (→ assegnato), a volte no
+  // (→ scoperto). Entrambi i rami sono esercitati a scala.
+  for (let d = 1; d <= nGiorni; d++) {
+    if (!chance(0.1)) continue;
+    const e = {};
+    // ogni tanto anche una copertura a distanza scelta dal coordinatore (§10 voce 53): una sede ≠ sede
+    // fisica; il vincolo territoriale lo applica risolviBlu (se non raggiungibile resta scoperta).
+    if (chance(0.5)) { e.M = true; e.M_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.M_sede)); e.M_blu = b; } }
+    if (chance(0.5)) { e.P = true; e.P_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.P_sede)); e.P_blu = b; } }
+    if (e.M || e.P) extras[dk(anno, mese, d)] = e;
+  }
 
   // Combinazioni estreme (CONTEXT.md §12): alcuni medici con ZERO disponibilità dichiarata in
   // tutto il mese (restano candidati "assenti", mai eleggibili), altri disponibili TUTTI i 31
@@ -170,18 +182,9 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
   const slotKey = `${slotKeyBase}|${t.id}`;
   const wk = settimanaDi(slotKeyBase); // lunedì della settimana lun-dom del turno (§3.8)
   const pfx = contesto ? contesto + " " : "";
-  if (t.extra) {
-    const mid = t.slots[0];
-    checkCount++;
-    if (mid) {
-      const v = normDispo(dispo[mid]?.[slotKey]);
-      if (v.no) violazioni.push(`${pfx}g${giorno} ${t.label}: NO assegnato a extra (INV2)`);
-      if (!v.verde.length) violazioni.push(`${pfx}g${giorno} ${t.label}: extra senza disponibilità verde dichiarata (INV1)`);
-      meseCountPerScenario[mid] = (meseCountPerScenario[mid] || 0) + 1;
-      settimanaCountPerScenario[`${mid}|${wk}`] = (settimanaCountPerScenario[`${mid}|${wk}`] || 0) + 1;
-    }
-    return;
-  }
+  // MMG unificati (§10 voce 51): un turno MMG ha una sede fisica reale e passa dagli STESSI controlli
+  // di un ordinario (INV1 fisico=verde, tetto mensile/settimanale sui FISICI, INV3/territoriale sulla
+  // copertura a distanza) — niente più ramo separato su slots[0].
   const fisSet = new Set(t.fis);
   const bluDaMedico = {}; // conteggio sedi coperte a distanza per medico, in questo turno
   t.slots.forEach((mid, si) => {
@@ -198,8 +201,10 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       // INV3: la copertura a distanza deve provenire da un fisico DI QUESTO turno
       const presenteAltrove = t.fis.some((fi) => t.slots[fi] === mid);
       if (!presenteAltrove) violazioni.push(`${pfx}g${giorno} ${t.label} ${SEDI5[si]}: copertura a distanza da medico non fisico nel turno (INV3)`);
-      // deve aver dichiarato quella sede come blu
-      if (!v.blu.includes(SEDI5[si])) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
+      // deve aver dichiarato quella sede come blu — OPPURE, per un MMG, la copertura a distanza è
+      // stata scelta dal coordinatore (t.blu, §10 voce 53): è attribuita al vincitore, legittima.
+      const bluOk = v.blu.includes(SEDI5[si]) || (t.extra && t.blu === SEDI5[si]);
+      if (!bluOk) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
       // INV-TERRITORIALE (§3.2, §10 voce 31): Claut coperta a distanza SOLO dal fisico di Maniago (0);
       // Anduins SOLO dal fisico di Spilimbergo (1) o Meduno (2). Le altre sedi non hanno vincolo. Uso
       // la sede-base fisica del medico nel turno (dove è fisicamente presente). Vincolo rigido.
@@ -278,9 +283,17 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       // esattamente quel pattern → tollerato ma RIPORTATO. Con ≤2 contrattualizzati non esiste catena
       // profonda (correggiTitolarita converge sempre): sarebbe una violazione VERA e diversa →
       // fallimento. La distinzione tiene la tolleranza stretta al limite noto senza mascherare bug.
-      const contrPresenti = new Set(t.fis.map((fi) => t.slots[fi]).filter((id) => id != null && isContrattualizzato(id)));
+      // Dimensione REALE della catena §3.1a: i contrattualizzati (determinati + INDET) che CONTENDONO
+      // la sede contesa S (l'hanno dichiarata verde, non NO) in questo turno — NON solo quelli rimasti
+      // fisicamente in slots. La catena di ricollocazione spinge FUORI alcuni contendenti (verso una blu
+      // o lasciandoli inutilizzati): contarli per presenza fisica (t.fis) SOTTOSTIMA la catena — è il
+      // caso reale seme=552 (4 contendono Maniago: ZURLO/BEKAEVA/FOSCHIANI titolari + MARTINETTI, ma solo
+      // 2 fisicamente presenti). Con 3+ contendenti sulla sede contesa esiste la catena profonda che
+      // correggiTitolarita non sempre scioglie (limite noto §3.1a) → tollerato ma RIPORTATO. Con ≤2
+      // contendenti non c'è catena (risoluzione sempre convergente): sarebbe una violazione VERA → fallimento.
+      const contendentiSede = MEDICI.filter((mm) => { const vv = normDispo(dispo[mm.id]?.[slotKey]); return isContrattualizzato(mm.id) && !vv.no && vv.verde.includes(S); });
       const msg = `${pfx}g${giorno} ${t.label}: ${byId[m.id].nome} titolare di ${S} (sua prima scelta oggi) presente fisicamente altrove mentre ${S} va a ${byId[t.slots[si]]?.nome} (INV-TITOLARE)`;
-      if (contrPresenti.size >= 3) tolleratiTitolarita.push(`${msg} [tollerato: limite noto §3.1a, ${contrPresenti.size} contrattualizzati presenti]`);
+      if (contendentiSede.length >= 3) tolleratiTitolarita.push(`${msg} [tollerato: limite noto §3.1a, ${contendentiSede.length} contrattualizzati contendono ${S}]`);
       else violazioni.push(msg);
     }
   });
