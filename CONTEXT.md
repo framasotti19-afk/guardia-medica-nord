@@ -777,6 +777,8 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 
 63. **Prompt AI — nota su come combinare pin 📌/⚓ e turno_pref** — solo prompt (motore byte-identico). Aggiunta nella sezione azioni, tra `slot_obbligatorio` e `finestra_settimanale`, una nota che chiarisce quando il medico "ci tiene a un GIORNO", con 4 casi + frasi trigger: **solo pin 📌** (indifferente diurno/notturno → pin su ENTRAMBI G e N, nessun turno_pref); **pin 📌 + turno_pref** (ci tiene al giorno E preferisce un turno → pin su G e N + turno_pref; se vince entrambi §3.9 cede il non preferito); **pin ⚓** (ci tiene MA solo se ottiene una sede → slot_obbligatorio con `sede`; ignorato se non ottiene quella sede); **pin ⚓ + turno_pref** (giorno + sede specifica + turno preferito). **Verifiche**: esbuild OK; `engine_test.mjs` byte-identico; `docs/app.jsx` rigenerato.
 
+64. **Prompt AI — pin su giorno con restrizione di sede implicita → ⚓ per sede, non 📌 libero** — solo prompt (motore byte-identico). Regola aggiunta a `slot_obbligatorio`: quando il medico ha dichiarato disponibilità solo su un SOTTOINSIEME di sedi (non tutte e 5) e vuole pinnare un giorno, il pin va emesso come ⚓ (`slot_obbligatorio` con `sede`) su OGNI sede dichiarata per quel turno — mai come pin libero 📌 — così scatta solo se il motore lo assegna a una di quelle sedi. Esempio: disponibile a Spilimbergo/Meduno/Claut/Anduins (non Maniago), "il 23 non lo cedo" → 4 `slot_obbligatorio` sul 23N, uno per sede. Il pin libero 📌 resta SOLO per chi è disponibile su tutte le sedi o senza restrizione. **Verifiche**: esbuild OK; `engine_test.mjs` byte-identico; `docs/app.jsx` rigenerato.
+
 ---
 
 ## 11. CONVENZIONI DI CODICE
