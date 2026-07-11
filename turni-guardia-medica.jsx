@@ -121,14 +121,14 @@ function turniDelGiorno(y, m, d, extras) {
   const weekend = dow === 0 || dow === 6;
   const turni = [];
   const ex = (extras && extras[key]) || {};
-  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true, sede: ex.M_sede || null, blu: ex.M_blu || null });
+  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true });
   if (festivo || prefestivo || weekend) {
     let lbl = "DIURNO 8-20";
     if (festivo) lbl = "SUPERFESTIVO DIURNO 08-20";
     else if (prefestivo) lbl = "PREFESTIVO(SUPER) DIURNO 8-20";
     turni.push({ id: "G", label: lbl, ore: 12 });
   }
-  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true, sede: ex.P_sede || null, blu: ex.P_blu || null });
+  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true });
   let nlbl = "NOTTURNO";
   if (festivo) nlbl = "SUPERFESTIVO NOTTURNO 20-08";
   else if (prefestivo) nlbl = "PREFESTIVO(SUPER) NOTTURNO 20-08";
@@ -632,17 +632,17 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
     // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
     // niente doppione, senza toccare la FASE 2.
-    // Sedi fisiche del turno. MMG (extra): l'UNICA sede fisica è quella ATTIVATA dal coordinatore
-    // (turno.sede) — imposta, mai scelta dalla preferenza del medico (niente ramo dinamico
-    // nFisici===1). Se la sede MMG manca (dati vecchi/non impostata) sediFisiche resta vuoto → turno
-    // attivo ma SCOPERTO, con avviso dedicato (§10 migrazione 3a). Ordinario: Maniago/Spilimbergo/
-    // Meduno sempre, +Claut/Anduins nel diurno.
+    // Sedi fisiche del turno. MMG (extra): senza una sede imposta dal coordinatore il MMG compete
+    // su TUTTE le sedi fisiche come un turno ordinario — Maniago/Spilimbergo/Meduno (l'MMG è M/P,
+    // mai il diurno G) — e la sede di ciascun vincitore la decide il motore in base alle
+    // disponibilità verdi dichiarate dai medici (la copertura a distanza resta la FASE 2 sui blu
+    // dei medici). Ordinario: Maniago/Spilimbergo/Meduno sempre, +Claut/Anduins nel diurno.
     const sediFisiche = turno.extra
-      ? (turno.sede && SEDI5.indexOf(turno.sede) >= 0 ? [SEDI5.indexOf(turno.sede)] : [])
+      ? (turno.sede && SEDI5.indexOf(turno.sede) >= 0 ? [SEDI5.indexOf(turno.sede)] : (turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2]))
       : (turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2]);
     let target = [];
     if (turno.extra) {
-      target = sediFisiche; // MMG: target = la sola sede attivata dal coordinatore
+      target = sediFisiche; // MMG: compete su tutte le sedi fisiche (Maniago/Spilimbergo/Meduno)
     } else {
       const nFisici = Math.min(ordinati.length, sediFisiche.length);
       if (nFisici === 1) {
@@ -803,31 +803,13 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    // MMG con copertura a distanza scelta dal coordinatore (§10 voce 53): `turno.blu` (da extras.M_blu/
-    // P_blu) viene attribuita al VINCITORE fisico dell'MMG come se l'avesse dichiarata lui, in una COPIA
-    // LOCALE della dispo (mai mutata quella reale), così `risolviBlu` la copre con gli STESSI vincoli
-    // territoriali degli ordinari (Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno) — se non è
-    // raggiungibile dalla sede attivata, resta semplicemente scoperta. Solo per gli MMG: sul percorso
-    // ordinario `turno.blu` è undefined → dispoBlu === dispo → comportamento invariato.
-    let dispoBlu = dispo;
-    if (turno.extra && turno.blu && fisMids.length) {
-      dispoBlu = { ...dispo };
-      fisMids.forEach((mid) => {
-        const base = normDispo(dispo[mid]?.[slotKey]);
-        if (!base.blu.includes(turno.blu)) {
-          dispoBlu[mid] = { ...(dispo[mid] || {}), [slotKey]: { ...base, blu: [...base.blu, turno.blu], bluLiv: { ...base.bluLiv, [turno.blu]: base.bluLiv[turno.blu] || 1 } } };
-        }
-      });
-    }
-    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispoBlu, debiti, debitiExtra);
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
-    // MMG senza sede impostata (dati vecchi/da completare): avviso di migrazione dedicato (§10, 3a),
-    // nessun blocco. Per un MMG "da coprire" è SOLO la sede attivata; per un ordinario tutte e 5.
-    if (turno.extra && !turno.sede) {
-      avviso = `Giorno ${d} · ${turno.label}: turno MMG attivo ma senza sede impostata — scegliere la sede (nessuna assegnazione possibile).`;
-    } else {
+    // Per un MMG "da coprire" sono le sedi fisiche del turno (Maniago/Spilimbergo/Meduno); per un
+    // ordinario tutte e 5.
+    {
       const daCoprire = turno.extra ? sediFisiche : [0, 1, 2, 3, 4];
       const scoperte = daCoprire.filter((si) => slots[si] === null);
       if (scoperte.length && ordinati.length) {
@@ -836,7 +818,7 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     }
   }
 
-  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, sede: turno.sede || null, blu: turno.blu || null, slots, fis: fisiche }, avviso };
+  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, sede: null, blu: null, slots, fis: fisiche }, avviso };
 }
 
 // Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo
@@ -1523,33 +1505,12 @@ export default function App() {
     if (nd[key] === valore) delete nd[key]; else nd[key] = valore;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
+  // Attiva/disattiva un turno MMG (Mattina/Pomeriggio) per un giorno. Il coordinatore attiva solo
+  // la fascia: la sede di ogni vincitore e la copertura a distanza le decide il motore in base alle
+  // disponibilità verdi/blu dichiarate dai medici (nessun dropdown sede/blu nel tab).
   const toggleExtra = (dateKey, tipo) => {
     const ex = { ...(dati.extras[dateKey] || {}) };
     ex[tipo] = !ex[tipo];
-    if (!ex[tipo]) { delete ex[tipo + "_sede"]; delete ex[tipo + "_blu"]; } // disattivando l'MMG si azzerano sede e copertura a distanza
-    setDati({ extras: { ...dati.extras, [dateKey]: ex }, schema: null });
-  };
-  // Sedi coperibili A DISTANZA da una data sede fisica (stessi vincoli territoriali di risolviBlu,
-  // §3.2): Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno; le altre senza vincolo. Usato
-  // per filtrare le opzioni del menu "a distanza" degli MMG (voce 53).
-  const sediBluRaggiungibili = (sedeFisica) => {
-    const fi = SEDI5.indexOf(sedeFisica);
-    if (fi < 0) return [];
-    return SEDI5.filter((s, si) => si !== fi && (si === 3 ? fi === 0 : si === 4 ? (fi === 1 || fi === 2) : true));
-  };
-  // Sede di un turno MMG (§10 voce 51): ogni MMG si svolge in UNA sede fisica, scelta dal coordinatore.
-  const setExtraSede = (dateKey, tipo, sede) => {
-    const ex = { ...(dati.extras[dateKey] || {}) };
-    if (sede) ex[tipo + "_sede"] = sede; else delete ex[tipo + "_sede"];
-    // cambiando la sede fisica, una copertura a distanza non più raggiungibile territorialmente si azzera
-    const blu = ex[tipo + "_blu"];
-    if (blu && !sediBluRaggiungibili(sede).includes(blu)) delete ex[tipo + "_blu"];
-    setDati({ extras: { ...dati.extras, [dateKey]: ex }, schema: null });
-  };
-  // Copertura a distanza (blu) di un turno MMG (§10 voce 53): il vincitore la copre a distanza.
-  const setExtraBlu = (dateKey, tipo, blu) => {
-    const ex = { ...(dati.extras[dateKey] || {}) };
-    if (blu) ex[tipo + "_blu"] = blu; else delete ex[tipo + "_blu"];
     setDati({ extras: { ...dati.extras, [dateKey]: ex }, schema: null });
   };
   const elabora = () => {
@@ -1913,19 +1874,18 @@ export default function App() {
       cols.forEach(({ t }, k) => {
         let testo = "", stile = 9;
         if (t.extra) {
-          // Turno MMG (§10 voce 51): si svolge nella SOLA sede attivata (t.sede) — il vincitore
-          // compare in QUELLA colonna, letta dal risultato del motore come per gli ordinari (niente
-          // più hardcode Maniago). Un'eventuale copertura a distanza compare via notaSlot. Le altre
-          // sedi non fanno parte del turno → cella vuota (non "scoperto"). Solo la sede attivata, se
-          // non assegnata, è segnalata SCOPERTO.
+          // Turno MMG: compete sulle sedi fisiche Maniago/Spilimbergo/Meduno come un ordinario — la
+          // sede di ogni vincitore la decide il motore (niente più hardcode Maniago). Claut/Anduins
+          // NON fanno parte del turno: cella vuota, tranne quando sono coperte a distanza (blu) dal
+          // vincitore (mid presente → notaSlot). Maniago/Spilimbergo scoperte = rosso, Meduno neutro.
           const si = mapIdx[sede];
           const mid = t.slots[si];
-          const isTarget = t.sede && SEDI5.indexOf(t.sede) === si;
           if (mid) {
             const nota = notaSlot(t.slots, si, t.fis);
             if (nota.tipo === "copertura") { testo = nota.testo; stile = 10; }
             else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
-          } else if (isTarget) { testo = "SCOPERTO"; stile = 11; }
+          } else if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
+          else if (sede === "MEDUNO") { testo = "scoperto"; stile = 13; }
         } else if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
           else { testo = "scoperto"; stile = 13; } // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
@@ -2053,8 +2013,8 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => {
           const g = Number(k.slice(8, 10));
           const parti = [];
-          if (v.M) parti.push("M" + (v.M_sede ? "@" + v.M_sede : "@(sede mancante)") + (v.M_blu ? "→" + v.M_blu : ""));
-          if (v.P) parti.push("P" + (v.P_sede ? "@" + v.P_sede : "@(sede mancante)") + (v.P_blu ? "→" + v.P_blu : ""));
+          if (v.M) parti.push("M");
+          if (v.P) parti.push("P");
           return `g${g}:${parti.join(",")}`;
         }),
         avvisiScenari: dati.avvisi || [],
@@ -2073,7 +2033,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         preferenzeTurno: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("TURNOPREF:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("TURNOPREF:")).map(([sk, v]) => `giorno ${Number(sk.slice(-2))}: preferisce il ${v === "G" ? "diurno" : "notturno"} se li vince entrambi`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
-          turni: g.turni.map((t) => ({ turno: t.label, ...(t.extra ? { sedeMMG: t.sede || "(sede mancante)" } : {}), sedi: Object.fromEntries(SEDI5.map((s, i) => [s, t.slots[i] ? byId[t.slots[i]].nome : "—"])) })),
+          turni: g.turni.map((t) => ({ turno: t.label, sedi: Object.fromEntries(SEDI5.map((s, i) => [s, t.slots[i] ? byId[t.slots[i]].nome : "—"])) })),
         })) : "non ancora elaborato",
       };
       const sys = `Sei l'assistente del coordinatore della guardia medica ASFO Distretto Nord (sedi: Maniago, Spilimbergo, Meduno, Claut, Anduins).
@@ -2467,7 +2427,7 @@ QUANDO NON USARE dispo_set — queste regole valgono PRIMA e hanno la PRECEDENZA
    L'ambito "feriali" non ha mai questa ambiguità (i feriali hanno solo N).
 3. QUALIFICATORE DI ECCEZIONE non specificato ("quasi sempre", "di solito", "spesso", "in genere", "il più delle volte", "salvo eccezioni") → NON inserire nulla, solo avviso (vedi ECCEZIONI NON SPECIFICATE): niente dispo_set.
 4. TITOLARE che chiede SOLO una o più sedi FISICHE diverse dalla propria titolarità (senza mai nominare la sua) → resta la DOMANDA di conferma al coordinatore (niente inserimento, né dispo_set né dispo_aggiungi, finché non conferma).
-5. dispo_set è SOLO per i turni ordinari G/N: MAI per i turni MMG (M/P), che seguono la loro sezione dedicata (controllo turno attivo + sede obbligatoria).
+5. dispo_set è SOLO per i turni ordinari G/N: MAI per i turni MMG (M/P), che seguono la loro sezione dedicata (controllo turno attivo).
 Un ELENCO DI DATE SPECIFICHE non contigue ("il 3, il 7 e il 12") NON è un "insieme": usa più dispo_aggiungi, una per giorno.
 
 NOTTI DEI GIORNI FERIALI / INFRASETTIMANALI (insieme completo, tutte le notti feriali del mese):
@@ -2504,11 +2464,11 @@ POMERIGGIO (turno P):
 
 MMG RICHIESTO MA NON ATTIVO (ambiguità con scelta binaria → SEMPRE "domande", MAI un avviso testuale — vale per OGNI caso di turno MMG non attivo, senza eccezioni):
 • il medico chiede esplicitamente mattina O pomeriggio MMG per un giorno, ma controllando "mmgAttivi" nello STATO ATTUALE quel turno (M o P) NON risulta attivo per quel giorno
-→ NON inserire silenziosamente, NON ignorare, e NON scrivere un avviso "🔴 ATTENZIONE" nella spiegazione: genera SEMPRE una "domanda" — citazione: la frase esatta scritta dal medico (es. "vorrei fare la mattina MMG l'11"); domanda: sempre "Vuoi attivare questo turno?" (formulazione standard, senza abbreviazioni); seSi: [{"az":"mmg","giorno":X,"fascia":"M"|"P","sede":"<sede>","attivo":true}, {"az":"dispo_aggiungi","medico":"...","giorno":X,"turno":"M"|"P","sedi":["<sede>"]}] (attiva il turno NELLA SEDE indicata dal medico E inserisce la sua disponibilità lì — la stessa sede in entrambe le azioni); seNo: [] (non fa nulla — non inserire nemmeno l'altro turno). Se il medico NON indica la sede, mettila comunque nella domanda ma senza il campo "sede" nell'azione mmg (il coordinatore la sceglierà poi nel tab MMG; il turno resta scoperto finché non c'è).
+→ NON inserire silenziosamente, NON ignorare, e NON scrivere un avviso "🔴 ATTENZIONE" nella spiegazione: genera SEMPRE una "domanda" — citazione: la frase esatta scritta dal medico (es. "vorrei fare la mattina MMG l'11"); domanda: sempre "Vuoi attivare questo turno?" (formulazione standard, senza abbreviazioni); seSi: [{"az":"mmg","giorno":X,"fascia":"M"|"P","attivo":true}, {"az":"dispo_aggiungi","medico":"...","giorno":X,"turno":"M"|"P","sedi":["<sede dichiarata dal medico>"]}] (attiva il turno E inserisce la disponibilità del medico nella/e sede/i che ha indicato — l'azione "mmg" attiva solo la fascia, la sede vive nel "sedi" della dispo del medico); seNo: [] (non fa nulla — non inserire nemmeno l'altro turno).
 ⚠️ ERRORE DA NON COMMETTERE MAI (bug osservato più volte, sia per la mattina che per il pomeriggio): scrivere nella "spiegazione" una frase tipo "Il turno non è attivo, chiedo conferma" o "Serve conferma per attivare il turno" e lasciare "domande" vuoto o assente. Una frase come questa nel testo libero NON è visibile al coordinatore come una domanda a cui rispondere — è invisibile, il turno non verrà mai attivato. "Chiedere conferma" significa SEMPRE e SOLO popolare l'array "domande" con l'oggetto completo del formato sopra (citazione + domanda + seSi + seNo), MAI descriverlo a parole nella spiegazione. Questa regola vale IDENTICA per M e per P — non è un caso speciale della mattina. Esempio corretto completo per "Vorrei fare la mattina MMG del 6 a Maniago." (turno M non attivo il 6, medico ZURLO):
-{"tipo":"modifiche","spiegazione":"Turno MMG mattina del 6 non attivo, chiedo conferma.","azioni":[],"domande":[{"giorno":6,"medico":"ZURLO","citazione":"Vorrei fare la mattina MMG del 6 a Maniago.","domanda":"Vuoi attivare questo turno?","seSi":[{"az":"mmg","giorno":6,"fascia":"M","sede":"Maniago","attivo":true},{"az":"dispo_aggiungi","medico":"ZURLO","giorno":6,"turno":"M","sedi":["Maniago"]}],"seNo":[]}]}
+{"tipo":"modifiche","spiegazione":"Turno MMG mattina del 6 non attivo, chiedo conferma.","azioni":[],"domande":[{"giorno":6,"medico":"ZURLO","citazione":"Vorrei fare la mattina MMG del 6 a Maniago.","domanda":"Vuoi attivare questo turno?","seSi":[{"az":"mmg","giorno":6,"fascia":"M","attivo":true},{"az":"dispo_aggiungi","medico":"ZURLO","giorno":6,"turno":"M","sedi":["Maniago"]}],"seNo":[]}]}
 Esempio corretto completo per "Vorrei fare la pomeriggio MMG del 19 a Maniago." (turno P non attivo il 19, medico TRIGODKO) — STESSA IDENTICA struttura, solo fascia "P" invece di "M":
-{"tipo":"modifiche","spiegazione":"Turno MMG pomeriggio del 19 non attivo, chiedo conferma.","azioni":[],"domande":[{"giorno":19,"medico":"TRIGODKO","citazione":"Vorrei fare la pomeriggio MMG del 19 a Maniago.","domanda":"Vuoi attivare questo turno?","seSi":[{"az":"mmg","giorno":19,"fascia":"P","sede":"Maniago","attivo":true},{"az":"dispo_aggiungi","medico":"TRIGODKO","giorno":19,"turno":"P","sedi":["Maniago"]}],"seNo":[]}]}
+{"tipo":"modifiche","spiegazione":"Turno MMG pomeriggio del 19 non attivo, chiedo conferma.","azioni":[],"domande":[{"giorno":19,"medico":"TRIGODKO","citazione":"Vorrei fare la pomeriggio MMG del 19 a Maniago.","domanda":"Vuoi attivare questo turno?","seSi":[{"az":"mmg","giorno":19,"fascia":"P","attivo":true},{"az":"dispo_aggiungi","medico":"TRIGODKO","giorno":19,"turno":"P","sedi":["Maniago"]}],"seNo":[]}]}
 La "spiegazione" può menzionare che serve conferma, ma questo NON sostituisce mai l'oggetto in "domande": devono comparire ENTRAMBI, e la card Sì/No la genera solo "domande", mai la spiegazione da sola.
 
 ENTRAMBI SENZA SPECIFICARE MATTINA/POMERIGGIO:
@@ -2520,7 +2480,7 @@ NESSUNA MENZIONE DI MMG/PLS:
 
 MATTINA/POMERIGGIO/DIURNO SENZA DIRE MMG O PLS:
 • "mattina del X" / "pomeriggio del X" / "diurno del X" (senza menzionare MMG o PLS)
-→ controlla SEMPRE "mmgAttivi" nello STATO ATTUALE (elenca i giorni con turni MMG/PLS attivi e la loro sede, es. "g15:M@Spilimbergo", "g15:P@Maniago", "g15:M@Spilimbergo,P@Maniago"; "@(sede mancante)" se attivo ma senza sede): se il giorno X ha un turno MMG attivo corrispondente (mattina→M, pomeriggio→P, diurno generico→quello/i attivo/i), inserisci quel turno M/P; se il giorno X NON ha nessun turno MMG attivo in "mmgAttivi", ignora la frase — nei feriali il diurno ordinario non esiste, quindi non c'è nulla da inserire.
+→ controlla SEMPRE "mmgAttivi" nello STATO ATTUALE (elenca i giorni con turni MMG/PLS attivi, es. "g15:M", "g15:P", "g15:M,P"): se il giorno X ha un turno MMG attivo corrispondente (mattina→M, pomeriggio→P, diurno generico→quello/i attivo/i), inserisci quel turno M/P; se il giorno X NON ha nessun turno MMG attivo in "mmgAttivi", ignora la frase — nei feriali il diurno ordinario non esiste, quindi non c'è nulla da inserire.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECUPERO ORE
@@ -2795,7 +2755,7 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità di UN singolo slot
 - {"az":"azzera_medico","medico":"IENGO"} → CANCELLA IN BLOCCO tutte le disponibilità del mese di quel medico (tutti gli slot + tetti settimanali + preferenze turno + tetto mensile), lasciando intatti recupero ore e turni extra volontari. Usalo quando il coordinatore vuole "rifare/correggere da capo" un medico (es. "azzera X e reinserisci", "cancella tutto per X e metti solo…", "ricomincia da zero con X"): metti questa azione INSIEME alle azioni di reinserimento nello stesso elenco "azioni" (dispo_set/dispo_aggiungi/tetto_mese/…). L'app applica SEMPRE l'azzeramento PRIMA dei reinserimenti, qualunque sia l'ordine, quindi non restano residui dei giorni vecchi. NON serve elencare tanti dispo_togli: uno solo azzera_medico basta e non dimentica nulla. Esempio "rifai Iengo da capo, solo notti da mar a gio a Spilimbergo, max 8": azioni = [{"az":"azzera_medico","medico":"IENGO"},{"az":"dispo_set","medico":"IENGO","ambito":{"giorni_settimana":{"da":"mar","a":"gio"}},"turni":["N"],"sedi":["Spilimbergo"]},{"az":"tetto_mese","medico":"IENGO","maxTurni":8}]
-- {"az":"mmg","giorno":15,"fascia":"M","sede":"Spilimbergo","blu":"Anduins","attivo":true} → attiva/disattiva un turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20). Come ogni altro turno, un MMG si svolge in UNA sede fisica: quando lo ATTIVI includi SEMPRE il campo "sede" (Maniago | Spilimbergo | Meduno | Claut | Anduins) — è quella la sede in cui il medico presterà servizio e su cui il motore assegna il vincitore. Senza sede il turno viene attivato ma resta SCOPERTO (nessuno può vincerlo). Campo OPZIONALE "blu": una sede che il medico dell'MMG copre anche A DISTANZA (stessi vincoli territoriali degli ordinari: Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno) — usalo se il coordinatore chiede che quell'MMG copra anche un'altra sede a distanza. La sede la indica il coordinatore quando attiva il turno (o il medico se la scrive nella richiesta di attivazione, es. "attiva la mattina MMG del 6 a Maniago"). Con "attivo":false disattivi il turno (sede e copertura a distanza si azzerano da sé)
+- {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva un turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20). L'azione attiva SOLO la fascia: nessun campo "sede" o "blu". Come per i turni ordinari, un MMG compete sulle sedi fisiche (Maniago/Spilimbergo/Meduno) e il motore assegna la sede di ogni vincitore in base alle disponibilità verdi dichiarate dai medici (la copertura a distanza deriva dai blu dei medici). La disponibilità del singolo medico va comunque inserita a parte con dispo_aggiungi/dispo_set (con le sue "sedi"). Con "attivo":false disattivi il turno
 - {"az":"ore_extra","medico":"MARTINETTI","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
 - {"az":"turni_extra","medico":"MARTINETTI","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
 - {"az":"tetto_settimana","medico":"TRIGODKO","giorno":5,"maxTurni":1} → imposta il tetto massimo di turni per la settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene); maxTurni null o assente rimuove il tetto per quella settimana
@@ -3232,25 +3192,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const dateKey = dk(anno, mese, a.giorno);
         const ex = { ...(extras[dateKey] || {}) };
         const fascia = a.fascia === "P" ? "P" : "M";
-        const attivo = a.attivo !== false;
-        // Sede del turno MMG (§10 voce 51): come per gli ordinari, ogni MMG si svolge in UNA sede
-        // fisica. In più, copertura a distanza opzionale (§10 voce 53, campo "blu"): il vincitore
-        // copre quella sede a distanza. Disattivando si azzerano sia la sede sia la blu.
-        if (!attivo) {
-          ex[fascia] = false;
-          delete ex[fascia + "_sede"];
-          delete ex[fascia + "_blu"];
-        } else {
-          ex[fascia] = true;
-          if (a.sede != null && a.sede !== "") {
-            if (!SEDI5.includes(a.sede)) { errori.push(`sede "${a.sede}" non valida per il turno MMG (giorno ${a.giorno})`); return; }
-            ex[fascia + "_sede"] = a.sede;
-          }
-          if (a.blu != null && a.blu !== "") {
-            if (!SEDI5.includes(a.blu)) { errori.push(`sede a distanza "${a.blu}" non valida per il turno MMG (giorno ${a.giorno})`); return; }
-            ex[fascia + "_blu"] = a.blu;
-          }
-        }
+        // Attiva/disattiva un turno MMG: il coordinatore imposta solo la fascia. La sede di ciascun
+        // vincitore e la copertura a distanza le decide il motore in base alle disponibilità
+        // verdi/blu dichiarate dai medici (nessuna sede/copertura scelta a mano).
+        ex[fascia] = a.attivo !== false;
         extras = { ...extras, [dateKey]: ex };
         return;
       }
@@ -3382,7 +3327,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const ti = schema[gi].turni.findIndex((t) => t.id === a.turno);
         if (ti < 0) { errori.push(`turno ${a.turno} assente il ${a.giorno}`); return; }
         const t = schema[gi].turni[ti];
-        const si = t.extra ? 0 : SEDI5.indexOf(a.sede);
+        const si = SEDI5.indexOf(a.sede);
         if (si < 0) { errori.push(`sede ${a.sede} non valida`); return; }
         const mid = a.medico === null ? null : nomeToId(a.medico);
         if (mid === undefined) { errori.push(erroreMedico(a.medico)); return; }
@@ -3945,38 +3890,17 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
 
           {tab === "mmg" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16 }}>
-              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>Attiva Mattina 8-14 / Pomeriggio 14-20 nei giorni con copertura MMG richiesta. Ogni turno MMG si svolge in <b>una sede</b>: sceglila nel menu (senza sede il turno resta scoperto). Compaiono <b>solo i feriali semplici</b>: nei weekend, festivi e prefestivi il MMG diventa "anticipo diurno" con orario diverso, già gestito dal calendario.</p>
+              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>Attiva Mattina 8-14 / Pomeriggio 14-20 nei giorni con copertura MMG richiesta: <b>basta la spunta</b>, nient'altro. La <b>sede</b> di ogni vincitore e l'eventuale <b>copertura a distanza</b> le decide il motore in base alle disponibilità dichiarate dai medici nel tab 1, esattamente come per i turni ordinari. Compaiono <b>solo i feriali semplici</b>: nei weekend, festivi e prefestivi il MMG diventa "anticipo diurno" con orario diverso, già gestito dal calendario.</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 6 }}>
                 {giorniMese.map((g, i) => {
                   // Solo feriali semplici (§10 voce 53): weekend/festivo/prefestivo esclusi. La
                   // classificazione viene SEMPRE da turniDelGiorno (giorniMese[i] ne è l'output), mai a memoria.
                   if (g.weekend || g.festivo || g.prefestivo) return null;
-                  const selSede = (tipo) => {
-                    const sede = dati.extras[g.key]?.[tipo + "_sede"];
-                    const raggiungibili = sede ? sediBluRaggiungibili(sede) : [];
-                    return (
-                    <span style={{ display: "inline-flex", gap: 3, marginLeft: 4 }}>
-                      <select value={sede || ""} onChange={(e) => setExtraSede(g.key, tipo, e.target.value)}
-                        style={{ fontSize: 10, border: `1px solid ${sede ? "#d3dad6" : T.danger}`, borderRadius: 4, padding: "0 2px", maxWidth: 78 }}>
-                        <option value="">sede…</option>
-                        {SEDI5.map((s) => <option key={s} value={s}>{SEDI_BREVI[s] || s}</option>)}
-                      </select>
-                      {sede && (
-                        <select value={dati.extras[g.key]?.[tipo + "_blu"] || ""} onChange={(e) => setExtraBlu(g.key, tipo, e.target.value)}
-                          title="Copertura a distanza (blu): il medico dell'MMG copre anche questa sede"
-                          style={{ fontSize: 10, border: "1px solid #cdd8ee", borderRadius: 4, padding: "0 2px", maxWidth: 78, color: T.bluDark }}>
-                          <option value="">a dist…</option>
-                          {raggiungibili.map((s) => <option key={s} value={s}>{SEDI_BREVI[s] || s}</option>)}
-                        </select>
-                      )}
-                    </span>
-                    );
-                  };
                   return (
                   <div key={i} style={{ border: "1px solid #e5e9e6", borderRadius: 8, padding: "6px 8px", background: g.festivo || g.prefestivo ? "#fdf5f0" : "#fff" }}>
                     <div style={{ fontSize: 11, fontWeight: 700 }}>{i + 1} <span style={{ fontWeight: 400, color: T.textFaint }}>{GIORNI_BREVI[g.dow]}</span></div>
-                    <label style={{ display: "flex", alignItems: "center", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.M} onChange={() => toggleExtra(g.key, "M")} /> Mattina{dati.extras[g.key]?.M && selSede("M")}</label>
-                    <label style={{ display: "flex", alignItems: "center", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.P} onChange={() => toggleExtra(g.key, "P")} /> Pomeriggio{dati.extras[g.key]?.P && selSede("P")}</label>
+                    <label style={{ display: "flex", alignItems: "center", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.M} onChange={() => toggleExtra(g.key, "M")} /> Mattina</label>
+                    <label style={{ display: "flex", alignItems: "center", fontSize: 11, cursor: "pointer" }}><input type="checkbox" checked={!!dati.extras[g.key]?.P} onChange={() => toggleExtra(g.key, "P")} /> Pomeriggio</label>
                   </div>
                   );
                 })}
@@ -4253,21 +4177,18 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       // "dichiarata ma scoperta" da "nessuno l'ha dichiarata".
                       const dichiarataBlu = (sedeNome) => MEDICI.some((m) => normDispo(dati.dispo[m.id]?.[slotKeyT]).blu.includes(sedeNome));
                       // Sedi DA COPRIRE in questo turno: di notte Maniago/Spilimbergo/Meduno (+ Claut/Anduins
-                      // solo se dichiarate a distanza); di giorno tutte e 5. MMG (§10 voce 51): SOLO la sede
-                      // attivata (t.sede) — il medico compare in quella colonna, come per gli ordinari.
+                      // solo se dichiarate a distanza); di giorno tutte e 5. MMG: le sedi fisiche
+                      // Maniago/Spilimbergo/Meduno, come un ordinario — il motore decide chi va dove.
                       let daCoprire = [];
-                      if (isExtra) {
-                        if (t.sede && SEDI5.indexOf(t.sede) >= 0) daCoprire = [SEDI5.indexOf(t.sede)];
-                      } else if (isNotte) { daCoprire = [0, 1, 2]; [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
+                      if (isExtra) daCoprire = [0, 1, 2];
+                      else if (isNotte) { daCoprire = [0, 1, 2]; [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
                       else daCoprire = [0, 1, 2, 3, 4];
                       const scoperte = daCoprire.filter((si) => !t.slots[si]);
                       const grave = scoperte.some((si) => si === 0 || si === 1); // Maniago/Spilimbergo mancanti = rosso
                       const bordoSede = (si) => scoperte.includes(si) ? (si === 0 || si === 1 ? T.danger : T.warning) : null;
-                      const sedeMancanteMMG = isExtra && !t.sede; // MMG attivo senza sede impostata (§10, migrazione 3a)
                       return (
                         <div key={ti} style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 0", borderTop: ti > 0 ? "1px solid #eef1ee" : "none", flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, minWidth: 140, color: T.text, paddingTop: 4 }}>{t.label}</span>
-                          {sedeMancanteMMG && <span style={{ background: T.dangerBg, color: T.danger, border: `1px solid ${T.dangerBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .3, padding: "2px 8px", borderRadius: 999 }}>sede MMG mancante</span>}
                           {scoperte.length > 0 && (
                             <span style={{ background: grave ? T.dangerBg : T.warningBg, color: grave ? T.danger : T.warning, border: `1px solid ${grave ? T.dangerBorder : T.warningBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .2, padding: "2px 8px", borderRadius: 999 }}>Scoperto: {scoperte.map((si) => SEDI5[si]).join(", ")}</span>
                           )}
@@ -4347,7 +4268,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "azzera_medico") d = `Azzera e reinserisci: ${a.medico} — cancella TUTTE le disponibilità del mese (+ tetti settimanali, preferenze turno, tetto mensile); restano recupero ore e turni extra`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
-                      else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva" + (a.sede ? ` a ${SEDI_BREVI[a.sede] || a.sede}` : " (sede da impostare)")}`;
+                      else if (a.az === "mmg") d = `MMG: giorno ${a.giorno} · ${a.fascia === "P" ? "pomeriggio" : "mattina"} → ${a.attivo === false ? "disattiva" : "attiva"}`;
                       else if (a.az === "ore_extra") d = `Ore da recuperare: ${a.medico} → ${a.ore}h`;
                       else if (a.az === "turni_extra") d = `Turni extra volontari: ${a.medico} → ${a.turni} turn${a.turni === 1 ? "o" : "i"} (${(a.turni || 0) * 12}h)`;
                       else if (a.az === "tetto_settimana") d = `Tetto settimanale: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/settimana"} (settimana del giorno ${a.giorno})`;

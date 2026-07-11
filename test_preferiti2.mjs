@@ -157,17 +157,18 @@ suite.test("un preferito su una cella con NO esplicito non genera né priorità 
 });
 
 suite.test("turno EXTRA (MMG) con preferito non assegnato genera l'avviso di sede come un ordinario", () => {
-  // Dopo l'unificazione (§10 voce 49→50) un MMG ha una sede fisica reale: il ★ è valutato sulla sede
-  // esatta, con lo STESSO avviso di un turno ordinario (niente più sentinella "MMG").
+  // MMG unificato agli ordinari: compete sulle fisiche (il coordinatore attiva solo la fascia, nessuna
+  // sede imposta). Il ★ è valutato sulla sede esatta, con lo STESSO avviso di un turno ordinario.
   const g = GIORNI_FERIALI_SEMPLICI[0];
-  const extras = { [dk(ANNO_TEST, MESE_TEST, g)]: { M: true, M_sede: "Maniago" } };
+  const extras = { [dk(ANNO_TEST, MESE_TEST, g)]: { M: true } };
   const M = `${dk(ANNO_TEST, MESE_TEST, g)}|M`;
   const d = dispoBase(BASE);
   d[BERTUZZI][M] = turnoDisp(["Maniago"]); // vince sempre (INDET) → Maniago
   d[PRESSACCO][M] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // perde: ★ Maniago non ottenuta
   const { avvisi } = elaboraSchemaExtras(d, extras);
-  suite.eq(avvisi.length, 1);
-  suite.assert(avvisi[0].includes("PRESSACCO") && avvisi[0].includes("preferita"), "l'avviso deve riguardare la sede preferita non ottenuta");
+  const pref = avvisiPreferiti(avvisi); // isola l'avviso ★ dagli eventuali SCOPERTE sulle altre fisiche
+  suite.eq(pref.length, 1);
+  suite.assert(pref[0].includes("PRESSACCO") && pref[0].includes("preferita"), "l'avviso deve riguardare la sede preferita non ottenuta");
 });
 function elaboraSchemaExtras(dispo, extras) { return elaboraSchema(dispo, {}, ANNO_TEST, MESE_TEST, extras); }
 

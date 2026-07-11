@@ -747,8 +747,11 @@ suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo g
   d[FOSCHIANI][M] = turnoDisp(["Maniago"]);
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, extras);
   const t = schema.find((g) => g.giorno === giorno).turni.find((x) => x.id === "M");
+  // MMG unificato agli ordinari: slots ha sempre 5 posizioni (una per sede). Entrambi puntano solo
+  // Maniago → l'INDET la vince, il DET38 resta fuori (nessun'altra sede dichiarata).
   suite.eq(t.slots[0], BERTUZZI, "INDET deve battere DET38 anche sul turno extra (nessuno dei due titolare di Maniago)");
-  suite.eq(t.slots.length, 1);
+  suite.eq(t.slots.length, 5);
+  suite.assert(!t.slots.includes(FOSCHIANI), "FOSCHIANI, solo Maniago dichiarata e già presa, resta fuori");
 });
 
 suite.test("recupero ore negativo esaurisce prima il debito e fa uscire dalla priorità di categoria", () => {

@@ -47,17 +47,15 @@ function generaScenario(seed, anno, mese) {
   const chance = (p) => rnd() < p;
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
   const extras = {};
-  // MMG attivati casualmente CON sede (§10 voce 51): ogni turno MMG si svolge in una sede fisica —
-  // extras.M_sede/P_sede — su cui il motore assegna come per un turno ordinario. La sede è casuale tra
-  // le 5: a volte combacia con la "casa" di un medico che ha dichiarato l'MMG (→ assegnato), a volte no
-  // (→ scoperto). Entrambi i rami sono esercitati a scala.
+  // MMG attivati casualmente: il coordinatore attiva solo la fascia (M/P). Il motore assegna la sede
+  // di ogni vincitore come per un turno ordinario, sulle sedi fisiche Maniago/Spilimbergo/Meduno, in
+  // base alle disponibilità verdi dichiarate dai medici; la copertura a distanza deriva dai loro blu.
+  // A scala si esercitano sia i turni pienamente coperti sia quelli parzialmente scoperti.
   for (let d = 1; d <= nGiorni; d++) {
     if (!chance(0.1)) continue;
     const e = {};
-    // ogni tanto anche una copertura a distanza scelta dal coordinatore (§10 voce 53): una sede ≠ sede
-    // fisica; il vincolo territoriale lo applica risolviBlu (se non raggiungibile resta scoperta).
-    if (chance(0.5)) { e.M = true; e.M_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.M_sede)); e.M_blu = b; } }
-    if (chance(0.5)) { e.P = true; e.P_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.P_sede)); e.P_blu = b; } }
+    if (chance(0.5)) e.M = true;
+    if (chance(0.5)) e.P = true;
     if (e.M || e.P) extras[dk(anno, mese, d)] = e;
   }
 
@@ -182,9 +180,9 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
   const slotKey = `${slotKeyBase}|${t.id}`;
   const wk = settimanaDi(slotKeyBase); // lunedì della settimana lun-dom del turno (§3.8)
   const pfx = contesto ? contesto + " " : "";
-  // MMG unificati (§10 voce 51): un turno MMG ha una sede fisica reale e passa dagli STESSI controlli
-  // di un ordinario (INV1 fisico=verde, tetto mensile/settimanale sui FISICI, INV3/territoriale sulla
-  // copertura a distanza) — niente più ramo separato su slots[0].
+  // MMG unificati agli ordinari: un turno MMG compete sulle sedi fisiche (Maniago/Spilimbergo/Meduno)
+  // e passa dagli STESSI controlli di un ordinario (INV1 fisico=verde, tetto mensile/settimanale sui
+  // FISICI, INV3/territoriale sulla copertura a distanza) — niente più ramo separato su slots[0].
   const fisSet = new Set(t.fis);
   const bluDaMedico = {}; // conteggio sedi coperte a distanza per medico, in questo turno
   t.slots.forEach((mid, si) => {
@@ -201,9 +199,9 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       // INV3: la copertura a distanza deve provenire da un fisico DI QUESTO turno
       const presenteAltrove = t.fis.some((fi) => t.slots[fi] === mid);
       if (!presenteAltrove) violazioni.push(`${pfx}g${giorno} ${t.label} ${SEDI5[si]}: copertura a distanza da medico non fisico nel turno (INV3)`);
-      // deve aver dichiarato quella sede come blu — OPPURE, per un MMG, la copertura a distanza è
-      // stata scelta dal coordinatore (t.blu, §10 voce 53): è attribuita al vincitore, legittima.
-      const bluOk = v.blu.includes(SEDI5[si]) || (t.extra && t.blu === SEDI5[si]);
+      // deve aver dichiarato quella sede come blu (identico per ordinari e MMG: la copertura a
+      // distanza deriva SEMPRE dai blu dichiarati dal medico, mai da una scelta del coordinatore).
+      const bluOk = v.blu.includes(SEDI5[si]);
       if (!bluOk) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
       // INV-TERRITORIALE (§3.2, §10 voce 31): Claut coperta a distanza SOLO dal fisico di Maniago (0);
       // Anduins SOLO dal fisico di Spilimbergo (1) o Meduno (2). Le altre sedi non hanno vincolo. Uso
