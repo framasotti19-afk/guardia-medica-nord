@@ -3417,7 +3417,6 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         if (gi < 0) { errori.push(`giorno ${a.giorno} non trovato`); return; }
         const ti = schema[gi].turni.findIndex((t) => t.id === a.turno);
         if (ti < 0) { errori.push(`turno ${a.turno} assente il ${a.giorno}`); return; }
-        const t = schema[gi].turni[ti];
         const si = SEDI5.indexOf(a.sede);
         if (si < 0) { errori.push(`sede ${a.sede} non valida`); return; }
         const mid = a.medico === null ? null : nomeToId(a.medico);
@@ -3627,8 +3626,6 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     neutralCell: "#eef1ee", // cella "non disponibile" grigio tenue (era rosso)
   };
   const btn = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 12 };
-  const btnPrimary = { ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 };
-  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
