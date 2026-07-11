@@ -3690,7 +3690,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) oppure <b style={{color:T.textMuted}}>non disponibile</b> (grigia, con un puntino discreto) — nessuno stato intermedio: finché non la rendi disponibile, resta non disponibile. Tocca una cella per aprire il popup: per ogni sede scegli dal menu a tendina <b style={{color:T.primary}}>1ª–5ª scelta</b> (sede principale FISICA, in ordine di preferenza — livelli pari = sedi indifferenti per il medico, il motore lo sposta tra loro per far lavorare anche chi ha una sola sede; livello più basso = sede che ha diritto di tenere) oppure <b style={{color:T.blu}}>A distanza · 1ª–4ª scelta</b> (disponibilità a COPRIRE A DISTANZA quella sede dalla sede fisica su cui viene assegnato, secondo il vincolo territoriale — Claut coperibile solo dal fisico di Maniago, Anduins solo da Spilimbergo o Meduno; nessuna copertura a distanza è automatica, va sempre dichiarata; un medico copre al massimo 1 sede a distanza). In cella la disponibilità è resa con dei <b>pallini</b>: un <b style={{color:T.primary}}>pallino verde</b> = sede fisica, un <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza; accanto compare la <b>sigla</b> della sede se è una sola, oppure il <b>numero</b> se sono più d'una (con l'elenco delle sigle in grigetto sotto). I <b>livelli di preferenza</b> (1ª, 2ª scelta…) e i <b style={{color:"#8a5a00"}}>★ preferiti</b> non si mostrano più nella griglia: si vedono e si impostano aprendo la cella. Un piccolo <b>📌</b> in alto a sinistra di una cella indica uno <b>slot obbligatorio</b>: un turno che il medico vuole tenere assolutamente se lo vince (lo imposti nel popup) — la distribuzione del mese lo tiene sempre e costruisce gli altri turni attorno. Un <b>⚓</b> in alto a destra indica invece uno slot obbligatorio <b>legato a una sede specifica</b> (vale solo se il medico ottiene quella sede — nel popup, l'⚓ accanto alla ☆ di una sede). Ogni azione è annullabile con ↶.
+                Legenda: <b>📌</b> slot obbligatorio · <b>⚓</b> obbligatorio solo su una sede · <b style={{color:T.primary}}>pallino verde</b> = sede fisica, <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza · a distanza: Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno (max 1 sede a distanza).
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -3705,7 +3705,6 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
               {rapidoOpen && (
                 <div style={{ background: "#fff", border: "2px solid #1c8066", borderRadius: 10, padding: 14, marginBottom: 10 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Inserimento rapido</div>
-                  <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 10 }}>Dichiara il periodo di riferimento e le sedi: tutto il periodo diventa disponibile, tranne gli eventuali periodi non disponibili che elenchi sotto.</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
                     <label style={{ fontSize: 11, color: T.textMuted }}>Medico<br />
                       <select value={rapMedico} onChange={(e) => setRapMedico(Number(e.target.value))} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6", marginTop: 3 }}>
@@ -3724,7 +3723,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                     <label style={{ cursor: "pointer" }}><input type="checkbox" checked={rapGiorno} onChange={(e) => setRapGiorno(e.target.checked)} /> Diurno (solo weekend/festivi)</label>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>Sedi per i giorni <b style={{color:T.primary}}>disponibili</b> del periodo (tutte a livello 1) — tocca: verde fisica → blu a distanza → togli</div>
+                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>Sedi disponibili (<b style={{color:T.primary}}>verde</b> = in sede, <b style={{color:T.blu}}>blu</b> = a distanza)</div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {SEDI5.map((s) => {
                         const stato = rapSedi[s] || "off";
@@ -3746,9 +3745,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                     </div>
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>
-                      Periodi <b style={{color:T.danger}}>non disponibili</b> dentro l'intervallo (es. ferie) — tutto il resto del periodo sopra diventa disponibile automaticamente. Un giorno già segnato non disponibile in precedenza (fuori da questi periodi) resta protetto e non viene toccato.
-                    </div>
+                    <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 6 }}>Periodi <b style={{color:T.danger}}>non disponibili</b> (es. ferie)</div>
                     {rapIndisp.map((r, i) => (
                       <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
                         <label style={{ fontSize: 11, color: T.textMuted }}>Dal<br />
@@ -3775,13 +3772,11 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                         onChange={(e) => setRapMaxSettimana(e.target.value)}
                         style={{ width: 90, fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e9e6" }} />
                     </label>
-                    <div style={{ fontSize: 10, color: T.textFaint, marginTop: 4 }}>Se impostato, il medico non verrà mai considerato candidato oltre questo numero di turni per ciascuna settimana (lun-dom) coperta dal periodo sopra — anche se disponibile su altri giorni. Nessuna copertura automatica di ripiego: le sedi oltre il tetto restano scoperte se nessun altro medico è disponibile.</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={applicaRapido} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: T.primary, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Applica</button>
                     <button onClick={() => setRapidoOpen(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 12 }}>Chiudi</button>
                   </div>
-                  <div style={{ fontSize: 10, color: T.textFaint, marginTop: 8 }}>Dopo puoi correggere le singole eccezioni toccando le celle nella griglia sotto — es. per marcare un giorno come preferito.</div>
                 </div>
               )}
               <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", overflow: "auto", maxHeight: "68vh", position: "relative" }}>
@@ -3912,15 +3907,14 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           const isObbl = !!obblVal;
                           return (
                             <div onClick={() => { const nd = { ...(dati.dispo[editCella.mid] || {}) }; if (isObbl) delete nd[obblKey]; else nd[obblKey] = true; setDati({ dispo: { ...dati.dispo, [editCella.mid]: nd }, schema: null }); }}
-                              title="Slot obbligatorio: se il medico lo VINCE per gerarchia, la distribuzione del mese lo tiene SEMPRE e costruisce gli altri turni attorno; consuma un posto del suo tetto. Se non lo vince, è ignorato. Per volerlo solo su una sede precisa, usa ⚓ accanto alla sede."
+                              title="📌 lo tieni se lo vince; ⚓ = solo se ottiene quella sede"
                               style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "7px 9px", borderRadius: 8, cursor: "pointer", userSelect: "none", background: isObbl ? T.primaryTint : T.surfaceAlt, border: isObbl ? `1px solid ${T.primary}` : "1px solid transparent" }}>
                               <span style={{ fontSize: 15 }}>📌</span>
                               <span style={{ fontSize: 11, fontWeight: isObbl ? 700 : 500, color: isObbl ? T.primary : T.textMuted }}>Voglio questo turno{typeof obblVal === "string" ? ` — solo a ${SEDI_BREVI[obblVal] || obblVal} ⚓` : ""} {isObbl ? "✓" : ""}</span>
-                              <span style={{ fontSize: 9, color: T.textFaint, marginLeft: "auto", textAlign: "right" }}>se lo vinco, la<br />distribuzione ci costruisce attorno</span>
                             </div>
                           );
                         })()}
-                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Per ogni sede scegli dal menu: <b style={{ color: T.primary }}>1ª–5ª scelta</b> = sede principale FISICA in ordine di preferenza (livelli <b>pari</b> = indifferenti per il medico, il motore può spostarlo tra loro), oppure <b style={{ color: T.blu }}>A distanza · 1ª–4ª scelta</b> = disponibile a COPRIRE A DISTANZA quella sede (max 1 sede a distanza a testa). Di notte Claut e Anduins offrono solo le opzioni "a distanza" (lì non sono sedi fisiche). Tocca <b>☆</b> su una sede marcata come sede principale per segnarla come preferita: se il medico ottiene esattamente quella sede è soddisfatto, altrimenti il coordinatore riceve un avviso (non influisce mai su chi vince o su quale sede viene assegnata).</div>
+                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Di notte Claut e Anduins solo <b style={{ color: T.blu }}>a distanza</b> (non sono sedi fisiche). <b>☆</b> = sede preferita (non decide chi vince).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
@@ -3981,7 +3975,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
 
           {tab === "mmg" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16 }}>
-              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>Attiva Mattina 8-14 / Pomeriggio 14-20 nei giorni con copertura MMG richiesta. La <b>sede</b> e l'eventuale <b>copertura a distanza</b> le assegna il motore in base alle disponibilità dei medici (tab 1) — come per i turni ordinari. Compaiono <b>solo i feriali semplici</b>: nei weekend, festivi e prefestivi il MMG diventa "anticipo diurno" con orario diverso, già gestito dal calendario.</p>
+              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>Compaiono <b>solo i feriali semplici</b> (weekend e festivi esclusi).</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 6 }}>
                 {giorniMese.map((g, i) => {
                   // Solo feriali semplici (§10 voce 53): weekend/festivo/prefestivo esclusi. La
@@ -4001,23 +3995,13 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
 
           {tab === "medici" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16, maxWidth: 860, overflow: "auto" }}>
-              <p style={{ fontSize: 12, color: T.textMuted, marginTop: 0 }}>
-                Le <b>ore da recuperare</b> (su fiducia) si sommano al monte ore: il medico resta in categoria con piena priorità fino a coprire il totale.
-                I <b>turni extra</b> sono invece turni volontari oltre il monte ore (1 turno = 12h): il medico li fa SOLO dopo aver esaurito monte ore + ore da recuperare, competendo come un senza incarico (solo graduatoria, nessuna priorità di categoria).
-                Il <b>Max turni mese</b> è un tetto superiore al numero di turni nel mese, valido per QUALSIASI categoria (anche senza incarico): il motore si ferma su quel numero anche se resta debito residuo. È indipendente dal monte ore e può essere anche inferiore ad esso.
-                Il <b>Max turni sett.</b> è un tetto per ogni settimana ISO (lun-dom): un solo valore, applicato a tutte le settimane che toccano il mese, incluse quelle a cavallo di mese ai bordi. Vuoto = nessun limite. Per tetti <b>diversi per settimana</b> (es. "2 a settimana ma solo 1 nella settimana di Ferragosto") apri 📅: il campo unico mostra "misto" e resta evidenziato quando le settimane non sono tutte uguali.
-                Qui puoi anche <b>modificare categoria e graduatoria</b> di ciascun medico e <b>aggiungerne di nuovi</b> — le modifiche valgono per tutti i mesi.
-                Dopo una modifica, rielabora gli schemi dei mesi già elaborati.
-                <b>Ore assegnate</b> e <b>Ore mancanti</b> sono sola lettura: mostrano quante ore ha già nel mese elaborato e quante gliene restano per completare il monte ore; appaiono solo dopo aver premuto <b>Elabora schema</b> (altrimenti "—").
-              </p>
               {dati.schema && equitaExtra.label && (() => {
                 const colore = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primary
                   : equitaExtra.label === "Media" ? "#c17d0f" : T.danger;
                 const sfondo = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primaryTint
                   : equitaExtra.label === "Media" ? "#fbf1df" : T.dangerBg;
                 return (
-                  <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: sfondo, border: `1px solid ${colore}44`, display: "flex", alignItems: "center", gap: 8, fontSize: 13, flexWrap: "wrap" }}
-                    title="Divario tra la soddisfazione più alta e la più bassa (turni extra ottenuti ÷ richiesti) tra i medici che hanno chiesto turni extra. Solo indicativo — non influenza l'assegnazione.">
+                  <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: sfondo, border: `1px solid ${colore}44`, display: "flex", alignItems: "center", gap: 8, fontSize: 13, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, color: T.textMuted }}>Iniquità percepita sui turni extra:</span>
                     <span style={{ fontWeight: 800, color: colore }}>{equitaExtra.testo}</span>
                   </div>
@@ -4025,7 +4009,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
               })()}
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d3dad6" }}>
-                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }} title="Turni volontari oltre il monte ore (12h ciascuno): fatti SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)">Turni extra</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni nel mese, valido per QUALSIASI categoria: il motore si ferma anche con debito residuo. Vuoto = nessun limite">Max turni mese</th><th style={{ padding: "6px 8px" }} title="Tetto massimo di turni per ogni settimana ISO (lun-dom), incluse le settimane a cavallo di mese. Un solo valore, applicato a tutte le settimane del mese. Vuoto = nessun limite">Max turni sett.</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
+                  <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }}>Turni extra</th><th style={{ padding: "6px 8px" }}>Max turni mese</th><th style={{ padding: "6px 8px" }}>Max turni sett.</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
                 </tr></thead>
                 <tbody>
                   {mediciOrd.map((m) => [
@@ -4055,7 +4039,6 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       <td style={{ padding: "6px 8px" }}>
                         {isContrattualizzato(m.id) ? (
                           <select value={m.sedeContratto || "Maniago"} onChange={(e) => aggiornaMedico(m.id, { sedeContratto: e.target.value })}
-                            title="Sede di titolarità (obbligatoria): vince sempre quella sede tra tutti i contrattualizzati, prima della categoria"
                             style={{ fontSize: 11, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }}>
                             {CDC.map((s) => <option key={s} value={s}>{SEDI_BREVI[s]}</option>)}
                           </select>
@@ -4076,8 +4059,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                             style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                         ) : "—"}
                         {dati.schema && ((dati.turniExtra || {})[m.id] || 0) > 0 && (
-                          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}
-                            title="Extra ottenuti / richiesti: turni assegnati oltre il monte ore ordinario, sui turni extra dichiarati">
+                          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
                             Extra: <b style={{ color: (equitaExtra.perMedico[m.id] || 0) >= ((dati.turniExtra || {})[m.id] || 0) ? T.primary : T.danger }}>{equitaExtra.perMedico[m.id] || 0}/{(dati.turniExtra || {})[m.id] || 0}</b>
                           </div>
                         )}
@@ -4090,7 +4072,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
                         <input type="number" min={0} step={1} placeholder={tettiSettMisti(m.id) ? "misto" : "—"} value={capSettimanaleUniforme(m.id)}
                           onChange={(e) => setCapSettimana(m.id, e.target.value)}
-                          title="Massimo turni per settimana (lun-dom, bordi mese inclusi): un valore uguale per tutte le settimane del mese. Vuoto = nessun limite. Per tetti DIVERSI per settimana usa 📅. Scrivere qui riporta tutte le settimane allo stesso valore."
+                          title="Massimo turni/settimana (per valori diversi usa 📅)"
                           style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: `1px solid ${tettiSettMisti(m.id) ? "#c17d0f" : "#e5e9e6"}` }} />
                         <button onClick={() => setSettAperto(settAperto === m.id ? null : m.id)}
                           title="Tetti per singola settimana (diversi per settimana)"
@@ -4105,7 +4087,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                           : "—"}
                       </td>
                       <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                        <button onClick={() => setStatoAperto(statoAperto === m.id ? null : m.id)} title="Mostra/nascondi lo STATO REALE (disponibilità e tetti letti dai dati, non riassunti dall'AI)"
+                        <button onClick={() => setStatoAperto(statoAperto === m.id ? null : m.id)}
                           style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid #cfe0da", background: statoAperto === m.id ? T.primary : "#fff", color: statoAperto === m.id ? "#fff" : T.primary, cursor: "pointer", fontSize: 11, fontWeight: 700, marginRight: 4 }}>🔍</button>
                         <button onClick={() => rimuoviMedico(m.id)} title="Rimuovi medico dall'elenco"
                           style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #eecac4", background: "#fff", color: T.danger, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>✕</button>
@@ -4136,7 +4118,6 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                             return (
                               <div style={{ marginBottom: 10 }}>
                                 <button onClick={() => setTurniPrecAperto(aperto ? null : m.id)}
-                                  title="Registra i turni già svolti a fine mese precedente nella settimana a cavallo (contano nella distribuzione; se quella settimana ha un tetto, lo riducono)"
                                   style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #c9a24a", background: aperto ? "#fdf7e8" : "#fff", color: "#8a6d1f", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
                                   {aperto ? "▾" : "▸"} Turni già fatti a fine {mesePrec}{july > 0 ? ` (${july})` : ""}
                                 </button>
@@ -4205,7 +4186,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                     const mx = maxTurniSettimana(wk);
                                     return (
                                       <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}
-                                        title="Minimo di turni che il medico vuole in questa settimana (il motore sceglie quali tra quelli vinti, e distribuisce il resto attorno). Vuoto = nessun vincolo.">
+                                        title="Minimo turni/settimana: il motore sceglie quali">
                                         <span style={{ fontSize: 9, color: T.textMuted }}>min</span>
                                         <input type="number" min={0} max={mx} step={1} placeholder="—" value={mn ?? ""}
                                           onChange={(e) => { const v = e.target.value; setMinSettimanaDi(m.id, wk, v === "" ? "" : String(Math.min(mx, Math.max(0, Number(v) || 0)))); }}
@@ -4264,7 +4245,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 4px" }}>
-                  Tutte le 5 sedi sono modificabili. <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export diventa "*coperto da …"). Ogni modifica è annullabile con ↶.
+                  <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export: "*coperto da …").
                 </p>
                 {/* PANNELLO AVVISI (§10 voce 57): avvisi del motore (finestre settimanali non soddisfatte, sede
                     preferita non ottenuta, titolarità) — visibili in UI dopo l'elaborazione, sopra la griglia,
