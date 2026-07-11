@@ -3627,6 +3627,14 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
   };
   const btn = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 12 };
   const hPast = historyRef.current.past.length, hFut = historyRef.current.future.length;
+  // Avvisi mostrati nel banner (SOLO visualizzazione — `dati.avvisi` resta identico, motore intatto):
+  // linguaggio più umano e filtro degli avvisi SCOPERTO "ovvi" (con 1 solo medico presente il motivo è
+  // solo la mancanza di medici; l'avviso SCOPERTO è utile solo con 2+ medici presenti).
+  const avvisiUI = (dati.avvisi || [])
+    .filter((a) => !(a.includes("SCOPERTE") && /con 1 medici presenti/.test(a)))
+    .map((a) => a
+      .replace("nessuna disponibilità verde o blu dichiarata", "nessun medico disponibile come sede fisica o copertura a distanza")
+      .replace("con 1 medici presenti", "con 1 solo medico presente"));
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
   // attualmente scelto — mai una combinazione inesistente in MESI_DISPONIBILI.
@@ -4100,9 +4108,6 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                     settAperto === m.id ? (
                       <tr key={m.id + "-sett"}>
                         <td colSpan={12} style={{ padding: "4px 8px 12px", background: "#f3f7f5" }}>
-                          <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
-                            Tetto turni per singola settimana ISO (lun-dom) di {MESI_IT[mese]} {anno} — un valore per settimana, vuoto = nessun limite. <span style={{ color: "#c17d0f" }}>•</span> = settimana con festivo/prefestivo.
-                          </div>
                           {settimanaCavallo() && (() => {
                             // Riquadro collassabile (CHIUSO di default) per registrare i turni già svolti a fine mese
                             // PRECEDENTE nella settimana a cavallo. NON dipende più da un tetto dichiarato: i turni di
@@ -4151,7 +4156,9 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                                   <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 3, whiteSpace: "nowrap" }}>
                                     {info.etichetta} {info.haFestivo && <span style={{ color: "#c17d0f" }} title="settimana con festivo/prefestivo">•</span>}
                                   </div>
-                                  {wk === settimanaCavallo() ? (() => {
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                                    <span style={{ fontSize: 9, color: T.textMuted }}>Al massimo</span>
+                                    {wk === settimanaCavallo() ? (() => {
                                     // BUG 1/2: box cavallo = solo calcolatore, read-only, mostra l'EFFETTIVO live (dichiarato − turni luglio).
                                     // Il dichiarato si imposta dal campo unico; i turni di luglio si spuntano nel riquadro giallo.
                                     // Feedback visivo: senza tetto ma con turni di fine mese prec. registrati, mostra il conteggio
@@ -4170,11 +4177,12 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                                     const mx = maxTurniSettimana(wk);
                                     return (
                                       <input type="number" min={0} max={mx} step={1} placeholder="—" value={dich ?? ""}
-                                        title={`Massimo ${mx} turni possibili in questa settimana`}
+                                        title={`Al massimo — max possibile ${mx} turni in questa settimana`}
                                         onChange={(e) => { const v = e.target.value; setCapSettimanaDi(m.id, wk, v === "" ? "" : String(Math.min(mx, Math.max(0, Number(v) || 0)))); }}
                                         style={{ width: 46, padding: "3px 4px", borderRadius: 5, border: "1px solid #e5e9e6", textAlign: "center" }} />
                                     );
                                   })()}
+                                  </div>
                                   {july > 0 && dich != null && <div style={{ fontSize: 9, color: "#c17d0f", marginTop: 2, whiteSpace: "nowrap" }}>{dich} − {july} lug → {Math.max(0, dich - july)}</div>}
                                   {(() => {
                                     // FINESTRA SETTIMANALE (§10 voce 57): campo MINIMO, sotto il tetto (max). Il motore
@@ -4183,8 +4191,8 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                                     const mx = maxTurniSettimana(wk);
                                     return (
                                       <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}
-                                        title="Minimo turni/settimana: il motore sceglie quali">
-                                        <span style={{ fontSize: 9, color: T.textMuted }}>min</span>
+                                        title="Vorrei assolutamente tot turni in settimana: il motore sceglie quali">
+                                        <span style={{ fontSize: 9, color: T.textMuted }}>Vorrei assolutamente</span>
                                         <input type="number" min={0} max={mx} step={1} placeholder="—" value={mn ?? ""}
                                           onChange={(e) => { const v = e.target.value; setMinSettimanaDi(m.id, wk, v === "" ? "" : String(Math.min(mx, Math.max(0, Number(v) || 0)))); }}
                                           style={{ width: 40, padding: "2px 3px", borderRadius: 5, border: `1px solid ${mn != null ? T.primary : "#e5e9e6"}`, textAlign: "center", fontSize: 11 }} />
@@ -4247,16 +4255,16 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                 {/* PANNELLO AVVISI (§10 voce 57): avvisi del motore (finestre settimanali non soddisfatte, sede
                     preferita non ottenuta, titolarità) — visibili in UI dopo l'elaborazione, sopra la griglia,
                     banner collassabile. NON esportati in Excel: sono solo un aiuto a schermo per il coordinatore. */}
-                {(dati.avvisi || []).length > 0 && (
+                {avvisiUI.length > 0 && (
                   <div style={{ background: "#fff8e6", border: "1px solid #f0d98a", borderRadius: 8, overflow: "hidden" }}>
                     <button onClick={() => setAvvisiAperti((v) => !v)}
                       style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", background: "transparent", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#8a5a00", textAlign: "left" }}>
-                      <span>⚠️ {dati.avvisi.length} avvis{dati.avvisi.length === 1 ? "o" : "i"} del motore — verifica prima di esportare</span>
+                      <span>⚠️ Da verificare prima di esportare</span>
                       <span style={{ fontSize: 11, color: "#a07a2a" }}>{avvisiAperti ? "nascondi ▲" : "mostra ▼"}</span>
                     </button>
                     {avvisiAperti && (
                       <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
-                        {dati.avvisi.map((a, i) => (
+                        {avvisiUI.map((a, i) => (
                           <li key={i} style={{ fontSize: 11.5, color: "#5a4a20", lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
                             <span style={{ position: "absolute", left: 0 }}>•</span>{a}
                           </li>
