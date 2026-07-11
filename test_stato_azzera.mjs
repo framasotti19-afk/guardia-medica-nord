@@ -39,7 +39,7 @@ s.test("statoRealeMedico: disponibilità, tetto mensile, tetti settimanali, pref
 });
 s.test("statoRealeMedico: medico senza dati → tutto vuoto, tetto null", () => {
   const st = statoRealeMedico(99, dispoBase(), { 5: 8 });
-  s.eq(J(st), J({ tettoMese: null, disponibilita: [], tettiSettimanali: [], preferenzeTurno: [], slotObbligatori: [] }), "medico vuoto non è tutto-vuoto");
+  s.eq(J(st), J({ tettoMese: null, disponibilita: [], tettiSettimanali: [], finestreSettimanali: [], preferenzeTurno: [], slotObbligatori: [] }), "medico vuoto non è tutto-vuoto");
 });
 s.test("statoRealeMedico è read-only: non muta la dispo", () => {
   const d = dispoBase(), snap = J(d);

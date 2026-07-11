@@ -149,6 +149,14 @@ function generaScenario(seed, anno, mese) {
         dispo[m.id]["OBBL:" + sk] = (v.verde && v.verde.length && chance(0.4)) ? v.verde[Math.floor(rnd() * v.verde.length)] : true;
       });
     }
+    // Finestra settimanale (§10 voce 57): ogni tanto un medico dichiara un MINIMO (1-3) di turni su UNA
+    // settimana del mese, per esercitare il bias §3.11 (Part A) e l'avviso di shortfall (Part B). Non deve
+    // MAI causare violazioni: consuma il tetto come un turno qualsiasi e, se non soddisfacibile, avvisa.
+    if (!ferieTotali.has(m.id) && chance(0.12)) {
+      const settDelMese = [...new Set([...Array(nGiorni)].map((_, i) => settimanaDi(dk(anno, mese, i + 1))))];
+      const wkScelta = settDelMese[Math.floor(rnd() * settDelMese.length)];
+      dispo[m.id]["SETTWK:" + wkScelta] = 1 + Math.floor(rnd() * 3);
+    }
   });
   const extraOre = {};
   MEDICI.forEach((m) => { if (chance(0.15)) extraOre[m.id] = Math.floor((rnd() - 0.3) * 60); });
@@ -301,9 +309,9 @@ for (const seedBase of SEMI) {
   for (const idxMese of IDX_MESI) {
     const { anno, mese } = MESI_DISPONIBILI[idxMese];
     const { dispo, extras, extraOre, turniExtra, maxTurniMese } = generaScenario(seedBase * 1000 + idxMese, anno, mese);
-    let schema;
+    let schema, avvisi;
     try {
-      ({ schema } = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese));
+      ({ schema, avvisi } = elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra, maxTurniMese));
     } catch (e) {
       violazioni.push(`ECCEZIONE seme=${seedBase} mese=${anno}-${mese + 1}: ${e.message}`);
       continue;
@@ -325,6 +333,28 @@ for (const seedBase of SEMI) {
       if (cap === null) return; // nessun tetto dichiarato per quella settimana: nessun limite
       checkCount++;
       if (usati > cap) violazioni.push(`${contesto}: ${byId[mid]?.nome} ha ${usati} turni nella settimana ${wk}, oltre il tetto settimanale di ${cap} (INV-TETTO-SETTIMANALE)`);
+    });
+    // INV-FINESTRA (§10 voce 57): il vincolo di finestra settimanale (SETTWK = MINIMO di turni) o è
+    // soddisfatto (≥N turni fisici in-mese in quella settimana), oppure il motore DEVE aver emesso un
+    // avviso per quel medico — mai uno shortfall SILENZIOSO. Il tetto resta rigido (nodo ②a): quando il
+    // minimo non entra nel tetto, l'avviso è la garanzia richiesta, non una violazione del tetto.
+    MEDICI.forEach((m) => {
+      const perM = dispo[m.id] || {};
+      Object.keys(perM).forEach((k) => {
+        if (!k.startsWith("SETTWK:")) return;
+        const wk = k.slice(7);
+        const Nmin = perM[k];
+        if (!(Nmin > 0)) return;
+        let assegnati = 0;
+        schema.forEach((g) => {
+          if (settimanaDi(dk(anno, mese, g.giorno)) !== wk) return;
+          g.turni.forEach((t) => t.fis.forEach((si) => { if (t.slots[si] === m.id) assegnati++; }));
+        });
+        checkCount++;
+        if (assegnati < Nmin && !avvisi.some((a) => a.includes(m.nome) && a.includes("voleva almeno"))) {
+          violazioni.push(`${contesto}: ${m.nome} finestra settimana ${wk} min ${Nmin} non soddisfatta (${assegnati} turni) SENZA avviso (INV-FINESTRA)`);
+        }
+      });
     });
     // INV-MAXTURNI (§3.11, punto 1): il tetto mensile dichiarato non è MAI superato, per nessuna
     // categoria (contrattualizzato o senza incarico), qualunque debito residuo o priorità.

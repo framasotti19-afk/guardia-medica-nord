@@ -313,6 +313,14 @@ const capSettimanale = (dispo, mid, wk) => {
   const n = raw && raw.maxTurni;
   return typeof n === "number" && n >= 0 ? n : null;
 };
+// Finestra settimanale (§10 voce 57): MINIMO di turni che il medico vuole nella settimana ISO `wk`
+// (chiave = lunedì, come SETT:), o null se non dichiarato. Dichiarata come dispo[mid]["SETTWK:"+wk] = N.
+// Ortogonale a SETT: (massimo) e a OBBL: (slot preciso): qui il coordinatore dà solo il numero, il
+// motore sceglie autonomamente QUALI turni tenere tra quelli vinti per gerarchia in quella settimana.
+const finestraSettimanale = (dispo, mid, wk) => {
+  const n = dispo[mid]?.["SETTWK:" + wk];
+  return typeof n === "number" && n > 0 ? n : null;
+};
 
 // Tetto MENSILE dichiarato dal coordinatore per un medico (CONTEXT.md §3.11), indipendente dal
 // debito residuo e valido per QUALSIASI categoria: `dati.maxTurniMese[mid] = N`, o null/assente =
@@ -1040,7 +1048,27 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     // un turno qualsiasi (invariante preservato) ma NON è mai cedibile dalla distribuzione: è un'ancora, e
     // le guardie libere si distribuiscono attorno ai suoi giorni. Consumano il tetto; se sono più del tetto
     // se ne tiene un sottoinsieme equidistante (tetto rigido). Vuoto = comportamento identico a prima.
-    const obblVinti = pool.filter((v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); });
+    const èObbligatorioBase = (v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); };
+    // FINESTRE SETTIMANALI (§10 voce 57, Part A — bias): per ogni settimana con un minimo dichiarato
+    // (SETTWK), àncora i MIGLIORI N turni vinti in quella settimana (gerarchia: livello di sede ↑, poi
+    // cronologico) come punti fissi, esattamente come gli obbligatori. Gli OBBL/MMG già presenti nella
+    // settimana CONTANO verso il minimo (niente doppio conteggio): si forzano solo i turni mancanti.
+    // Il pool è già limitato ai turni IN-MESE, quindi le settimane troncate ai bordi contano solo i
+    // loro giorni del mese; se ne offrono meno di N si forzano tutti (Part B poi emette l'avviso). Il
+    // tetto mensile resta RIGIDO: se i forzati eccedono il tetto, la gestione obblVinti>cap sotto decide
+    // e Part B avvisa. Vuoto = comportamento identico a prima (nessuna chiave SETTWK).
+    const finestreForzate = new Set();
+    Object.keys(dm).forEach((k) => {
+      if (!k.startsWith("SETTWK:")) return;
+      const N = finestraSettimanale(dispo, m.id, k.slice(7));
+      if (N === null) return;
+      const wk = k.slice(7);
+      const pw = pool.filter((v) => settimanaDi(dk(anno, mese, v.giorno)) === wk)
+        .sort((a, b) => a.livello - b.livello || a.giorno - b.giorno || (a.slotKey < b.slotKey ? -1 : a.slotKey > b.slotKey ? 1 : 0));
+      const giaPin = pw.filter(èObbligatorioBase).length;
+      pw.filter((v) => !èObbligatorioBase(v)).slice(0, Math.max(0, N - giaPin)).forEach((v) => finestreForzate.add(v.slotKey));
+    });
+    const obblVinti = pool.filter((v) => èObbligatorioBase(v) || finestreForzate.has(v.slotKey));
     if (obblVinti.length) {
       const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi, giorniBluDelMedico);
       tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
@@ -1252,6 +1280,34 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     });
   }
 
+  // FINESTRE SETTIMANALI (§10 voce 57, Part B — report): sullo schema DEFINITIVO conta quanti turni
+  // ogni medico tiene davvero nelle settimane in cui ha dichiarato un minimo (SETTWK), e avvisa se sono
+  // meno di N. Conta solo i turni FISICI IN-MESE (le settimane troncate contano ciò che c'è di questo
+  // mese, mai giorni del mese precedente). Distingue il motivo: gerarchia insufficiente (ha vinto < N)
+  // oppure tetto mensile/distribuzione (avrebbe vinto ≥ N ma il tetto rigido ne ha ceduti).
+  MEDICI.forEach((m) => {
+    const perM = dispo[m.id] || {};
+    Object.keys(perM).forEach((k) => {
+      if (!k.startsWith("SETTWK:")) return;
+      const wk = k.slice(7);
+      const N = finestraSettimanale(dispo, m.id, wk);
+      if (N === null) return;
+      let assegnati = 0, primoGiorno = null;
+      for (let d = 1; d <= nGiorni; d++) {
+        if (settimanaDi(dk(anno, mese, d)) !== wk) continue;
+        if (primoGiorno === null) primoGiorno = d;
+        turniDelGiorno(anno, mese, d, extras).turni.forEach((turno) => {
+          const out = risultati[`${d}|${turno.id}`];
+          if (out && out.fis.some((si) => out.slots[si] === m.id)) assegnati++;
+        });
+      }
+      if (primoGiorno === null || assegnati >= N) return; // settimana senza giorni in-mese, o vincolo soddisfatto
+      const vinti = (poolDi[m.id] || []).filter((v) => settimanaDi(dk(anno, mese, v.giorno)) === wk).length;
+      const motivo = vinti < N ? `ne ha vinti per gerarchia solo ${vinti}` : `limitato dal tetto mensile o dalla distribuzione`;
+      avvisiRaw.push({ d: primoGiorno, testo: `Settimana del ${primoGiorno} ${MESI_IT[mese].toLowerCase()}: ${m.nome} voleva almeno ${N} turn${N === 1 ? "o" : "i"} ma ne mantiene ${assegnati} (${motivo}). Valutare un intervento manuale se opportuno.` });
+    });
+  });
+
   avvisiRaw.sort((a, b) => a.d - b.d);
   const avvisi = avvisiRaw.map((a) => a.testo);
 
@@ -1284,8 +1340,9 @@ function notaSlot(slots, si, fis) {
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
-  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [];
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [], finestreSettimanali = [];
   Object.keys(d).forEach((sk) => {
+    if (sk.startsWith("SETTWK:")) { finestreSettimanali.push({ settimana: sk.slice(7), min: d[sk] }); return; }
     if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
     if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
     if (sk.startsWith("OBBL:")) { if (d[sk]) { const [dt2, tu2] = sk.slice(5).split("|"); slotObbligatori.push({ giorno: Number(dt2.slice(8, 10)), turno: tu2, sede: typeof d[sk] === "string" ? d[sk] : null }); } return; }
@@ -1300,13 +1357,15 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
   });
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
   tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
+  finestreSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
   preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
   slotObbligatori.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
-  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno, slotObbligatori };
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, finestreSettimanali, preferenzeTurno, slotObbligatori };
 }
 
-// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze
-// turno "TURNOPREF:"), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
+// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + finestre
+// settimanali "SETTWK:" + preferenze turno "TURNOPREF:" + slot obbligatori "OBBL:" — l'oggetto viene
+// azzerato per intero), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
 // parte e va azzerato dal chiamante. Pura: ritorna una nuova dispo, non muta l'originale.
 function azzeraDispoMedico(dispo, mid) {
   return { ...dispo, [mid]: {} };

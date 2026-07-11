@@ -315,6 +315,14 @@ const capSettimanale = (dispo, mid, wk) => {
   const n = raw && raw.maxTurni;
   return typeof n === "number" && n >= 0 ? n : null;
 };
+// Finestra settimanale (§10 voce 57): MINIMO di turni che il medico vuole nella settimana ISO `wk`
+// (chiave = lunedì, come SETT:), o null se non dichiarato. Dichiarata come dispo[mid]["SETTWK:"+wk] = N.
+// Ortogonale a SETT: (massimo) e a OBBL: (slot preciso): qui il coordinatore dà solo il numero, il
+// motore sceglie autonomamente QUALI turni tenere tra quelli vinti per gerarchia in quella settimana.
+const finestraSettimanale = (dispo, mid, wk) => {
+  const n = dispo[mid]?.["SETTWK:" + wk];
+  return typeof n === "number" && n > 0 ? n : null;
+};
 
 // Tetto MENSILE dichiarato dal coordinatore per un medico (CONTEXT.md §3.11), indipendente dal
 // debito residuo e valido per QUALSIASI categoria: `dati.maxTurniMese[mid] = N`, o null/assente =
@@ -1042,7 +1050,27 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     // un turno qualsiasi (invariante preservato) ma NON è mai cedibile dalla distribuzione: è un'ancora, e
     // le guardie libere si distribuiscono attorno ai suoi giorni. Consumano il tetto; se sono più del tetto
     // se ne tiene un sottoinsieme equidistante (tetto rigido). Vuoto = comportamento identico a prima.
-    const obblVinti = pool.filter((v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); });
+    const èObbligatorioBase = (v) => { if (v.extra) return true; const o = dm["OBBL:" + v.slotKey]; return o === true || (typeof o === "string" && o === v.sede); };
+    // FINESTRE SETTIMANALI (§10 voce 57, Part A — bias): per ogni settimana con un minimo dichiarato
+    // (SETTWK), àncora i MIGLIORI N turni vinti in quella settimana (gerarchia: livello di sede ↑, poi
+    // cronologico) come punti fissi, esattamente come gli obbligatori. Gli OBBL/MMG già presenti nella
+    // settimana CONTANO verso il minimo (niente doppio conteggio): si forzano solo i turni mancanti.
+    // Il pool è già limitato ai turni IN-MESE, quindi le settimane troncate ai bordi contano solo i
+    // loro giorni del mese; se ne offrono meno di N si forzano tutti (Part B poi emette l'avviso). Il
+    // tetto mensile resta RIGIDO: se i forzati eccedono il tetto, la gestione obblVinti>cap sotto decide
+    // e Part B avvisa. Vuoto = comportamento identico a prima (nessuna chiave SETTWK).
+    const finestreForzate = new Set();
+    Object.keys(dm).forEach((k) => {
+      if (!k.startsWith("SETTWK:")) return;
+      const N = finestraSettimanale(dispo, m.id, k.slice(7));
+      if (N === null) return;
+      const wk = k.slice(7);
+      const pw = pool.filter((v) => settimanaDi(dk(anno, mese, v.giorno)) === wk)
+        .sort((a, b) => a.livello - b.livello || a.giorno - b.giorno || (a.slotKey < b.slotKey ? -1 : a.slotKey > b.slotKey ? 1 : 0));
+      const giaPin = pw.filter(èObbligatorioBase).length;
+      pw.filter((v) => !èObbligatorioBase(v)).slice(0, Math.max(0, N - giaPin)).forEach((v) => finestreForzate.add(v.slotKey));
+    });
+    const obblVinti = pool.filter((v) => èObbligatorioBase(v) || finestreForzate.has(v.slotKey));
     if (obblVinti.length) {
       const tenObbl = obblVinti.length <= cap ? obblVinti.map((v) => v.slotKey) : scegliConRiferimento(obblVinti, cap, giorniFissi, giorniBluDelMedico);
       tenObbl.forEach((sk) => { kept.add(sk); giorniFissi.push(obblVinti.find((x) => x.slotKey === sk).giorno); });
@@ -1254,6 +1282,34 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     });
   }
 
+  // FINESTRE SETTIMANALI (§10 voce 57, Part B — report): sullo schema DEFINITIVO conta quanti turni
+  // ogni medico tiene davvero nelle settimane in cui ha dichiarato un minimo (SETTWK), e avvisa se sono
+  // meno di N. Conta solo i turni FISICI IN-MESE (le settimane troncate contano ciò che c'è di questo
+  // mese, mai giorni del mese precedente). Distingue il motivo: gerarchia insufficiente (ha vinto < N)
+  // oppure tetto mensile/distribuzione (avrebbe vinto ≥ N ma il tetto rigido ne ha ceduti).
+  MEDICI.forEach((m) => {
+    const perM = dispo[m.id] || {};
+    Object.keys(perM).forEach((k) => {
+      if (!k.startsWith("SETTWK:")) return;
+      const wk = k.slice(7);
+      const N = finestraSettimanale(dispo, m.id, wk);
+      if (N === null) return;
+      let assegnati = 0, primoGiorno = null;
+      for (let d = 1; d <= nGiorni; d++) {
+        if (settimanaDi(dk(anno, mese, d)) !== wk) continue;
+        if (primoGiorno === null) primoGiorno = d;
+        turniDelGiorno(anno, mese, d, extras).turni.forEach((turno) => {
+          const out = risultati[`${d}|${turno.id}`];
+          if (out && out.fis.some((si) => out.slots[si] === m.id)) assegnati++;
+        });
+      }
+      if (primoGiorno === null || assegnati >= N) return; // settimana senza giorni in-mese, o vincolo soddisfatto
+      const vinti = (poolDi[m.id] || []).filter((v) => settimanaDi(dk(anno, mese, v.giorno)) === wk).length;
+      const motivo = vinti < N ? `ne ha vinti per gerarchia solo ${vinti}` : `limitato dal tetto mensile o dalla distribuzione`;
+      avvisiRaw.push({ d: primoGiorno, testo: `Settimana del ${primoGiorno} ${MESI_IT[mese].toLowerCase()}: ${m.nome} voleva almeno ${N} turn${N === 1 ? "o" : "i"} ma ne mantiene ${assegnati} (${motivo}). Valutare un intervento manuale se opportuno.` });
+    });
+  });
+
   avvisiRaw.sort((a, b) => a.d - b.d);
   const avvisi = avvisiRaw.map((a) => a.testo);
 
@@ -1286,8 +1342,9 @@ function notaSlot(slots, si, fis) {
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
-  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [];
+  const disponibilita = [], tettiSettimanali = [], preferenzeTurno = [], slotObbligatori = [], finestreSettimanali = [];
   Object.keys(d).forEach((sk) => {
+    if (sk.startsWith("SETTWK:")) { finestreSettimanali.push({ settimana: sk.slice(7), min: d[sk] }); return; }
     if (sk.startsWith("SETT:")) { tettiSettimanali.push({ settimana: sk.slice(5), max: d[sk] && d[sk].maxTurni }); return; }
     if (sk.startsWith("TURNOPREF:")) { preferenzeTurno.push({ giorno: Number(sk.slice(-2)), turno: d[sk] }); return; }
     if (sk.startsWith("OBBL:")) { if (d[sk]) { const [dt2, tu2] = sk.slice(5).split("|"); slotObbligatori.push({ giorno: Number(dt2.slice(8, 10)), turno: tu2, sede: typeof d[sk] === "string" ? d[sk] : null }); } return; }
@@ -1302,13 +1359,15 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
   });
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
   tettiSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
+  finestreSettimanali.sort((a, b) => (a.settimana < b.settimana ? -1 : a.settimana > b.settimana ? 1 : 0));
   preferenzeTurno.sort((a, b) => a.giorno - b.giorno);
   slotObbligatori.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
-  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, preferenzeTurno, slotObbligatori };
+  return { tettoMese: (maxTurniMese && maxTurniMese[mid] != null) ? maxTurniMese[mid] : null, disponibilita, tettiSettimanali, finestreSettimanali, preferenzeTurno, slotObbligatori };
 }
 
-// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + preferenze
-// turno "TURNOPREF:"), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
+// Cancella TUTTE le disponibilità del mese di un medico (slot + tetti settimanali "SETT:" + finestre
+// settimanali "SETTWK:" + preferenze turno "TURNOPREF:" + slot obbligatori "OBBL:" — l'oggetto viene
+// azzerato per intero), lasciando INTATTI gli altri medici. Il tetto MENSILE (maxTurniMese) è stato a
 // parte e va azzerato dal chiamante. Pura: ritorna una nuova dispo, non muta l'originale.
 function azzeraDispoMedico(dispo, mid) {
   return { ...dispo, [mid]: {} };
@@ -1375,6 +1434,7 @@ function App() {
   const historyRef = useRef({ past: [], future: [] });
   const [, forceRender] = useState(0);
   const [tab, setTab] = useState("dispo");
+  const [avvisiAperti, setAvvisiAperti] = useState(true); // banner avvisi motore (tab Schema): aperto di default dopo l'elaborazione
   const [statoAperto, setStatoAperto] = useState(null); // id del medico con il pannello "stato reale" aperto nel tab Medici
   const [settAperto, setSettAperto] = useState(null); // id del medico con il pannellino "tetti per settimana" aperto
   const [turniPrecAperto, setTurniPrecAperto] = useState(null); // id del medico col riquadro collassabile "turni già fatti a fine mese prec." aperto
@@ -2021,18 +2081,19 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
-        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
+        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("SETTWK:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
         // Checklist essenziale (solo giorno+turno, senza dettagli) di QUALI slot hanno già una
         // disponibilità inserita per ciascun medico, incluso ogni medico senza nessuna (array vuoto).
         // Serve a confrontare direttamente cosa manca rispetto a una richiesta/email, invece di
         // doverlo dedurre dalla cronologia dei round precedenti (causa di loop, vedi sotto).
-        disponibilitaPresenti: Object.fromEntries(MEDICI.map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => !sk.startsWith("SETT:") && !sk.startsWith("TURNOPREF:") && !sk.startsWith("OBBL:")).map((sk) => { const [dt, tu] = sk.split("|"); return `g${Number(dt.slice(8, 10))}${tu}`; })])),
+        disponibilitaPresenti: Object.fromEntries(MEDICI.map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => !sk.startsWith("SETT:") && !sk.startsWith("SETTWK:") && !sk.startsWith("TURNOPREF:") && !sk.startsWith("OBBL:")).map((sk) => { const [dt, tu] = sk.split("|"); return `g${Number(dt.slice(8, 10))}${tu}`; })])),
         slotObbligatoriPresenti: Object.fromEntries(MEDICI.filter((m) => Object.keys(dati.dispo[m.id] || {}).some((sk) => sk.startsWith("OBBL:"))).map((m) => [m.nome, Object.keys(dati.dispo[m.id] || {}).filter((sk) => sk.startsWith("OBBL:")).map((sk) => { const [dt, tu] = sk.slice(5).split("|"); const sede = dati.dispo[m.id][sk]; return `g${Number(dt.slice(8, 10))}${tu}${typeof sede === "string" ? "@" + sede : ""}`; })])),
         // Registro (solo in memoria, mai persistito) delle azioni già confermate in QUESTA
         // conversazione, in formato compatto "MEDICO g{giorno}{turno}" — ulteriore rete di sicurezza
         // anti-loop, azzerato con "Nuova conversazione".
         azioniGiaEseguite: azioniEseguite,
         tettiSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETT:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETT:")).map(([sk, v]) => `settimana del ${sk.slice(5)}: max ${v.maxTurni} turni`)])),
+        finestreSettimanali: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("SETTWK:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("SETTWK:")).map(([sk, v]) => `settimana del ${sk.slice(7)}: min ${v} turni`)])),
         preferenzeTurno: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).some((k) => k.startsWith("TURNOPREF:"))).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => sk.startsWith("TURNOPREF:")).map(([sk, v]) => `giorno ${Number(sk.slice(-2))}: preferisce il ${v === "G" ? "diurno" : "notturno"} se li vince entrambi`)])),
         schema: dati.schema ? dati.schema.map((g) => ({
           giorno: g.giorno, festivo: g.festivo || null,
@@ -2757,7 +2818,7 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), {"da":X,"a":Y} (i giorni da X a Y inclusi), oppure {"giorni_settimana":["lun","mer"]} / {"giorni_settimana":{"da":"mar","a":"gio"}} (i giorni della settimana nominati — token lun/mar/mer/gio/ven/sab/dom — con il motore che calcola le date esatte). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità di UN singolo slot
-- {"az":"azzera_medico","medico":"IENGO"} → CANCELLA IN BLOCCO tutte le disponibilità del mese di quel medico (tutti gli slot + tetti settimanali + preferenze turno + tetto mensile), lasciando intatti recupero ore e turni extra volontari. Usalo quando il coordinatore vuole "rifare/correggere da capo" un medico (es. "azzera X e reinserisci", "cancella tutto per X e metti solo…", "ricomincia da zero con X"): metti questa azione INSIEME alle azioni di reinserimento nello stesso elenco "azioni" (dispo_set/dispo_aggiungi/tetto_mese/…). L'app applica SEMPRE l'azzeramento PRIMA dei reinserimenti, qualunque sia l'ordine, quindi non restano residui dei giorni vecchi. NON serve elencare tanti dispo_togli: uno solo azzera_medico basta e non dimentica nulla. Esempio "rifai Iengo da capo, solo notti da mar a gio a Spilimbergo, max 8": azioni = [{"az":"azzera_medico","medico":"IENGO"},{"az":"dispo_set","medico":"IENGO","ambito":{"giorni_settimana":{"da":"mar","a":"gio"}},"turni":["N"],"sedi":["Spilimbergo"]},{"az":"tetto_mese","medico":"IENGO","maxTurni":8}]
+- {"az":"azzera_medico","medico":"IENGO"} → CANCELLA IN BLOCCO tutte le disponibilità del mese di quel medico (tutti gli slot + tetti settimanali + finestre settimanali + slot obbligatori + preferenze turno + tetto mensile), lasciando intatti recupero ore e turni extra volontari. Usalo quando il coordinatore vuole "rifare/correggere da capo" un medico (es. "azzera X e reinserisci", "cancella tutto per X e metti solo…", "ricomincia da zero con X"): metti questa azione INSIEME alle azioni di reinserimento nello stesso elenco "azioni" (dispo_set/dispo_aggiungi/tetto_mese/…). L'app applica SEMPRE l'azzeramento PRIMA dei reinserimenti, qualunque sia l'ordine, quindi non restano residui dei giorni vecchi. NON serve elencare tanti dispo_togli: uno solo azzera_medico basta e non dimentica nulla. Esempio "rifai Iengo da capo, solo notti da mar a gio a Spilimbergo, max 8": azioni = [{"az":"azzera_medico","medico":"IENGO"},{"az":"dispo_set","medico":"IENGO","ambito":{"giorni_settimana":{"da":"mar","a":"gio"}},"turni":["N"],"sedi":["Spilimbergo"]},{"az":"tetto_mese","medico":"IENGO","maxTurni":8}]
 - {"az":"mmg","giorno":15,"fascia":"M","attivo":true} → attiva/disattiva un turno MMG (fascia: M=mattina 8-14, P=pomeriggio 14-20). L'azione attiva SOLTANTO l'esistenza del turno quel giorno: la SEDE e l'eventuale copertura a distanza le assegna il motore in base alle disponibilità dei medici (verde/blu nella dispo), esattamente come per un turno ordinario — non passare campi "sede" o "blu". Con "attivo":false disattivi il turno
 - {"az":"ore_extra","medico":"MARTINETTI","ore":24} → imposta le ore da recuperare del mese (0 per azzerare; solo medici con contratto)
 - {"az":"turni_extra","medico":"MARTINETTI","turni":2} → imposta il numero di turni extra volontari del mese (12h ciascuno, 0 per azzerare; solo medici con contratto); si consumano SOLO dopo aver esaurito monte ore + ore da recuperare, con priorità da senza incarico (solo graduatoria)
@@ -2766,9 +2827,10 @@ Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"turno_pref","medico":"TRIGODKO","giorno":15,"turno":"G"} → imposta la preferenza di turno stesso giorno: "turno"="G" (diurno) o "N" (notturno) è quello che il medico mantiene se li vince entrambi; turno null o assente rimuove la preferenza. Applicabile solo ai giorni con sia diurno che notturno (weekend/festivi/prefestivi)
 - {"az":"turno_precedente","medico":"BERTUZZI","giorno":30,"turno":"N"} → registra un turno che il medico ha GIÀ SVOLTO a fine mese PRECEDENTE (luglio, nella settimana che è a cavallo con il mese in lavorazione). "giorno" = numero del giorno del mese precedente (es. 30 = 30 luglio). "turno": "N"=notturno, "G"=diurno; OMETTILO se il coordinatore non lo specifica (l'app registra il notturno sui feriali e, sui giorni che hanno sia diurno sia notturno, ti chiede da sola quale). "presente":false per TOGLIERE una registrazione già fatta ("BERTUZZI non ha fatto nulla il 30, toglilo"; con "turno" toglie solo quel turno, senza "turno" azzera l'intero giorno). NON calcolare tu se il giorno è valido, se è nella settimana a cavallo o se ha il diurno: ci pensa l'app (ti avvisa se qualcosa non torna). Se manca il GIORNO, non indovinare e NON usare una domanda Sì/No (la risposta è un giorno, non un sì/no): chiedilo come TESTO nella "spiegazione" (es. "Dimmi quale giorno di luglio ha fatto il turno"). Se nel messaggio ci sono anche altre azioni applicabili (es. i tetti settimanali), applicale comunque e aggiungi lì la richiesta del giorno; se non c'è nient'altro da fare, usa tipo "risposta". Vedi la regola PASSATO vs FUTURO più sotto: questa azione la usa SOLO il coordinatore in chat, MAI a partire da una mail di disponibilità
 - {"az":"slot_obbligatorio","medico":"BERTUZZI","giorno":15,"turno":"N"} → segna quel turno come SLOT OBBLIGATORIO: un turno che il medico vuole tenere ASSOLUTAMENTE se lo vince per gerarchia. Diventa un punto fisso della distribuzione mensile (la spaziatura costruisce gli altri turni ATTORNO ad esso) e consuma un posto del suo tetto. NON crea disponibilità (va dichiarata a parte con dispo_*): se il medico non è disponibile o non vince quel turno, viene ignorato. Campo opzionale "sede":"Spilimbergo" → pin SEDE: lo slot è obbligatorio SOLO se il medico ottiene quella sede specifica (altrimenti ignorato); senza "sede" è un pin libero (qualsiasi sede vinta va bene). Frasi trigger sede (⚓): "il 15 lo voglio ma solo a Spilimbergo", "voglio il 15 notturno ma solo se sono a Spilimbergo", "il 22 solo a Maniago", "tengo il sabato se mi date Maniago". Frasi trigger pin libero (📌): "voglio assolutamente il 15 notturno", "il ferragosto lo faccio di sicuro", "quel sabato mattina lo tengo", "il 22 di notte non me lo togliete", "il 22 sera non lo cedo". Rimozione ("presente":false): "togli il pin dal 15", "non vincolare più il 22", "il 15 non è più obbligatorio". Applicabile solo a un turno che esiste quel giorno (N sempre, G solo weekend/festivi/prefestivi). NB: quando è il MEDICO (non il coordinatore) a esprimere una preferenza FORTE e SPECIFICA su un singolo giorno+turno (non una disponibilità generica), NON applicare slot_obbligatorio d'ufficio: PROPONILO con una domanda di conferma al coordinatore (meccanismo "domande", seSi = lo slot_obbligatorio) prima di vincolarlo
+- {"az":"finestra_settimanale","medico":"BERTUZZI","giorno":10,"minTurni":3} → VINCOLO DI FINESTRA SETTIMANALE: il medico vuole ALMENO minTurni turni nella settimana (lun-dom) che contiene quel "giorno" (un numero qualunque della settimana desiderata va bene). È un MINIMO, opposto di tetto_settimana (che è un massimo): il coordinatore dà solo il numero, il MOTORE sceglie autonomamente QUALI turni tenere tra quelli che il medico vince per gerarchia in quella settimana, li àncora e distribuisce il resto del mese attorno. Consuma posti del tetto mensile (che resta rigido). Se il medico ne vince MENO di minTurni in quella settimana, il motore tiene tutti quelli vinti e genera un avviso. NON crea disponibilità (va dichiarata a parte con dispo_*). Frasi trigger: "voglio almeno 3 turni la settimana del 10", "nella settimana di Ferragosto voglio farne almeno 2", "quella settimana almeno due guardie". Rimozione ("presente":false, o minTurni 0): "togli il minimo dalla settimana del 10", "non serve più il minimo settimanale". NON confondere con slot_obbligatorio (che vincola UN turno preciso scelto dal coordinatore) né con tetto_settimana (massimo). Se è il MEDICO a chiederlo, proponilo con conferma al coordinatore come per slot_obbligatorio.
 - {"az":"elabora"} → elabora/rielabora lo schema del mese con le regole ufficiali (mettila SEMPRE per ultima se richiesta)
 Note: "turno": N=notturno, G=diurno, M=mattina MMG, P=pomeriggio MMG. "sede"/"sedi": Maniago | Spilimbergo | Meduno | Claut | Anduins. "medico": cognome ESATTO dall'elenco. Puoi combinare più azioni nella stessa proposta, verranno eseguite in ordine. Se la richiesta non è chiara usa "risposta".
-Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati, null per maxTurniMese se nessun tetto) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra/tetto_mese; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "slotObbligatoriPresenti" elenca, per i medici che ne hanno, i turni g{giorno}{N|G} già marcati come slot obbligatori (azione slot_obbligatorio) — non riproporli; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
+Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico sono i valori GIÀ dichiarati per il mese (0 se non impostati, null per maxTurniMese se nessun tetto) — controllali prima di sovrascriverli con una nuova azione ore_extra/turni_extra/tetto_mese; "oreAssegnate"/"oreMancanti" per medico sono null se lo schema non è ancora elaborato (oreMancanti è null anche per i medici senza incarico, che non hanno un monte ore); "preferenzeTurno" elenca le preferenze di turno stesso giorno già dichiarate (vedi sopra); "disponibilitaPresenti" elenca, per OGNI medico (anche con lista vuota se non ha ancora nulla), i giorni/turni per cui esiste già una disponibilità inserita (di qualsiasi tipo, incluso NO) — usalo SEMPRE per verificare con certezza cosa è già stato inserito e cosa manca rispetto a una richiesta o email incollata, invece di dedurlo dalla cronologia della chat; "slotObbligatoriPresenti" elenca, per i medici che ne hanno, i turni g{giorno}{N|G} già marcati come slot obbligatori (azione slot_obbligatorio) — non riproporli; "finestreSettimanali" elenca, per i medici che ne hanno, i minimi settimanali già dichiarati (azione finestra_settimanale, "settimana del {lunedì}: min N turni") — non riproporli; "azioniGiaEseguite" è un elenco (array di stringhe "MEDICO g{giorno}{turno}") delle azioni già confermate in QUESTA conversazione — svuotato solo con "Nuova conversazione" — da non riproporre mai (vedi sopra).
 STATO ATTUALE: ${JSON.stringify(stato)}`;
       // Timeout lato client: se la risposta è molto lunga, l'ambiente artifact può bloccare la
       // fetch senza mai risolverla né rifiutarla (nessun errore, nessuna risposta: silenzio totale
@@ -2941,11 +3003,12 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       : "  (nessuna)";
     const tettoM = st.tettoMese != null ? `${st.tettoMese} turni` : "nessuno";
     const tettiS = st.tettiSettimanali.length ? st.tettiSettimanali.map((t) => `${t.settimana}: max ${t.max}`).join(" · ") : "nessuno";
+    const finestreS = (st.finestreSettimanali || []).length ? st.finestreSettimanali.map((f) => `${f.settimana}: min ${f.min}`).join(" · ") : "nessuna";
     const pref = st.preferenzeTurno.length ? st.preferenzeTurno.map((p) => `g${p.giorno}→${p.turno === "G" ? "diurno" : "notturno"}`).join(" · ") : "nessuna";
     const obbl = (st.slotObbligatori || []).length ? st.slotObbligatori.map((o) => `g${o.giorno}${o.turno}${o.sede ? ` (⚓${SEDI_BREVI[o.sede] || o.sede})` : ""}`).join(" · ") : "nessuno";
     return `📋 Stato reale di ${nome} — ${MESI_IT[mese]} ${anno} (letto dai dati, non dall'AI)\n`
       + `Disponibilità (${st.disponibilita.length}):\n${righeDispo}\n`
-      + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nPreferenze turno: ${pref}\n📌 Slot obbligatori: ${obbl}`;
+      + `Tetto mensile: ${tettoM}\nTetti settimanali: ${tettiS}\nFinestre settimanali (min): ${finestreS}\nPreferenze turno: ${pref}\n📌 Slot obbligatori: ${obbl}`;
   };
 
   // TUTTE le settimane ISO (lun-dom) che contengono almeno un giorno del mese corrente — INCLUSE le
@@ -3031,6 +3094,18 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
     const nd = { ...(dati.dispo[mid] || {}) };
     if (valStr === "") delete nd["SETT:" + wk];
     else nd["SETT:" + wk] = valoreSett(mid, wk, Math.max(0, Number(valStr) || 0));
+    setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
+  };
+  // FINESTRA SETTIMANALE (§10 voce 57): MINIMO di turni voluti in una settimana ISO (chiave SETTWK).
+  // Solo per-settimana dal pannellino 📅 (nessun campo unico): il coordinatore dà il numero, il motore
+  // sceglie i giorni. Editabile anche sulla settimana a cavallo (conta solo i turni in-mese di quella
+  // settimana, nessuna sottrazione-luglio come per il tetto). Vuoto/0 = nessun vincolo.
+  const minDichiaratoDi = (mid, wk) => { const n = (dati.dispo[mid] || {})["SETTWK:" + wk]; return typeof n === "number" && n > 0 ? n : null; };
+  const setMinSettimanaDi = (mid, wk, valStr) => {
+    const nd = { ...(dati.dispo[mid] || {}) };
+    const val = Math.max(0, Number(valStr) || 0);
+    if (valStr === "" || val === 0) delete nd["SETTWK:" + wk];
+    else nd["SETTWK:" + wk] = val;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null });
   };
   // Marca/smarca un turno (N o G) già fatto a luglio in un giorno della settimana a cavallo, e RICALCOLA
@@ -3228,6 +3303,21 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.maxTurni === null || a.maxTurni === undefined) delete nd["SETT:" + wk];
         else nd["SETT:" + wk] = { maxTurni: Math.max(0, Number(a.maxTurni) || 0) };
+        dispo = { ...dispo, [mid]: nd };
+        dispoModificata = true;
+        return;
+      }
+      if (a.az === "finestra_settimanale") {
+        // Vincolo di FINESTRA SETTIMANALE (§10 voce 57): minimo di turni voluti nella settimana ISO che
+        // contiene `giorno`. Chiave dispo[mid]["SETTWK:"+lunedì]=N (normalizzata al lunedì come SETT:, così
+        // "settimana del 10" e "del 12" sono la STESSA chiave). minTurni ≤ 0 o presente:false → rimuove.
+        const mid = nomeToId(a.medico);
+        if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
+        const wk = settimanaDi(dk(anno, mese, a.giorno));
+        const nd = { ...(dispo[mid] || {}) };
+        const N = Math.max(0, Number(a.minTurni) || 0);
+        if (a.presente === false || N === 0) delete nd["SETTWK:" + wk];
+        else nd["SETTWK:" + wk] = N;
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
         return;
@@ -4108,6 +4198,21 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                                     );
                                   })()}
                                   {july > 0 && dich != null && <div style={{ fontSize: 9, color: "#c17d0f", marginTop: 2, whiteSpace: "nowrap" }}>{dich} − {july} lug → {Math.max(0, dich - july)}</div>}
+                                  {(() => {
+                                    // FINESTRA SETTIMANALE (§10 voce 57): campo MINIMO, sotto il tetto (max). Il motore
+                                    // sceglie quali giorni tenere tra quelli vinti e distribuisce il resto attorno.
+                                    const mn = minDichiaratoDi(m.id, wk);
+                                    const mx = maxTurniSettimana(wk);
+                                    return (
+                                      <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}
+                                        title="Minimo di turni che il medico vuole in questa settimana (il motore sceglie quali tra quelli vinti, e distribuisce il resto attorno). Vuoto = nessun vincolo.">
+                                        <span style={{ fontSize: 9, color: T.textMuted }}>min</span>
+                                        <input type="number" min={0} max={mx} step={1} placeholder="—" value={mn ?? ""}
+                                          onChange={(e) => { const v = e.target.value; setMinSettimanaDi(m.id, wk, v === "" ? "" : String(Math.min(mx, Math.max(0, Number(v) || 0)))); }}
+                                          style={{ width: 40, padding: "2px 3px", borderRadius: 5, border: `1px solid ${mn != null ? T.primary : "#e5e9e6"}`, textAlign: "center", fontSize: 11 }} />
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })}
@@ -4161,6 +4266,27 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                 <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 4px" }}>
                   Tutte le 5 sedi sono modificabili. <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export diventa "*coperto da …"). Ogni modifica è annullabile con ↶.
                 </p>
+                {/* PANNELLO AVVISI (§10 voce 57): avvisi del motore (finestre settimanali non soddisfatte, sede
+                    preferita non ottenuta, titolarità) — visibili in UI dopo l'elaborazione, sopra la griglia,
+                    banner collassabile. NON esportati in Excel: sono solo un aiuto a schermo per il coordinatore. */}
+                {(dati.avvisi || []).length > 0 && (
+                  <div style={{ background: "#fff8e6", border: "1px solid #f0d98a", borderRadius: 8, overflow: "hidden" }}>
+                    <button onClick={() => setAvvisiAperti((v) => !v)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", background: "transparent", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#8a5a00", textAlign: "left" }}>
+                      <span>⚠️ {dati.avvisi.length} avvis{dati.avvisi.length === 1 ? "o" : "i"} del motore — verifica prima di esportare</span>
+                      <span style={{ fontSize: 11, color: "#a07a2a" }}>{avvisiAperti ? "nascondi ▲" : "mostra ▼"}</span>
+                    </button>
+                    {avvisiAperti && (
+                      <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
+                        {dati.avvisi.map((a, i) => (
+                          <li key={i} style={{ fontSize: 11.5, color: "#5a4a20", lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
+                            <span style={{ position: "absolute", left: 0 }}>•</span>{a}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {dati.schema.map((g, gi) => (
                   <div key={gi} style={{ background: "#fff", border: "1px solid #e5e9e6", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
@@ -4277,6 +4403,7 @@ Ogni cella è <b style={{color:T.primary}}>disponibile</b> (con le sedi scelte) 
                       else if (a.az === "tetto_mese") d = `Max turni mese: ${a.medico} → ${(a.maxTurni === null || a.maxTurni === undefined) ? "nessun limite" : a.maxTurni + " turni/mese"}`;
                       else if (a.az === "turno_pref") d = `Preferenza turno: ${a.medico} · giorno ${a.giorno} → ${(a.turno === "G" || a.turno === "N") ? `preferisce il ${a.turno === "G" ? "diurno" : "notturno"} se vince entrambi` : "rimuovi preferenza"}`;
                       else if (a.az === "slot_obbligatorio") d = `📌 Slot obbligatorio: ${a.medico} · giorno ${a.giorno} · ${a.turno === "G" ? "diurno" : "notturno"}${a.sede ? ` ⚓ solo se ottiene ${SEDI_BREVI[a.sede] || a.sede}` : ""} → ${a.presente === false ? "rimuovi" : "lo vuole tenere se lo vince (punto fisso della distribuzione)"}`;
+                      else if (a.az === "finestra_settimanale") d = `📐 Finestra settimanale: ${a.medico} → ${(a.presente === false || !(Number(a.minTurni) > 0)) ? "rimuovi minimo" : `almeno ${a.minTurni} turni`} (settimana del giorno ${a.giorno})`;
                       else if (a.az === "turno_precedente") d = `Turno di luglio (settimana a cavallo): ${a.medico} · ${a.giorno} lug${(a.turno === "G" || a.turno === "N") ? ` · ${a.turno === "G" ? "diurno" : "notturno"}` : ""} → ${a.presente === false ? "TOGLI" : "registra come già fatto"}`;
                       else if (a.az === "elabora") d = "Elabora lo schema del mese con le regole ufficiali";
                       else d = JSON.stringify(a);
