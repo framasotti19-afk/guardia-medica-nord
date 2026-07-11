@@ -217,17 +217,16 @@ suite.test("selezione CROSS-LIVELLO (CONTEXT.md §3.11): quando anche il livello
     d[PRESSACCO][N(g)] = turnoDisp(["Maniago", "Spilimbergo"]);
   });
   // Tetto esplicito di 3: il livello 1 (1 vittoria) viene riempito per intero (residuo 3→2), poi il
-  // livello 2 (6 vittorie) va ridotto a 2. La pura equidistanza POSIZIONALE tra i 6 candidati di
-  // livello 2 ([3,5,7,28,29,30], indici 0..5) sceglierebbe gli estremi [3,30] — ignorando che il
-  // giorno 3 è vicinissimo al giorno 1 già fissato dal livello 1. La selezione CROSS-LIVELLO usa
-  // invece il giorno 1 come riferimento aggiuntivo: sceglie prima il giorno più lontano da esso
-  // (30, distanza 29), poi il più lontano dal riferimento aggiornato {1,30} tra i rimanenti (7,
-  // distanza 6 da entrambi — più di quanto darebbe 3, a sole 2 di distanza dal giorno 1) — tenendo
-  // [7,30] al posto di [3,30]: il livello 2 si incastra con il livello 1 invece di sovrapporglisi.
+  // livello 2 (6 vittorie) va ridotto a 2. La selezione CROSS-LIVELLO (§3.11) usa il giorno 1 (fissato
+  // dal livello 1) come riferimento e MINIMIZZA IL GAP MASSIMO dell'insieme completo (§10 voce 54): i 6
+  // candidati di livello 2 sono in due gruppi separati da un grande buco ([3,5,7] e [28,29,30]); per
+  // rompere al meglio il buco centrale tiene il giorno 7 (bordo destro del primo gruppo) e il 28 (bordo
+  // sinistro del secondo) → [1,7,28], gap massimo 21, meglio di [1,7,30] (gap 23) del vecchio
+  // farthest-point. Il giorno 3 resta escluso (troppo vicino al giorno 1 già fissato dal livello 1).
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {}, { [BERTUZZI]: 3 });
   const notti = vincitoriNotte(schema, BERTUZZI);
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 7, 30]), "tiene il giorno 1 (livello 1, intero) più i giorni 7 e 30 (livello 2, scelti anche in base alla distanza dal giorno 1 già fissato) — NON il giorno 3, che la pura equidistanza posizionale (ignara del livello 1) avrebbe scelto al suo posto");
-  [3, 5, 28, 29].forEach((g) => {
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 7, 28]), "tiene il giorno 1 (livello 1, intero) più i giorni 7 e 28 (livello 2, che rompono al meglio il buco centrale: gap massimo 21 contro 23 di [1,7,30]) — NON il giorno 3, troppo vicino al giorno 1 già fissato");
+  [3, 5, 29, 30].forEach((g) => {
     const t = schema.find((x) => x.giorno === g).turni.find((x) => x.id === "N");
     suite.eq(t.slots.includes(PRESSACCO), true, `giorno ${g} (livello 2, scartato dalla selezione cross-livello): ceduto a PRESSACCO, nessun buco di copertura`);
   });
@@ -241,7 +240,7 @@ suite.test("slot obbligatori vinti: entrano SEMPRE nei turni tenuti, consumano i
   const notti = vincitoriNotte(schema, BERTUZZI);
   suite.eq(notti.length, 8, "il tetto (8) resta rigido: 3 obbligatori + 5 distribuiti");
   suite.assert([1, 15, 22].every((g) => notti.includes(g)), "i 3 slot obbligatori (1,15,22) sono SEMPRE tra i turni tenuti: " + JSON.stringify(notti));
-  suite.eq(JSON.stringify(notti), JSON.stringify([1, 4, 8, 11, 15, 22, 26, 31]), "gli altri 5 turni si distribuiscono ATTORNO ai 3 punti fissi (equidistante col seed 1,15,22)");
+  suite.eq(JSON.stringify(notti), JSON.stringify([1, 6, 11, 15, 20, 22, 27, 31]), "gli altri 5 turni si distribuiscono ATTORNO ai 3 punti fissi minimizzando il gap massimo (§10 voce 54): gap max 5 — riempie anche il buco 15→22 col giorno 20, che il vecchio greedy lasciava aperto (gap 7)");
 });
 suite.test("slot obbligatorio NON vinto per gerarchia (slot non nel pool): ignorato silenziosamente, la distribuzione non cambia", () => {
   const d = tutteLeNotti(ANNO_TEST, MESE_TEST, { [BERTUZZI]: ["Maniago"], [PRESSACCO]: ["Maniago"] });
