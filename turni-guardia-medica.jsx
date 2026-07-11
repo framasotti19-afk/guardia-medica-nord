@@ -221,31 +221,28 @@ function diurniNascosti(slots, anno, mese, extras) {
   return out;
 }
 
-// Costruisce l'entry di dispo (verde/blu + livelli + preferito) a partire da un'azione dell'AI
-// (campi: sedi, blu, preferito, sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo
-// slot) e da dispo_set (stessa entry replicata su ogni slot dell'ambito): la logica di validazione
-// sedi/livelli/preferito è UNA sola, quindi le due azioni restano equivalenti per costruzione.
+// Costruisce l'entry di dispo (verde/blu + livelli) a partire da un'azione dell'AI (campi: sedi, blu,
+// sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo slot) e da dispo_set (stessa entry
+// replicata su ogni slot dell'ambito): la logica di validazione sedi/livelli è UNA sola, quindi le due
+// azioni restano equivalenti per costruzione.
 //   etichetta: stringa usata SOLO nei messaggi d'errore (es. "ZURLO g5" oppure "ZURLO (feriali)").
 // Ritorna { entry, errori }: entry=null se non c'è nessuna sede valida (né verde né blu); errori è
-// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide / preferito ignorato).
+// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide).
 function costruisciEntryDispo(a, etichetta) {
   const errori = [];
   const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
   const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
   if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${etichetta}`); return { entry: null, errori }; }
-  // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
-  const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
-  if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${etichetta}: non è tra le sedi verdi dichiarate`);
   // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
   const verdeLiv = {};
   verde.forEach((s) => { verdeLiv[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
   const bluLiv = {};
   blu.forEach((s) => { bluLiv[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
-  return { entry: { verde, verdeLiv, blu, bluLiv, no: false, preferito: pref }, errori };
+  return { entry: { verde, verdeLiv, blu, bluLiv, no: false }, errori };
 }
 
 // ============ MOTORE ============
-// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:sede|null }
+// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool }
 // - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
 //   indifferenti per il medico: il motore può spostarlo liberamente tra loro per massimizzare le
 //   coperture; livello più basso = sede che ha diritto di tenere contro chi non lo supera in gerarchia.
@@ -261,20 +258,15 @@ function costruisciEntryDispo(a, etichetta) {
 //   automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a
 //   distanza (la prima disponibile nel suo ordine blu dichiarato).
 // - no: indisponibilità dichiarata esplicitamente
-// - preferito: la SEDE VERDE specifica su cui il medico vuole questo turno (una delle sedi in
-//   `verde`, o null se non ha espresso una preferenza). Non decide MAI chi vince un conflitto né
-//   quale sede riceve un vincitore (quello resta compito esclusivo dei livelli verdi/blu e della
-//   gerarchia) — serve solo a generare un avviso per il coordinatore se il medico finisce assegnato
-//   fisicamente altrove, o non assegnato affatto (CONTEXT.md §3.5).
 // slots = 5 posizioni [Maniago, Spilimbergo, Meduno, Claut, Anduins]
 
 // Normalizza il formato dati
 const normDispo = (v) => {
-  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: null };
+  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false };
   return {
     verde: v.verde || [], verdeLiv: v.verdeLiv || {},
     blu: v.blu || [], bluLiv: v.bluLiv || {},
-    no: !!v.no, preferito: v.preferito || null,
+    no: !!v.no,
   };
 };
 
@@ -848,13 +840,6 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
   return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
 }
 
-// Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo
-// turno (il turno viene elaborato per primo, per preservare il debito verso il giorno desiderato).
-function slotHaPreferiti(dispo, slotKey) {
-  const v0 = (m) => normDispo(dispo[m.id]?.[slotKey]);
-  return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
-}
-
 // Aggiustamento mensile del monte ore (bilanciamento turni annui, §3.11): il monte ore BASE resta
 // sempre quello di CAT_INFO, ma per DET38, DET24 e DET12/DET12ASAP viene aggiustato di ±8h/±12h in
 // mesi specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione — DET38 perde
@@ -900,14 +885,9 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const info = turniDelGiorno(anno, mese, d, extras);
     info.turni.forEach((turno) => voci.push({ d, turno, slotKey: `${info.key}|${turno.id}` }));
   }
-  // Due passaggi: prima i turni con almeno un "preferito" dichiarato (in ordine cronologico
-  // tra loro), poi tutto il resto (sempre in ordine cronologico) — così il debito viene
-  // consumato dando la precedenza ai giorni desiderati, senza mai cambiare CHI vince un
-  // conflitto (la gerarchia resta l'unico criterio decisionale). Stesso ordine usato SIA dal
-  // passaggio 1 (gerarchia pura) SIA dal passaggio 2 (definitivo, §3.11) qui sotto.
-  const conPref = voci.filter((v) => !v.turno.extra && slotHaPreferiti(dispo, v.slotKey));
-  const resto = voci.filter((v) => v.turno.extra || !slotHaPreferiti(dispo, v.slotKey));
-  const ordineVoci = [...conPref, ...resto];
+  // I turni si elaborano in ordine cronologico (di calendario): è l'ordine in cui il debito viene
+  // consumato. Stesso ordine SIA nel passaggio 1 (gerarchia pura) SIA nel passaggio 2 (definitivo, §3.11).
+  const ordineVoci = voci;
 
   // Esegue l'intero mese, nell'ordine sopra, con eventuali esclusioni per singolo turno
   // (escludiPerSlot: slotKey -> Set<mid> forzati a "no" SOLO per quello slot specifico — non
@@ -922,7 +902,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       if (esclusi && esclusi.size) {
         dispoEff = { ...dispo };
         esclusi.forEach((mid) => {
-          dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null } };
+          dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true } };
         });
       }
       const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount, esente);
@@ -947,8 +927,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   MEDICI.forEach((m) => { tetto[m.id] = tettoDistribuzioneDi(m.id, debiti0[m.id], debitiExtra0[m.id], maxTurniMese); });
 
   // Turni FISICI/EXTRA vinti da un medico in un set di risultati, in ordine cronologico (per giorno
-  // di calendario, non per ordine di elaborazione conPref/resto), con il livello della sede verde
-  // ottenuta — la copertura a distanza non conta mai ai fini del tetto mensile, come per Max turni mese.
+  // di calendario), con il livello della sede verde ottenuta — la copertura a distanza non conta mai
+  // ai fini del tetto mensile, come per Max turni mese.
   const estraiVinti = (risultati, mid) => {
     const out = [];
     voci.forEach(({ d, turno, slotKey }) => {
@@ -1140,8 +1120,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // dichiarato quella sede come verde — sempre che un'alternativa esista: la copertura vince
   // sempre, esattamente come per la spaziatura temporale (§3.7). Non cambia mai CHI vince un
   // conflitto, solo quale dei due turni il vincitore mantiene. Eseguita dopo che tutti i turni
-  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno
-  // indipendentemente dall'ordine conPref/resto in cui sono stati processati.
+  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno.
   //
   // GUARDIA TITOLARITÀ per l'alternativa (§3.1a): l'alternativa che rileva il turno ceduto viene
   // introdotta FISICAMENTE nel turno con un'assegnazione diretta che NON passa dalla correzione di
@@ -1224,35 +1203,6 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }
-
-  // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con la SEDE specifica che il
-  // medico ha marcato con ★ (CONTEXT.md §3.5). Soddisfatto se e solo se ottiene fisicamente
-  // esattamente quella sede; se ottiene una sede fisica diversa, o nessuna sede, genera un
-  // avviso — con testo diverso nei due casi. In nessun caso il preferito decide chi vince o
-  // quale sede viene assegnata: qui si osserva soltanto il risultato già deciso dalla gerarchia.
-  const meseStr = `${anno}-${String(mese + 1).padStart(2, "0")}-`;
-  MEDICI.forEach((m) => {
-    const perMedico = dispo[m.id] || {};
-    Object.entries(perMedico).forEach(([sk, raw]) => {
-      if (!sk.startsWith(meseStr)) return;
-      const v = normDispo(raw);
-      if (v.no || !v.preferito) return;
-      const d = Number(sk.slice(8, 10));
-      const tid = sk.split("|")[1];
-      const out = risultati[`${d}|${tid}`];
-      if (!out) return;
-      // MMG unificati: la sede ottenuta si legge dai FISICI come per gli ordinari (niente più
-      // sentinella "MMG"); il ★ su un MMG è valutato sulla sede esatta, esattamente come un turno normale.
-      let sedeOttenuta = null;
-      for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
-      if (sedeOttenuta === v.preferito) return; // preferito soddisfatto: sede esatta ottenuta
-      if (sedeOttenuta === null) {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma non gli è stata assegnata alcuna sede (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
-      } else {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma ha ottenuto ${sedeOttenuta} (priorità superiori di altri sulla sede preferita). Valutare un intervento manuale se opportuno.` });
-      }
-    });
-  });
 
   // Ricompone lo schema in ordine di calendario (l'ordine di elaborazione sopra era solo
   // interno, per il consumo del debito — l'output resta sempre cronologico)
@@ -1352,7 +1302,7 @@ function notaSlot(slots, si, fis) {
 // Legge lo STATO REALE di un medico direttamente dai DATI (dispo + tetto mensile), senza passare dal
 // riassunto dell'AI: è la fonte di verità per verificare cosa è DAVVERO stato inserito nel mese corrente.
 // Pura; ritorna un oggetto strutturato (la formattazione per chat/pannello sta nel COMPONENTE).
-//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}], preferito}] ordinati per giorno/turno
+//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}]}] ordinati per giorno/turno
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
@@ -1368,7 +1318,6 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
       giorno: Number(dt.slice(8, 10)), turno: tu, no: nv.no,
       verde: nv.no ? [] : ordinaPerLivello(nv.verde, nv.verdeLiv, MAX_LIV_VERDE).map((s) => ({ sede: s, liv: nv.verdeLiv[s] || 1 })),
       blu: nv.no ? [] : ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => ({ sede: s, liv: nv.bluLiv[s] || 1 })),
-      preferito: nv.no ? null : (nv.preferito || null),
     });
   });
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));
@@ -1560,7 +1509,7 @@ export default function App() {
     const next = {
       verde: cur.verde.filter((s) => s !== sede), verdeLiv: { ...cur.verdeLiv },
       blu: cur.blu.filter((s) => s !== sede), bluLiv: { ...cur.bluLiv },
-      no: false, preferito: cur.no ? null : cur.preferito,
+      no: false,
     };
     delete next.verdeLiv[sede];
     delete next.bluLiv[sede];
@@ -1571,26 +1520,14 @@ export default function App() {
       next.blu.push(sede);
       next.bluLiv[sede] = Number(opzione.slice(1));
     }
-    // coerenza: il preferito deve sempre riferirsi a una sede attualmente verde
-    if (!next.verde.includes(next.preferito)) next.preferito = null;
     const nd = { ...(dati.dispo[mid] || {}) };
     if (next.verde.length || next.blu.length) nd[slotKey] = next; else delete nd[slotKey];
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   const setNoCella = (mid, slotKey, valore) => {
     const nd = { ...(dati.dispo[mid] || {}) };
-    if (valore) nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
+    if (valore) nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true };
     else delete nd[slotKey];
-    setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
-  };
-  // Imposta (o toglie, se già impostata) la sede VERDE preferita con ★: un medico ha al massimo
-  // una sede preferita per turno, e deve essere una delle sedi che ha dichiarato verde (§3.5).
-  const setPreferitoSede = (mid, slotKey, sede) => {
-    const cur = normDispo(dati.dispo[mid]?.[slotKey]);
-    if (cur.no || !cur.verde.includes(sede)) return;
-    const next = { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito === sede ? null : sede };
-    const nd = { ...(dati.dispo[mid] || {}) };
-    nd[slotKey] = next;
     setDati({ dispo: { ...dati.dispo, [mid]: nd }, schema: null, avvisi: [] });
   };
   // Preferenza di TURNO (diurno ☀️ / notturno 🌙) per un giorno con entrambi i turni: decide solo
@@ -1730,7 +1667,7 @@ export default function App() {
           if (!info.turni.some((t) => t.id === "G")) saltatiNoDiurno++;
         }
         richiesti.forEach((tid) => {
-          touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null });
+          touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true });
           scrittiIndisp++;
         });
       }
@@ -1758,7 +1695,7 @@ export default function App() {
           if (preesistente.no) { protetti++; return; } // indisponibilità dichiarata in precedenza: non si tocca
           const verdeLivRap = {}; verde.forEach((s) => { verdeLivRap[s] = 1; });
           const bluLivRap = {}; blu.forEach((s) => { bluLivRap[s] = 1; });
-          touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false, preferito: null });
+          touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false });
           scrittiDisp++;
         });
       }
@@ -2095,7 +2032,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
         })),
         mmgAttivi: Object.entries(dati.extras).filter(([, v]) => v.M || v.P).map(([k, v]) => `g${Number(k.slice(8, 10))}:${v.M ? "M" : ""}${v.P ? "P" : ""}`),
         avvisiScenari: dati.avvisi || [],
-        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("SETTWK:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}${nv.preferito ? "|PREF:" + SEDI_BREVI[nv.preferito] : ""}`; })])),
+        disponibilita: Object.fromEntries(MEDICI.filter((m) => dati.dispo[m.id] && Object.keys(dati.dispo[m.id]).length).map((m) => [m.nome, Object.entries(dati.dispo[m.id]).filter(([sk]) => !sk.startsWith("SETT:") && !sk.startsWith("SETTWK:") && !sk.startsWith("TURNOPREF:")).map(([sk, v]) => { const [dt, tu] = sk.split("|"); const nv = normDispo(v); if (nv.no) return `g${Number(dt.slice(8, 10))}${tu}:NO`; return `g${Number(dt.slice(8, 10))}${tu}:${nv.verde.map((s) => SEDI_BREVI[s]).join(",")}${nv.blu.length ? "|blu:" + ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => SEDI_BREVI[s] + (nv.bluLiv[s] || 1)).join(",") : ""}`; })])),
         // Checklist essenziale (solo giorno+turno, senza dettagli) di QUALI slot hanno già una
         // disponibilità inserita per ciascun medico, incluso ogni medico senza nessuna (array vuoto).
         // Serve a confrontare direttamente cosa manca rispetto a una richiesta/email, invece di
@@ -2191,7 +2128,6 @@ Le disponibilità sono dicotomiche: disponibile (con sedi scelte) o non disponib
 - Assenza di dati = equivale a non disponibile
 - VERDE = sede FISICA desiderata, livelli 1..5 (MA1,SP2 = Maniago prima scelta, Spilimbergo seconda). Livelli PARI = sedi INDIFFERENTI per il medico: il motore può spostarlo liberamente tra di esse per massimizzare il numero di medici al lavoro. Livello più basso = sede che il medico ha diritto di tenere, a meno che qualcuno con priorità superiore lo scalzi. I livelli non cambiano MAI chi vince un conflitto, solo quale sede viene assegnata a ciascun vincitore.
 - BLU = sede che il medico è disposto a COPRIRE A DISTANZA dalla sede fisica su cui viene assegnato, secondo il VINCOLO TERRITORIALE (Claut coperibile solo dal fisico di Maniago; Anduins solo dal fisico di Spilimbergo o Meduno; le altre sedi senza vincolo — vedi la sezione SEDI E SCENARI DI COPERTURA), livelli 1..4. Nessuna copertura a distanza è automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a distanza (la prima disponibile nel suo ordine blu).
-- "PREF:XX" = il medico ha marcato con ★ la sede verde XX come sua sede fisica preferita per quel turno (informativo, non decisionale sui conflitti: se ottiene un'altra sede fisica, o nessuna, genera solo un avviso al coordinatore)
 
 == INTERPRETAZIONE EMAIL DISPONIBILITÀ ==
 
@@ -2495,13 +2431,13 @@ Mappa la frase all'"ambito":
 • ESPRESSIONI DI PERIODO (traduzione fissa in intervalli; mese di riferimento = quello di STATO ATTUALE — se il medico nomina il mese di riferimento per nome è lo stesso: con agosto = mese, "inizio agosto" = "inizio mese"): "inizio mese" / "a inizio mese" → {"da":1,"a":7}; "metà mese" / "a metà mese" → {"da":11,"a":20}; "fine mese" / "a fine mese" / "gli ultimi giorni (del mese)" → {"da":24,"a":ultimo giorno del mese}; "prima metà" (del mese) → {"da":1,"a":15}; "seconda metà" (del mese) → {"da":16,"a":ultimo giorno del mese}. Trattale come un normale ambito {da,a} con dispo_set (turni dedotti come sotto). Se l'espressione è accompagnata da un NUMERO/tetto ("a fine mese massimo 3 notti") imposta ANCHE {"az":"tetto_mese","medico":"...","maxTurni":N}. NON confondere con "verso il 20" / "intorno al 15" / "la prima/seconda settimana" / "qualche giorno": quelle restano VAGHE (vedi CASI DA SEGNALARE), perché "verso"/"intorno"/"settimana"/"qualche" non individuano confini netti.
 "turni": deducili dalla frase ESATTAMENTE come nella sezione TURNI DIURNO/NOTTURNO — "notti/notturni/sera" → ["N"]; "diurno/giorno" → ["G"]; "sia diurno che notturno / weekend interi / tutto il giorno" → ["G","N"]. Il motore, per ogni giorno, applica solo i turni che ESISTONO quel giorno (un "G" richiesto su un feriale lo ignora da solo).
 "escludi": i numeri-giorno con un NO/ferie/eccezione ("tranne il 12", "eccetto dal 20 al 25") vanno in "escludi", così dispo_set non li tocca; se sono vere indisponibilità dichiarate (ferie/impegni) emetti ANCHE la dispo_no per quei giorni come da sezione INDISPONIBILITÀ — le due cose si combinano correttamente.
-Sede/livelli/preferito/blu: identici a dispo_aggiungi (se la sede non è dichiarata: la titolarità del medico, come sempre).
+Sede/livelli/blu: identici a dispo_aggiungi (se la sede non è dichiarata: la titolarità del medico, come sempre).
 
 QUANDO NON USARE dispo_set — queste regole valgono PRIMA e hanno la PRECEDENZA: se una di esse scatta, NON emettere dispo_set (né dispo_aggiungi, salvo dove indicato):
 1. SENZA INCARICO che non indica il numero di guardie mensili → resta il blocco+avviso in cima a questa sezione (nessun inserimento di alcun tipo).
 2. TURNO NON CHIARO su weekend/festivi/prefestivi (il medico non nomina né diurno né notturno). Distingui SINGOLO giorno da INSIEME:
    • SINGOLO giorno weekend ("sono disponibile il 2", con il 2 = weekend) → resta la regola WEEKEND AMBIGUO più sotto: dispo_aggiungi il solo notturno di QUEL giorno + una "domanda" sul diurno di quel giorno (seSi = dispo_aggiungi con turno G quel giorno). NON usare dispo_set per un giorno singolo.
-   • INSIEME di giorni ("il weekend", "i fine settimana", "nei weekend", "tutto il mese" senza turno): la parte NOTTURNA è comunque NON ambigua (ogni giorno ha la notte) → emetti SUBITO dispo_set con turni ["N"] sull'ambito corrispondente (weekend → ambito "weekend"; tutto il mese → ambito "mese"), poi poni UNA sola "domanda" per il diurno il cui seSi è {"az":"dispo_set", stesso medico e stesse sedi/livelli/blu/preferito, "ambito":"weekend","turni":["G"]} (il diurno esiste solo nei weekend/festivi, mai nei feriali, quindi il seSi usa SEMPRE ambito "weekend" anche se il notturno era "mese") e seNo è [] (resta solo il notturno già inserito). In questa "domanda" ometti il campo "giorno" (riguarda un insieme, non un singolo giorno) e metti in "citazione" la frase esatta del medico. Così NON si enumerano i giorni e la parte certa (le notti) è già applicata.
+   • INSIEME di giorni ("il weekend", "i fine settimana", "nei weekend", "tutto il mese" senza turno): la parte NOTTURNA è comunque NON ambigua (ogni giorno ha la notte) → emetti SUBITO dispo_set con turni ["N"] sull'ambito corrispondente (weekend → ambito "weekend"; tutto il mese → ambito "mese"), poi poni UNA sola "domanda" per il diurno il cui seSi è {"az":"dispo_set", stesso medico e stesse sedi/livelli/blu, "ambito":"weekend","turni":["G"]} (il diurno esiste solo nei weekend/festivi, mai nei feriali, quindi il seSi usa SEMPRE ambito "weekend" anche se il notturno era "mese") e seNo è [] (resta solo il notturno già inserito). In questa "domanda" ometti il campo "giorno" (riguarda un insieme, non un singolo giorno) e metti in "citazione" la frase esatta del medico. Così NON si enumerano i giorni e la parte certa (le notti) è già applicata.
    L'ambito "feriali" non ha mai questa ambiguità (i feriali hanno solo N).
 3. QUALIFICATORE DI ECCEZIONE non specificato ("quasi sempre", "di solito", "spesso", "in genere", "il più delle volte", "salvo eccezioni") → NON inserire nulla, solo avviso (vedi ECCEZIONI NON SPECIFICATE): niente dispo_set.
 4. TITOLARE che chiede SOLO una o più sedi FISICHE diverse dalla propria titolarità (senza mai nominare la sua) → resta la DOMANDA di conferma al coordinatore (niente inserimento, né dispo_set né dispo_aggiungi, finché non conferma).
@@ -2828,8 +2764,8 @@ RISPONDI SOLO con un oggetto JSON valido, senza backtick e senza testo fuori dal
 ⚠️ REGOLA GENERALE — AMBITO DI "seSi"/"seNo": le azioni in "seSi" e "seNo" di una domanda devono riguardare ESCLUSIVAMENTE il giorno e il medico di QUELLA specifica domanda, mai nient'altro. Rispondere Sì o No a una domanda non deve MAI avere l'effetto di inserire disponibilità per altri giorni, anche se quei giorni compaiono altrove nella stessa email originale, anche se sembrano casi analoghi o dello stesso tipo di ambiguità. Ogni domanda è un'unità indipendente e isolata: la risposta a una domanda specifica non estende, conferma o anticipa nulla su nessun'altra domanda o giorno non esplicitamente menzionato in quella singola domanda.
 Ogni azione ha un campo "az" che ne indica il tipo:
 - {"az":"schema","giorno":14,"turno":"N","sede":"Maniago","medico":"TRIGODKO"} → cambia un'assegnazione nello schema (medico null = svuota la sede)
-- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2},"preferito":"Maniago"} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata), "preferito"=nome della sede VERDE specifica marcata con ★ (deve essere una delle "sedi", non una sede blu; omesso/null = nessuna preferenza espressa; informativo, non decisionale). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
-- {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1},"preferito":"Maniago"} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv"/"preferito" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), {"da":X,"a":Y} (i giorni da X a Y inclusi), oppure {"giorni_settimana":["lun","mer"]} / {"giorni_settimana":{"da":"mar","a":"gio"}} (i giorni della settimana nominati — token lun/mar/mer/gio/ven/sab/dom — con il motore che calcola le date esatte). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
+- {"az":"dispo_aggiungi","medico":"BEKAEVA","giorno":5,"turno":"N","sedi":["Maniago","Spilimbergo"],"sedi_liv":{"Maniago":1,"Spilimbergo":1},"blu":["Meduno","Claut"],"blu_liv":{"Meduno":1,"Claut":2}} → imposta la disponibilità: "sedi"=sedi FISICHE (verdi), "sedi_liv"=livello 1..5 per ciascuna (livelli PARI = sedi indifferenti per il medico, il motore può spostarlo tra esse; livello più basso = sede che ha diritto di tenere; omesso=1), "blu"=sedi disposto a coprire A DISTANZA, "blu_liv"=livello 1..4 per ciascuna sede blu (1=prima scelta, 4=ultima, omesso=1; nessuna copertura a distanza è automatica, va sempre dichiarata). Se il medico dice "Maniago o Spilimbergo indifferentemente" usa livelli pari sulle sedi verdi; se dice "preferibilmente Maniago, altrimenti Spilimbergo" (entrambe accettate fisicamente) usa Maniago:1, Spilimbergo:2. Se dice "posso coprire Claut a distanza" aggiungila in "blu", non in "sedi".
+- {"az":"dispo_set","medico":"BEKAEVA","ambito":"feriali","turni":["N"],"escludi":[12,13],"sedi":["Maniago"],"sedi_liv":{"Maniago":1},"blu":["Claut"],"blu_liv":{"Claut":1}} → imposta in UN COLPO SOLO la STESSA disponibilità (stessi campi "sedi"/"sedi_liv"/"blu"/"blu_liv" di dispo_aggiungi) su un INTERO INSIEME di giorni, lasciando al MOTORE il calcolo deterministico dei singoli giorni (così non se ne salta mai uno). "ambito": "feriali" (tutti i feriali semplici lun-ven non festivi/prefestivi — hanno solo N), "weekend" (tutti i sabati/domeniche), "mese" (tutti i giorni del mese), {"da":X,"a":Y} (i giorni da X a Y inclusi), oppure {"giorni_settimana":["lun","mer"]} / {"giorni_settimana":{"da":"mar","a":"gio"}} (i giorni della settimana nominati — token lun/mar/mer/gio/ven/sab/dom — con il motore che calcola le date esatte). "turni": sottoinsieme di ["G","N"] (MAI MMG; per ogni giorno il motore tiene solo i turni che ESISTONO davvero quel giorno). "escludi": array opzionale di numeri-giorno da NON toccare (i giorni con NO/ferie/"tranne"). Usa dispo_set SOLO quando l'insieme di giorni E il/i turno/i sono ENTRAMBI chiari; per un elenco di date sparse ("il 3, il 7 e il 12") usa invece più dispo_aggiungi. Le regole di precedenza (senza-incarico senza numero, weekend ambiguo senza turno, "quasi sempre", titolare fuori-sede, MMG) valgono PRIMA e, se scattano, sostituiscono dispo_set — vedi la sezione INSIEMI DI GIORNI
 - {"az":"dispo_no","medico":"CERVESATO","giorno":4,"turno":"N"} → segna il medico come esplicitamente NON disponibile per quel turno
 - {"az":"dispo_togli","medico":"TRIGODKO","giorno":12,"turno":"N"} → rimuove la disponibilità di UN singolo slot
 - {"az":"azzera_medico","medico":"IENGO"} → CANCELLA IN BLOCCO tutte le disponibilità del mese di quel medico (tutti gli slot + tetti settimanali + finestre settimanali + slot obbligatori + preferenze turno + tetto mensile), lasciando intatti recupero ore e turni extra volontari. Usalo quando il coordinatore vuole "rifare/correggere da capo" un medico (es. "azzera X e reinserisci", "cancella tutto per X e metti solo…", "ricomincia da zero con X"): metti questa azione INSIEME alle azioni di reinserimento nello stesso elenco "azioni" (dispo_set/dispo_aggiungi/tetto_mese/…). L'app applica SEMPRE l'azzeramento PRIMA dei reinserimenti, qualunque sia l'ordine, quindi non restano residui dei giorni vecchi. NON serve elencare tanti dispo_togli: uno solo azzera_medico basta e non dimentica nulla. Esempio "rifai Iengo da capo, solo notti da mar a gio a Spilimbergo, max 8": azioni = [{"az":"azzera_medico","medico":"IENGO"},{"az":"dispo_set","medico":"IENGO","ambito":{"giorni_settimana":{"da":"mar","a":"gio"}},"turni":["N"],"sedi":["Spilimbergo"]},{"az":"tetto_mese","medico":"IENGO","maxTurni":8}]
@@ -3011,7 +2947,6 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           const parti = [];
           if (x.verde.length) parti.push(sd(x.verde));
           if (x.blu.length) parti.push(`blu:${sd(x.blu)}`);
-          if (x.preferito) parti.push(`★${SEDI_BREVI[x.preferito] || x.preferito}`);
           return `  • g${x.giorno} ${x.turno}: ${parti.join(" | ")}`;
         }).join("\n")
       : "  (nessuna)";
@@ -3375,7 +3310,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const slotKey = `${dk(anno, mese, a.giorno)}|${a.turno}`;
         const nd = { ...(dispo[mid] || {}) };
         if (a.az === "dispo_togli") delete nd[slotKey];
-        else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
+        else if (a.az === "dispo_no") nd[slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true };
         else {
           // Entry-building condiviso con dispo_set (funzione pura del motore, unica fonte di verità)
           const { entry, errori: errEntry } = costruisciEntryDispo(a, `${a.medico} g${a.giorno}`);
@@ -3389,7 +3324,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
       }
       if (a.az === "dispo_set") {
         // Azione "compatta": una sola riga dell'AI che dichiara una disponibilità su un intero AMBITO
-        // di giorni ("feriali" | "weekend" | "mese" | {da,a}), con le STESSE sedi/livelli/preferito per
+        // di giorni ("feriali" | "weekend" | "mese" | {da,a}), con le STESSE sedi/livelli per
         // ogni giorno. È il MOTORE (espandiAmbito, calendario deterministico) a calcolare i singoli
         // {giorno,turno}: l'AI non deve più espandere "a mente" i giorni (fonte di errori, es. un
         // feriale saltato). Equivale a N dispo_aggiungi per-giorno con le stesse sedi (test di equivalenza).
@@ -3403,7 +3338,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
         const nd = { ...(dispo[mid] || {}) };
         // Ogni slot riceve una COPIA indipendente dell'entry (niente aliasing tra giorni diversi)
         slots.forEach(({ giorno, turno }) => {
-          nd[`${dk(anno, mese, giorno)}|${turno}`] = { verde: [...entry.verde], verdeLiv: { ...entry.verdeLiv }, blu: [...entry.blu], bluLiv: { ...entry.bluLiv }, no: false, preferito: entry.preferito };
+          nd[`${dk(anno, mese, giorno)}|${turno}`] = { verde: [...entry.verde], verdeLiv: { ...entry.verdeLiv }, blu: [...entry.blu], bluLiv: { ...entry.bluLiv }, no: false };
         });
         dispo = { ...dispo, [mid]: nd };
         dispoModificata = true;
@@ -3418,7 +3353,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
               medico: a.medico,
               situazione: `${plur ? "i giorni" : "il giorno"} ${nascosti.join(", ")} ${MESI_IT[mese].toLowerCase()} ${plur ? "sono festivi/prefestivi e hanno" : "è festivo/prefestivo e ha"} anche il turno diurno (inserito solo il notturno)`,
               domanda: "vuoi aggiungere anche il diurno?",
-              seSi: nascosti.map((g) => ({ az: "dispo_aggiungi", medico: a.medico, giorno: g, turno: "G", sedi: a.sedi, sedi_liv: a.sedi_liv, blu: a.blu, blu_liv: a.blu_liv, preferito: a.preferito })),
+              seSi: nascosti.map((g) => ({ az: "dispo_aggiungi", medico: a.medico, giorno: g, turno: "G", sedi: a.sedi, sedi_liv: a.sedi_liv, blu: a.blu, blu_liv: a.blu_liv })),
               seNo: [],
             });
           }
@@ -3709,7 +3644,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-                Legenda: <b>📌</b> slot obbligatorio · <b>⚓</b> obbligatorio solo su una sede · <b style={{color:T.primary}}>pallino verde</b> = sede fisica, <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza.
+                Legenda: <b>📌</b> Ci tengo a questa data · <b>⚓</b> Ci tengo a questa data solo se sono in questa sede · <b style={{color:T.primary}}>pallino verde</b> = sede fisica, <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
@@ -3933,7 +3868,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                             </div>
                           );
                         })()}
-                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Di notte Claut e Anduins solo <b style={{ color: T.blu }}>a distanza</b> (non sono sedi fisiche). <b>☆</b> = sede preferita (non decide chi vince).</div>
+                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Di notte Claut e Anduins solo <b style={{ color: T.blu }}>a distanza</b> (non sono sedi fisiche).</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
@@ -3959,13 +3894,6 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                                     {[1, 2, 3, 4].map((l) => <option key={"B" + l} value={"B" + l} style={{ background: T.bluTint, color: T.bluDark }}>A distanza · {ordScelta[l - 1]} scelta</option>)}
                                   </optgroup>
                                 </select>
-                                {isVerde && (
-                                  <span onClick={() => setPreferitoSede(editCella.mid, editCella.slotKey, s)}
-                                    title={sedi.preferito === s ? "Sede preferita: tocca per togliere" : "Marca come sede preferita (☆): se ottiene questa sede è soddisfatto"}
-                                    style={{ cursor: "pointer", fontSize: 15, minWidth: 16, textAlign: "center", color: sedi.preferito === s ? "#c9911a" : T.textMuted, userSelect: "none" }}>
-                                    {sedi.preferito === s ? "★" : "☆"}
-                                  </span>
-                                )}
                                 {isVerde && (() => {
                                   const obblKey = "OBBL:" + editCella.slotKey;
                                   const pinnedHere = dati.dispo[editCella.mid]?.[obblKey] === s;
@@ -4267,9 +4195,9 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                 <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 4px" }}>
                   <b>Stesso nome su più sedi = copertura a distanza</b> (nell'export: "*coperto da …").
                 </p>
-                {/* PANNELLO AVVISI (§10 voce 57): avvisi del motore (finestre settimanali non soddisfatte, sede
-                    preferita non ottenuta, titolarità) — visibili in UI dopo l'elaborazione, sopra la griglia,
-                    banner collassabile. NON esportati in Excel: sono solo un aiuto a schermo per il coordinatore. */}
+                {/* PANNELLO AVVISI (§10 voce 57): avvisi del motore (finestre settimanali non soddisfatte,
+                    titolarità) — visibili in UI dopo l'elaborazione, sopra la griglia, banner collassabile.
+                    NON esportati in Excel: sono solo un aiuto a schermo per il coordinatore. */}
                 {avvisiUI.length > 0 && (
                   <div style={{ background: "#fff8e6", border: "1px solid #f0d98a", borderRadius: 8, overflow: "hidden" }}>
                     <button onClick={() => setAvvisiAperti((v) => !v)}
@@ -4392,8 +4320,8 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                     {proposta.azioni.map((a, i) => {
                       let d = "";
                       if (a.az === "schema") d = `Schema: giorno ${a.giorno} · ${a.turno} · ${a.sede} → ${a.medico || "— (svuota)"}`;
-                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
-                      else if (a.az === "dispo_set") d = `Disponibilità ${etichettaAmbito(a.ambito)}${a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""}${a.escludi && a.escludi.length ? `, escl. ${a.escludi.join(",")}` : ""}: ${a.medico} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}${a.preferito ? ` ★ preferita: ${SEDI_BREVI[a.preferito] || a.preferito}` : ""}`;
+                      else if (a.az === "dispo_aggiungi") d = `Disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}`;
+                      else if (a.az === "dispo_set") d = `Disponibilità ${etichettaAmbito(a.ambito)}${a.turni && a.turni.length ? ` (${a.turni.join("+")})` : ""}${a.escludi && a.escludi.length ? `, escl. ${a.escludi.join(",")}` : ""}: ${a.medico} → ${(a.sedi || []).map((s) => SEDI_BREVI[s] || s).join(", ")}${(a.blu || []).length ? ` (+ blu: ${a.blu.map((s) => SEDI_BREVI[s] || s).join(", ")})` : ""}`;
                       else if (a.az === "azzera_medico") d = `Azzera e reinserisci: ${a.medico} — cancella TUTTE le disponibilità del mese (+ tetti settimanali, preferenze turno, tetto mensile); restano recupero ore e turni extra`;
                       else if (a.az === "dispo_no") d = `Segna NON disponibile: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;
                       else if (a.az === "dispo_togli") d = `Togli disponibilità: ${a.medico} · giorno ${a.giorno} · ${a.turno}`;

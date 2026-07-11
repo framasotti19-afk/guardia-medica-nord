@@ -219,31 +219,28 @@ function diurniNascosti(slots, anno, mese, extras) {
   return out;
 }
 
-// Costruisce l'entry di dispo (verde/blu + livelli + preferito) a partire da un'azione dell'AI
-// (campi: sedi, blu, preferito, sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo
-// slot) e da dispo_set (stessa entry replicata su ogni slot dell'ambito): la logica di validazione
-// sedi/livelli/preferito è UNA sola, quindi le due azioni restano equivalenti per costruzione.
+// Costruisce l'entry di dispo (verde/blu + livelli) a partire da un'azione dell'AI (campi: sedi, blu,
+// sedi_liv, blu_liv). È il CUORE CONDIVISO da dispo_aggiungi (un solo slot) e da dispo_set (stessa entry
+// replicata su ogni slot dell'ambito): la logica di validazione sedi/livelli è UNA sola, quindi le due
+// azioni restano equivalenti per costruzione.
 //   etichetta: stringa usata SOLO nei messaggi d'errore (es. "ZURLO g5" oppure "ZURLO (feriali)").
 // Ritorna { entry, errori }: entry=null se non c'è nessuna sede valida (né verde né blu); errori è
-// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide / preferito ignorato).
+// la lista (eventualmente vuota) dei messaggi da mostrare (sedi non valide).
 function costruisciEntryDispo(a, etichetta) {
   const errori = [];
   const verde = (a.sedi || []).filter((s) => SEDI5.includes(s));
   const blu = (a.blu || []).filter((s) => SEDI5.includes(s) && !verde.includes(s));
   if (!verde.length && !blu.length) { errori.push(`sedi non valide per ${etichetta}`); return { entry: null, errori }; }
-  // preferito deve essere una delle sedi verdi dichiarate, altrimenti viene ignorato
-  const pref = a.preferito && verde.includes(a.preferito) ? a.preferito : null;
-  if (a.preferito && !pref) errori.push(`preferito "${a.preferito}" ignorato per ${etichetta}: non è tra le sedi verdi dichiarate`);
   // sedi_liv / blu_liv opzionali dall'AI: {sede:livello} — default 1 per le sedi non specificate
   const verdeLiv = {};
   verde.forEach((s) => { verdeLiv[s] = (a.sedi_liv && a.sedi_liv[s]) ? Number(a.sedi_liv[s]) : 1; });
   const bluLiv = {};
   blu.forEach((s) => { bluLiv[s] = (a.blu_liv && a.blu_liv[s]) ? Number(a.blu_liv[s]) : 1; });
-  return { entry: { verde, verdeLiv, blu, bluLiv, no: false, preferito: pref }, errori };
+  return { entry: { verde, verdeLiv, blu, bluLiv, no: false }, errori };
 }
 
 // ============ MOTORE ============
-// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool, preferito:sede|null }
+// dispo[mid][slotKey] = { verde:[sedi], verdeLiv:{sede:1..5}, blu:[sedi], bluLiv:{sede:1..4}, no:bool }
 // - verde: sedi FISICHE desiderate, in ordine di preferenza (livelli 1..5, livelli PARI = sedi
 //   indifferenti per il medico: il motore può spostarlo liberamente tra loro per massimizzare le
 //   coperture; livello più basso = sede che ha diritto di tenere contro chi non lo supera in gerarchia.
@@ -259,20 +256,15 @@ function costruisciEntryDispo(a, etichetta) {
 //   automatica: serve sempre una dichiarazione blu esplicita. Un medico copre al massimo 1 sede a
 //   distanza (la prima disponibile nel suo ordine blu dichiarato).
 // - no: indisponibilità dichiarata esplicitamente
-// - preferito: la SEDE VERDE specifica su cui il medico vuole questo turno (una delle sedi in
-//   `verde`, o null se non ha espresso una preferenza). Non decide MAI chi vince un conflitto né
-//   quale sede riceve un vincitore (quello resta compito esclusivo dei livelli verdi/blu e della
-//   gerarchia) — serve solo a generare un avviso per il coordinatore se il medico finisce assegnato
-//   fisicamente altrove, o non assegnato affatto (CONTEXT.md §3.5).
 // slots = 5 posizioni [Maniago, Spilimbergo, Meduno, Claut, Anduins]
 
 // Normalizza il formato dati
 const normDispo = (v) => {
-  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: null };
+  if (!v) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: false };
   return {
     verde: v.verde || [], verdeLiv: v.verdeLiv || {},
     blu: v.blu || [], bluLiv: v.bluLiv || {},
-    no: !!v.no, preferito: v.preferito || null,
+    no: !!v.no,
   };
 };
 
@@ -846,13 +838,6 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
   return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
 }
 
-// Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo
-// turno (il turno viene elaborato per primo, per preservare il debito verso il giorno desiderato).
-function slotHaPreferiti(dispo, slotKey) {
-  const v0 = (m) => normDispo(dispo[m.id]?.[slotKey]);
-  return MEDICI.some((m) => { const v = v0(m); return !v.no && v.preferito; });
-}
-
 // Aggiustamento mensile del monte ore (bilanciamento turni annui, §3.11): il monte ore BASE resta
 // sempre quello di CAT_INFO, ma per DET38, DET24 e DET12/DET12ASAP viene aggiustato di ±8h/±12h in
 // mesi specifici PRIMA di calcolare il debito e il tetto automatico di distribuzione — DET38 perde
@@ -898,14 +883,9 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
     const info = turniDelGiorno(anno, mese, d, extras);
     info.turni.forEach((turno) => voci.push({ d, turno, slotKey: `${info.key}|${turno.id}` }));
   }
-  // Due passaggi: prima i turni con almeno un "preferito" dichiarato (in ordine cronologico
-  // tra loro), poi tutto il resto (sempre in ordine cronologico) — così il debito viene
-  // consumato dando la precedenza ai giorni desiderati, senza mai cambiare CHI vince un
-  // conflitto (la gerarchia resta l'unico criterio decisionale). Stesso ordine usato SIA dal
-  // passaggio 1 (gerarchia pura) SIA dal passaggio 2 (definitivo, §3.11) qui sotto.
-  const conPref = voci.filter((v) => !v.turno.extra && slotHaPreferiti(dispo, v.slotKey));
-  const resto = voci.filter((v) => v.turno.extra || !slotHaPreferiti(dispo, v.slotKey));
-  const ordineVoci = [...conPref, ...resto];
+  // I turni si elaborano in ordine cronologico (di calendario): è l'ordine in cui il debito viene
+  // consumato. Stesso ordine SIA nel passaggio 1 (gerarchia pura) SIA nel passaggio 2 (definitivo, §3.11).
+  const ordineVoci = voci;
 
   // Esegue l'intero mese, nell'ordine sopra, con eventuali esclusioni per singolo turno
   // (escludiPerSlot: slotKey -> Set<mid> forzati a "no" SOLO per quello slot specifico — non
@@ -920,7 +900,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       if (esclusi && esclusi.size) {
         dispoEff = { ...dispo };
         esclusi.forEach((mid) => {
-          dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null } };
+          dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true } };
         });
       }
       const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount, esente);
@@ -945,8 +925,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   MEDICI.forEach((m) => { tetto[m.id] = tettoDistribuzioneDi(m.id, debiti0[m.id], debitiExtra0[m.id], maxTurniMese); });
 
   // Turni FISICI/EXTRA vinti da un medico in un set di risultati, in ordine cronologico (per giorno
-  // di calendario, non per ordine di elaborazione conPref/resto), con il livello della sede verde
-  // ottenuta — la copertura a distanza non conta mai ai fini del tetto mensile, come per Max turni mese.
+  // di calendario), con il livello della sede verde ottenuta — la copertura a distanza non conta mai
+  // ai fini del tetto mensile, come per Max turni mese.
   const estraiVinti = (risultati, mid) => {
     const out = [];
     voci.forEach(({ d, turno, slotKey }) => {
@@ -1138,8 +1118,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // dichiarato quella sede come verde — sempre che un'alternativa esista: la copertura vince
   // sempre, esattamente come per la spaziatura temporale (§3.7). Non cambia mai CHI vince un
   // conflitto, solo quale dei due turni il vincitore mantiene. Eseguita dopo che tutti i turni
-  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno
-  // indipendentemente dall'ordine conPref/resto in cui sono stati processati.
+  // del mese sono stati elaborati, per conoscere l'esito di entrambi i turni dello stesso giorno.
   //
   // GUARDIA TITOLARITÀ per l'alternativa (§3.1a): l'alternativa che rileva il turno ceduto viene
   // introdotta FISICAMENTE nel turno con un'assegnazione diretta che NON passa dalla correzione di
@@ -1222,35 +1201,6 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }
-
-  // VALUTAZIONE PREFERITI: dopo l'elaborazione confronta l'esito con la SEDE specifica che il
-  // medico ha marcato con ★ (CONTEXT.md §3.5). Soddisfatto se e solo se ottiene fisicamente
-  // esattamente quella sede; se ottiene una sede fisica diversa, o nessuna sede, genera un
-  // avviso — con testo diverso nei due casi. In nessun caso il preferito decide chi vince o
-  // quale sede viene assegnata: qui si osserva soltanto il risultato già deciso dalla gerarchia.
-  const meseStr = `${anno}-${String(mese + 1).padStart(2, "0")}-`;
-  MEDICI.forEach((m) => {
-    const perMedico = dispo[m.id] || {};
-    Object.entries(perMedico).forEach(([sk, raw]) => {
-      if (!sk.startsWith(meseStr)) return;
-      const v = normDispo(raw);
-      if (v.no || !v.preferito) return;
-      const d = Number(sk.slice(8, 10));
-      const tid = sk.split("|")[1];
-      const out = risultati[`${d}|${tid}`];
-      if (!out) return;
-      // MMG unificati: la sede ottenuta si legge dai FISICI come per gli ordinari (niente più
-      // sentinella "MMG"); il ★ su un MMG è valutato sulla sede esatta, esattamente come un turno normale.
-      let sedeOttenuta = null;
-      for (const fi of out.fis) if (out.slots[fi] === m.id) { sedeOttenuta = SEDI5[fi]; break; }
-      if (sedeOttenuta === v.preferito) return; // preferito soddisfatto: sede esatta ottenuta
-      if (sedeOttenuta === null) {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma non gli è stata assegnata alcuna sede (priorità superiori di altri). Valutare un intervento manuale se opportuno.` });
-      } else {
-        avvisiRaw.push({ d, testo: `Giorno ${d} · ${out.label}: ★ ${m.nome} aveva ${v.preferito} come sede preferita, ma ha ottenuto ${sedeOttenuta} (priorità superiori di altri sulla sede preferita). Valutare un intervento manuale se opportuno.` });
-      }
-    });
-  });
 
   // Ricompone lo schema in ordine di calendario (l'ordine di elaborazione sopra era solo
   // interno, per il consumo del debito — l'output resta sempre cronologico)
@@ -1350,7 +1300,7 @@ function notaSlot(slots, si, fis) {
 // Legge lo STATO REALE di un medico direttamente dai DATI (dispo + tetto mensile), senza passare dal
 // riassunto dell'AI: è la fonte di verità per verificare cosa è DAVVERO stato inserito nel mese corrente.
 // Pura; ritorna un oggetto strutturato (la formattazione per chat/pannello sta nel COMPONENTE).
-//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}], preferito}] ordinati per giorno/turno
+//   disponibilita: [{giorno, turno, no, verde:[{sede,liv}], blu:[{sede,liv}]}] ordinati per giorno/turno
 //   tettoMese: numero | null ; tettiSettimanali: [{settimana, max}] (chiavi SETT:) ; preferenzeTurno: [{giorno, turno}] (chiavi TURNOPREF:)
 function statoRealeMedico(mid, dispo, maxTurniMese) {
   const d = dispo[mid] || {};
@@ -1366,7 +1316,6 @@ function statoRealeMedico(mid, dispo, maxTurniMese) {
       giorno: Number(dt.slice(8, 10)), turno: tu, no: nv.no,
       verde: nv.no ? [] : ordinaPerLivello(nv.verde, nv.verdeLiv, MAX_LIV_VERDE).map((s) => ({ sede: s, liv: nv.verdeLiv[s] || 1 })),
       blu: nv.no ? [] : ordinaPerLivello(nv.blu, nv.bluLiv, MAX_LIV_BLU).map((s) => ({ sede: s, liv: nv.bluLiv[s] || 1 })),
-      preferito: nv.no ? null : (nv.preferito || null),
     });
   });
   disponibilita.sort((a, b) => a.giorno - b.giorno || (a.turno < b.turno ? -1 : a.turno > b.turno ? 1 : 0));

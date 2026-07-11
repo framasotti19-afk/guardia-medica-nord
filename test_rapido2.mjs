@@ -1,5 +1,5 @@
 // Test su inserimento rapido e protezione NO (CONTEXT.md §6.2, §6.3).
-// setSedeOpzione/setNoCella/setPreferitoCella/applicaRapido vivono dentro il componente
+// setSedeOpzione/setNoCella/applicaRapido vivono dentro il componente
 // React (closure su useState) e non sono estraibili come funzioni pure del motore.
 // Per testarne le REGOLE (non l'implementazione UI) questo file ne contiene una
 // trascrizione fedele in forma pura, mantenuta identica alla logica in
@@ -16,28 +16,19 @@ function setSedeOpzionePuro(curRaw, sede, opzione) {
   const next = {
     verde: cur.verde.filter((s) => s !== sede), verdeLiv: { ...cur.verdeLiv },
     blu: cur.blu.filter((s) => s !== sede), bluLiv: { ...cur.bluLiv },
-    no: false, preferito: cur.no ? null : cur.preferito,
+    no: false,
   };
   delete next.verdeLiv[sede];
   delete next.bluLiv[sede];
   if (opzione[0] === "V") { next.verde.push(sede); next.verdeLiv[sede] = Number(opzione.slice(1)); }
   else if (opzione[0] === "B") { next.blu.push(sede); next.bluLiv[sede] = Number(opzione.slice(1)); }
-  // coerenza: il preferito deve sempre riferirsi a una sede attualmente verde
-  if (!next.verde.includes(next.preferito)) next.preferito = null;
   return next;
 }
 
 // ---- trascrizione pura di setNoCella ----
 function setNoCellaPuro(valore) {
-  if (valore) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
+  if (valore) return { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true };
   return undefined; // rappresenta "delete nd[slotKey]" — cella tornata a "non specificato"
-}
-
-// ---- trascrizione pura di setPreferitoSede (toggle ★ su una sede verde specifica) ----
-function setPreferitoSedePuro(curRaw, sede) {
-  const cur = normDispo(curRaw);
-  if (cur.no || !cur.verde.includes(sede)) return curRaw; // solo su sedi attualmente verdi
-  return { verde: cur.verde, verdeLiv: cur.verdeLiv, blu: cur.blu, bluLiv: cur.bluLiv, no: false, preferito: cur.preferito === sede ? null : sede };
 }
 
 // ---- trascrizione pura del cuore di applicaRapido, per un singolo mese ----
@@ -68,7 +59,7 @@ function applicaRapidoPuro({ anno, mese, dispoEsistente, rapMedico, rapInizio, r
       const y = dt.getFullYear(), m = dt.getMonth(), d = dt.getDate();
       if (y !== anno || m !== mese) continue;
       turniRichiesti(y, m, d, rapNotte, rapGiorno, extras).forEach((tid) => {
-        touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null });
+        touch(y, m, d, tid, { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true });
         scrittiIndisp++;
       });
     }
@@ -88,7 +79,7 @@ function applicaRapidoPuro({ anno, mese, dispoEsistente, rapMedico, rapInizio, r
         if (preesistente.no) { protetti++; return; }
         const verdeLivRap = {}; verde.forEach((s) => { verdeLivRap[s] = 1; });
         const bluLivRap = {}; blu.forEach((s) => { bluLivRap[s] = 1; });
-        touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false, preferito: null });
+        touch(y, m, d, tid, { verde: [...verde], verdeLiv: verdeLivRap, blu: [...blu], bluLiv: bluLivRap, no: false });
         scrittiDisp++;
       });
     }
@@ -131,41 +122,15 @@ suite.test("Blu4 è il livello massimo consentito dal menu (4 opzioni blu, non 5
 });
 
 // ---------------------------------------------------------------------------
-// SET NO CELLA e SET PREFERITO SEDE (★ per sede specifica)
+// SET NO CELLA
 // ---------------------------------------------------------------------------
 suite.test("setNoCella(true) pulisce verde/blu e imposta no", () => {
   const r = setNoCellaPuro(true);
-  suite.assert(r.no === true && r.verde.length === 0 && r.blu.length === 0 && r.preferito === null);
+  suite.assert(r.no === true && r.verde.length === 0 && r.blu.length === 0);
 });
 suite.test("setNoCella(false) rimuove la cella (torna a \"non specificato\")", () => {
   suite.eq(setNoCellaPuro(false), undefined);
 });
-suite.test("setPreferitoSede non fa nulla se la cella è già NO esplicito", () => {
-  const cur = turnoDisp([], [], { no: true });
-  const r = setPreferitoSedePuro(cur, "Maniago");
-  suite.eq(r, cur, "un turno NO non può ricevere una sede preferita");
-});
-suite.test("setPreferitoSede non fa nulla se la sede non è attualmente verde (es. è blu)", () => {
-  const cur = turnoDisp([], ["Meduno"], { bluLiv: { Meduno: 1 } });
-  const r = setPreferitoSedePuro(cur, "Meduno");
-  suite.eq(r, cur, "non si può preferire una sede che non è dichiarata verde");
-});
-suite.test("setPreferitoSede su una sede verde la marca come preferita", () => {
-  const cur = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 } });
-  const r = setPreferitoSedePuro(cur, "Maniago");
-  suite.eq(r.preferito, "Maniago");
-});
-suite.test("setPreferitoSede sulla stessa sede già preferita la toglie (toggle)", () => {
-  const cur = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 }, preferito: "Maniago" });
-  const r = setPreferitoSedePuro(cur, "Maniago");
-  suite.eq(r.preferito, null);
-});
-suite.test("setPreferitoSede su una nuova sede verde sposta la preferenza (un solo preferito alla volta)", () => {
-  const cur = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 2 }, preferito: "Maniago" });
-  const r = setPreferitoSedePuro(cur, "Spilimbergo");
-  suite.eq(r.preferito, "Spilimbergo");
-});
-
 // ---------------------------------------------------------------------------
 // APPLICA RAPIDO — range fill e protezione NO
 // ---------------------------------------------------------------------------

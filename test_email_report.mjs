@@ -47,8 +47,6 @@ function azioneCorrisponde(spec, azione, medicoCaso) {
       const liv = azione.sedi_liv || {};
       const valori = (azione.sedi || []).map((s) => liv[s] ?? 1);
       if (atteso && new Set(valori).size > 1) return false;
-    } else if (chiave === "preferito") {
-      if ((azione.preferito || null) !== atteso) return false;
     } else if (chiave === "preferenzaLivelli") {
       // "preferibilmente X, altrimenti Y": livello di X deve essere più basso (preferito) di Y.
       const liv = azione.sedi_liv || {};

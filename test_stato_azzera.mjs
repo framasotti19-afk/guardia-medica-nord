@@ -9,19 +9,19 @@ const J = (x) => JSON.stringify(x);
 const A = 2026, M = 7; // agosto 2026
 const key = (g, t) => `${dk(A, M, g)}|${t}`;
 
-// Dispo di partenza: medico 5 con slot misti (verde/blu/preferito, indifferenza, NO), un tetto
+// Dispo di partenza: medico 5 con slot misti (verde/blu, indifferenza, NO), un tetto
 // settimanale e una preferenza turno; medico 6 con uno slot (deve restare INTATTO).
 const dispoBase = () => ({
   5: {
-    [key(4, "N")]: { verde: ["Spilimbergo"], verdeLiv: { Spilimbergo: 1 }, blu: ["Anduins"], bluLiv: { Anduins: 2 }, no: false, preferito: "Spilimbergo" },
-    [key(6, "N")]: { verde: ["Maniago", "Spilimbergo"], verdeLiv: { Maniago: 2, Spilimbergo: 2 }, blu: [], bluLiv: {}, no: false, preferito: null },
-    [key(8, "N")]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null },
+    [key(4, "N")]: { verde: ["Spilimbergo"], verdeLiv: { Spilimbergo: 1 }, blu: ["Anduins"], bluLiv: { Anduins: 2 } , no: false },
+    [key(6, "N")]: { verde: ["Maniago", "Spilimbergo"], verdeLiv: { Maniago: 2, Spilimbergo: 2 }, blu: [], bluLiv: {}, no: false },
+    [key(8, "N")]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true },
     ["SETT:2026-08-04"]: { maxTurni: 2 },
     ["TURNOPREF:" + dk(A, M, 15)]: "G",
     ["OBBL:" + key(4, "N")]: true,
     ["OBBL:" + key(6, "N")]: "Spilimbergo",
   },
-  6: { [key(10, "N")]: { verde: ["Meduno"], verdeLiv: { Meduno: 1 }, blu: [], bluLiv: {}, no: false, preferito: null } },
+  6: { [key(10, "N")]: { verde: ["Meduno"], verdeLiv: { Meduno: 1 }, blu: [], bluLiv: {}, no: false } },
 });
 
 // --- 8a: statoRealeMedico legge esattamente i dati ---
@@ -29,9 +29,9 @@ s.test("statoRealeMedico: disponibilità, tetto mensile, tetti settimanali, pref
   const st = statoRealeMedico(5, dispoBase(), { 5: 8 });
   s.eq(st.tettoMese, 8, "tetto mensile");
   s.eq(J(st.disponibilita), J([
-    { giorno: 4, turno: "N", no: false, verde: [{ sede: "Spilimbergo", liv: 1 }], blu: [{ sede: "Anduins", liv: 2 }], preferito: "Spilimbergo" },
-    { giorno: 6, turno: "N", no: false, verde: [{ sede: "Maniago", liv: 2 }, { sede: "Spilimbergo", liv: 2 }], blu: [], preferito: null },
-    { giorno: 8, turno: "N", no: true, verde: [], blu: [], preferito: null },
+    { giorno: 4, turno: "N", no: false, verde: [{ sede: "Spilimbergo", liv: 1 }], blu: [{ sede: "Anduins", liv: 2 }] },
+    { giorno: 6, turno: "N", no: false, verde: [{ sede: "Maniago", liv: 2 }, { sede: "Spilimbergo", liv: 2 }], blu: [] },
+    { giorno: 8, turno: "N", no: true, verde: [], blu: [] },
   ]), "disponibilità strutturate diverse dall'atteso");
   s.eq(J(st.tettiSettimanali), J([{ settimana: "2026-08-04", max: 2 }]), "tetti settimanali");
   s.eq(J(st.preferenzeTurno), J([{ giorno: 15, turno: "G" }]), "preferenze turno");
@@ -71,7 +71,7 @@ s.test("azzera + reinserisci: nessun residuo dei giorni vecchi", () => {
   const { entry } = costruisciEntryDispo(a, "IENGO");
   const slots = espandiAmbito({ giorni_settimana: { da: "mar", a: "gio" } }, ["N"], [], A, M, {});
   const nd = {};
-  slots.forEach(({ giorno, turno }) => { nd[key(giorno, turno)] = { verde: [...entry.verde], verdeLiv: { ...entry.verdeLiv }, blu: [...entry.blu], bluLiv: { ...entry.bluLiv }, no: false, preferito: entry.preferito }; });
+  slots.forEach(({ giorno, turno }) => { nd[key(giorno, turno)] = { verde: [...entry.verde], verdeLiv: { ...entry.verdeLiv }, blu: [...entry.blu], bluLiv: { ...entry.bluLiv }, no: false }; });
   dispo = { ...dispo, 5: nd };
   // 3) verifica: dispo[5] contiene ESATTAMENTE i nuovi slot (mar/mer/gio notte), nessun residuo.
   // Nota: g4=martedì e g6=giovedì di agosto rientrano LEGITTIMAMENTE nel nuovo insieme mar→gio, quindi

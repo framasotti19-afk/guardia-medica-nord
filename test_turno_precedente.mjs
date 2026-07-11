@@ -71,7 +71,7 @@ const LUN = cavalloDi(A, M); // "2026-07-27"
 // Stato di partenza: medico 1 con tetto cavallo dichiarato 2 + una notte di agosto e un altro medico intatto.
 const statoBase = () => ({
   dispo: {
-    1: { ["SETT:" + LUN]: { maxTurni: 2, dichiarato: 2 }, [`${dk(A, M, 5)}|N`]: { verde: ["Maniago"], verdeLiv: { Maniago: 1 }, blu: [], bluLiv: {}, no: false, preferito: null } },
+    1: { ["SETT:" + LUN]: { maxTurni: 2, dichiarato: 2 }, [`${dk(A, M, 5)}|N`]: { verde: ["Maniago"], verdeLiv: { Maniago: 1 }, blu: [], bluLiv: {}, no: false } },
     2: { ["SETT:" + LUN]: { maxTurni: 1, dichiarato: 1 } },
   },
   turniPrecedenti: { 2: { [dk(A, 6, 30)]: { N: true } } }, // medico 2 ha già un turno il 30 lug (deve restare)

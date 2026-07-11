@@ -89,14 +89,14 @@ function generaScenario(seed, anno, mese) {
       const info = turniDelGiorno(anno, mese, d, extras);
       info.turni.forEach((turno) => {
         const slotKey = `${info.key}|${turno.id}`;
-        if (ferieTotali.has(m.id)) { dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null }; return; }
+        if (ferieTotali.has(m.id)) { dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true }; return; }
         if (!pienaDispo.has(m.id) && chance(0.3)) return; // giorno non compilato affatto (nessuna dichiarazione)
         if (turno.extra) {
-          if (chance(0.3)) dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: chance(0.03) ? casa : null };
+          if (chance(0.3)) dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false };
           return;
         }
         if (!pienaDispo.has(m.id) && chance(0.2)) {
-          dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
+          dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true };
           return;
         }
         const verde = [casa]; const verdeLiv = { [casa]: 1 + Math.floor(rnd() * MAX_LIV_VERDE) };
@@ -113,7 +113,7 @@ function generaScenario(seed, anno, mese) {
         }
         dispo[m.id][slotKey] = {
           verde, verdeLiv, blu: bluAttiva ? [...blu] : [], bluLiv: bluAttiva ? { ...bluLiv } : {},
-          no: false, preferito: chance(0.03) ? pick(verde) : null,
+          no: false,
         };
       });
       // #22 preferenza turno G/N (§3.9): solo sui giorni con ENTRAMBI i turni (weekend/festivi/

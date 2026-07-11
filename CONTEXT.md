@@ -21,7 +21,7 @@ Questo file contiene tutto il contesto necessario per lavorare sull'app senza ri
 
 5. **Copertura a distanza — vincolo territoriale (formulazione esatta dal codice).** In `risolviBlu`, la funzione `puoCoprireADistanza(mid, si)` (righe 364-368) è un FILTRO applicato PRIMA della gerarchia: **Claut** (indice sede 3) è coperibile a distanza SOLO da chi è fisicamente a **Maniago** (`sedeFisicaDi[mid] === 0`) — unica via; **Anduins** (indice 4) SOLO da chi è fisicamente a **Spilimbergo** (`=== 1`) **oppure Meduno** (`=== 2`) — due vie; le altre sedi (Maniago/Spilimbergo/Meduno a distanza) non hanno vincolo (`return true`). Il vincolo è sulla SEDE FISICA effettiva del coprente (`sedeFisicaDi`), non sulla titolarità. Resta sempre necessaria la dichiarazione blu esplicita e vale il massimo di 1 sede a distanza per medico. Verificato in simulazione da `INV-TERRITORIALE`.
 
-6. **Preferenze verde/blu.** Le sedi dichiarate (verde = fisica, blu = a distanza) e i loro livelli guidano SOLO l'eleggibilità e l'ordine con cui una sede viene assegnata a un vincitore (`ordinaPerLivello`, livelli pari = sedi indifferenti tra cui il motore può spostare il medico); non cambiano MAI chi vince un conflitto. Il `preferito` è puramente informativo (genera un avviso se non soddisfatto), non decisionale. Un medico non viene mai forzato su una sede che non ha dichiarato verde (INV1) né coperto a distanza su una sede non dichiarata blu (INV3).
+6. **Preferenze verde/blu.** Le sedi dichiarate (verde = fisica, blu = a distanza) e i loro livelli guidano SOLO l'eleggibilità e l'ordine con cui una sede viene assegnata a un vincitore (`ordinaPerLivello`, livelli pari = sedi indifferenti tra cui il motore può spostare il medico); non cambiano MAI chi vince un conflitto. Un medico non viene mai forzato su una sede che non ha dichiarato verde (INV1) né coperto a distanza su una sede non dichiarata blu (INV3).
 
 7. **Distribuzione temporale (§3.11).** La distribuzione mensile "run-then-redistribute": chi vincerebbe più turni del proprio tetto (il più restrittivo tra monte-ore-implicito e `maxTurniMese` dichiarato) cede l'eccesso al candidato successivo in gerarchia, tenendo il sottoinsieme più equidistanziato nel tempo — ma con la **priorità di sede ASSOLUTA sull'equidistanza** (§3.11): il tetto è rigido, la copertura non prevale mai su di esso, e la qualità della distribuzione non deve mai sacrificare indebitamente le priorità di sede. Il **pool** da cui si sceglie è ricalcolato su TUTTO il mese (oracolo che esenta solo quel medico dal blocco monte ore §3.4) OGNI VOLTA che la disponibilità supera il tetto — non solo quando un `maxTurniMese` esplicito è più restrittivo del monte ore, ma anche nel caso comune "disponibile tutto il mese + tetto = monte ore" (§10 voce 48). Il ricalcolo è correttezza-neutra e scatta solo per chi ha esaurito il monte ore in P1 (gate perf). (La qualità della distribuzione è coperta da unit test deterministici, non dagli invarianti della sim densa — §10 voce 20.)
 
@@ -44,7 +44,7 @@ App React single-file (`turni-guardia-medica.jsx`) per la gestione mensile dei t
 **Sedi del distretto:** Maniago (MA), Spilimbergo (SP), Meduno (ME), Claut (CL), Anduins (AN). Maniago e Spilimbergo sono le 2 "CDC" (Centri Di Coordinamento), sempre prioritarie.
 
 L'app:
-- Permette di inserire disponibilità mensili per ciascun medico: per ogni sede, un menu a tendina con **Non disponibile / Verde 1-5 (sede fisica) / Blu 1-4 (copertura a distanza)**, indisponibilità NO esplicita, preferiti
+- Permette di inserire disponibilità mensili per ciascun medico: per ogni sede, un menu a tendina con **Non disponibile / Verde 1-5 (sede fisica) / Blu 1-4 (copertura a distanza)**, indisponibilità NO esplicita
 - Applica le regole di assegnazione turni (gerarchia, titolarità di sede, debito orario, graduatoria) per produrre uno schema
 - Permette correzioni manuali post-elaborazione
 - Esporta lo schema in Excel (.xlsx) fedele al formato reale ASFO
@@ -61,7 +61,7 @@ righe 1-113     → DATI SIMULAZIONE (MEDICI_DEFAULT con sedeContratto, byId, CA
 righe 114-182   → MOTORE: normDispo, ordinaPerLivello, MAX_LIV_VERDE/BLU, giorniTra, settimanaDi, capSettimanale
 righe 184-217   → MOTORE: turnoPrefDi, candidatiOrdinati (preferenza turno §3.9 + turni extra §3.10 + estrazione candidati condivisa)
 righe 219-427   → MOTORE: elaboraTurno (cuore dell'algoritmo: fisica + a distanza + tetto settimanale + turni extra §3.10)
-righe 429-563   → MOTORE: elaboraSchema (orchestrazione mese, preferiti prima, poi resto, poi preferenza turno §3.9)
+righe 429-563   → MOTORE: elaboraSchema (orchestrazione mese, ordine cronologico, poi preferenza turno §3.9)
 righe 564-580   → MOTORE: sedePrimaria, notaSlot (helper post-elaborazione)
 righe 581-... (nota: numeri di riga oltre questo punto non aggiornati a ogni modifica UI — usa grep per i marker esatti) → COMPONENTE REACT (state, event handlers, EXPORT XLSX, UI, AI, render)
 ```
@@ -166,8 +166,6 @@ dispo[mid][slotKey] = {
   blu: ["Meduno"],                        // sedi che è disposto a COPRIRE A DISTANZA
   bluLiv: { Meduno: 1 },                  // livello 1..4 per ogni sede blu
   no: false,                              // NO esplicito (protegge dall'inserimento rapido)
-  preferito: "Maniago",                   // ★ SEDE VERDE specifica preferita per questo turno,
-                                           // o null — deve essere una delle sedi in `verde` (§3.5)
 }
 ```
 
@@ -190,13 +188,7 @@ dispo[mid][slotKey] = {
 
 ### 3.4 Meccanismo auto-bilanciante del debito
 
-Turni elaborati in ordine cronologico (ma i turni con almeno un preferito ★ dichiarato vengono elaborati TUTTI PRIMA del resto):
-
-```
-turni_del_mese = [...conPref, ...resto]  // conPref = turni con almeno un preferito ★ dichiarato
-```
-
-Questo è critico: cambia i debiti progressivi e quindi i risultati di conflitti successivi.
+Turni elaborati in ordine cronologico (di calendario): è l'ordine in cui il debito viene consumato progressivamente, e quindi influenza i risultati dei conflitti successivi.
 
 A parità di debito e categoria, vince la graduatoria migliore (numero più basso).
 Dopo ogni assegnazione il debito del vincitore scende. Al turno successivo a parità, l'altro medico ha più debito → vince lui. **L'equità emerge automaticamente**, con vantaggio strutturale per chi ha graduatoria migliore (vince i tie-break).
@@ -204,14 +196,9 @@ Dopo ogni assegnazione il debito del vincitore scende. Al turno successivo a par
 Esempio con 5 turni a parità di debito iniziale:
 - A(grad3) vs B(grad124): A 1°, B 2°, A 3°, B 4°, A 5° → risultato 3-2 per A
 
-### 3.5 Preferiti — sede specifica
+### 3.5 Preferiti — sede specifica (RIMOSSA, §10 voce 62)
 
-Il flag ★ **preferito si attacca a una sede VERDE specifica**, non alla giornata generica: il medico dichiara "voglio questo turno preferibilmente su questa sede", marcando con ★ una delle sedi che ha già dichiarato verde per quel turno (`preferito` = nome della sede, o `null`).
-
-- Il preferito NON decide mai chi vince un conflitto. Serve solo a garantire che il turno venga elaborato tra i primi (fase `conPref`), così il debito del medico è ancora pieno quando viene valutato — aumentando la probabilità (non la certezza) di ottenerlo. La gerarchia rimane l'unico criterio decisionale.
-- **Soddisfatto se e solo se il medico ottiene fisicamente esattamente quella sede** — non una sede verde qualunque. Se ottiene una sede fisica diversa (anche se dichiarata come sua seconda scelta verde), o se non ottiene alcuna sede, il coordinatore riceve un avviso; il testo distingue i due casi ("ha ottenuto SEDEX invece" vs "non gli è stata assegnata alcuna sede").
-- Un medico ha al massimo **un solo** preferito per turno: marcarne uno nuovo toglie automaticamente quello precedente (radio, non multi-selezione).
-- Il preferito deve sempre riferirsi a una sede che il medico ha **attualmente** dichiarato verde per quel turno: se la sede verde viene rimossa (o cambiata in blu/non disponibile), il preferito su quella sede si azzera automaticamente.
+La funzione ☆ "sede preferita" (campo `preferito` nell'entry dispo) è stata **completamente rimossa**: né UI, né motore, né prompt, né avvisi. Con essa è sparito anche l'ordine di elaborazione `conPref`/`resto` (i turni con un preferito venivano elaborati per primi): ora l'elaborazione è **puramente cronologica** (§3.4). Nota: la preferenza di **TURNO** diurno/notturno (`TURNOPREF`, §3.9) è cosa diversa e resta invariata.
 - **Non esiste più un preferito "anche in ripiego a distanza"** (il vecchio `preferitoRip`): era ridondante col blu, dato che coprire a distanza richiede comunque una presenza fisica altrove, e comunque il preferito ora è già specifico sulla sede fisica desiderata.
 
 ### 3.6 Calendario mensile e fasi
@@ -391,7 +378,6 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
   //      usata per il fisico (titolarità sede → categoria → debito → graduatoria tra determinati)
   //    - Ogni medico copre al massimo 1 sede a distanza
   // 5. Avviso per qualunque sede (fisica o a distanza) rimasta scoperta
-  // 6. Avvisi per preferiti non rispettati (valutati in elaboraSchema)
 }
 ```
 
@@ -466,7 +452,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   // Dopo ogni scambio il turno ceduto ha un nuovo insieme di fisici: la sua copertura a distanza
   // (blu) viene ricalcolata da capo con risolviBlu (§3.9, §10 voce 22), così una copertura
   // rimasta orfana passa a un altro fisico presente o resta scoperta — mai da un non-fisico.
-  // Raccoglie avvisi: copertura scoperta (per sede) + preferiti non rispettati
+  // Raccoglie avvisi: copertura scoperta (per sede)
 }
 ```
 
@@ -480,9 +466,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
 4. **Menu a tendina per sede** — sostituisce il vecchio ciclo a tocchi: per ogni sede, un `<select>` con Non disponibile / Sede principale 1-5 / Copertura a distanza 1-4 (etichette solo UI: `verde`/`blu` restano i nomi interni nel motore — vedi §3)
 5. **Sistema verde/blu** — verde = sede fisica (unificata, niente più piena/ripiego a due livelli), blu = disponibilità a coprire a distanza (nessuna copertura automatica, un medico copre al massimo 1 sede a distanza)
 6. **Titolarità di sede obbligatoria per ogni contrattualizzato** — campo `sedeContratto` (Maniago/Spilimbergo, obbligatorio per INDET/DET38/DET24/DET12ASAP/DET12, mai per SENZA), decide i conflitti sulla sede contesa tra QUALSIASI coppia di contrattualizzati prima della categoria (§3.1a)
-7. **Preferito su sede verde specifica** — ★ attaccato a una sede, non alla giornata; informativo, non decisionale (§3.5)
-8. **Avvisi post-elaborazione** per sedi scoperte e per preferiti non rispettati — `dati.avvisi` continua a essere generato dal motore e inviato all'assistente AI (`stato.avvisiScenari`), ma dalla UI non è più visualizzato: la sezione "⚠ Avvisi — richieste da fare ai medici" nel tab Schema turni è stata rimossa (era troppo dispersiva)
-9. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore. Questo vale anche quando un'ALTRA sede dello stesso turno è coperta (es. scenario 1 con un solo medico fisico su una sede diversa da Maniago): Maniago/Spilimbergo mostrano comunque "SCOPERTO" invece di una cella vuota (bug corretto — in precedenza il ramo `t.slots.some(Boolean)` di `buildSheetXML` gestiva l'assenza di medico solo per Meduno/Claut/Anduins, lasciando Maniago/Spilimbergo senza testo in quel caso). Etichette dei turni adattate SOLO per l'export (`ETICHETTE_EXPORT` in `buildSheetXML`, la griglia a schermo resta invariata): il diurno feriale/weekend "semplice" perde l'orario e diventa solo "DIURNO" (prefestivo e superfestivo restano con l'orario completo); le colonne MMG mattina/pomeriggio diventano "ANTICIPO DIURNO MMG e PLS 8-14" / "...14-20", con tutte e 5 le sedi mostrate (Maniago = il medico assegnato o SCOPERTO; Spilimbergo sempre SCOPERTO rosso; Meduno/Claut/Anduins sempre "scoperto" grigio, perché il turno MMG non le copre mai).
+7. **Avvisi post-elaborazione** per sedi scoperte — `dati.avvisi` continua a essere generato dal motore e inviato all'assistente AI (`stato.avvisiScenari`), ma dalla UI non è più visualizzato: la sezione "⚠ Avvisi — richieste da fare ai medici" nel tab Schema turni è stata rimossa (era troppo dispersiva)
+8. **Esportazione Excel** — layout identico al file reale ASFO (costruito a mano come ZIP OOXML). Sede scoperta: Maniago/Spilimbergo → cella "SCOPERTO" (maiuscolo) rossa grassetto (stile 11, emergenza); Meduno/Claut/Anduins → cella "scoperto" (minuscolo) grigio scuro `#666666` non grassetto (stile 13, neutro, sede secondaria) — mai vuota, mai rossa, per distinguere visivamente un buco su una CDC da uno su una sede minore. Questo vale anche quando un'ALTRA sede dello stesso turno è coperta (es. scenario 1 con un solo medico fisico su una sede diversa da Maniago): Maniago/Spilimbergo mostrano comunque "SCOPERTO" invece di una cella vuota (bug corretto — in precedenza il ramo `t.slots.some(Boolean)` di `buildSheetXML` gestiva l'assenza di medico solo per Meduno/Claut/Anduins, lasciando Maniago/Spilimbergo senza testo in quel caso). Etichette dei turni adattate SOLO per l'export (`ETICHETTE_EXPORT` in `buildSheetXML`, la griglia a schermo resta invariata): il diurno feriale/weekend "semplice" perde l'orario e diventa solo "DIURNO" (prefestivo e superfestivo restano con l'orario completo); le colonne MMG mattina/pomeriggio diventano "ANTICIPO DIURNO MMG e PLS 8-14" / "...14-20", con tutte e 5 le sedi mostrate (Maniago = il medico assegnato o SCOPERTO; Spilimbergo sempre SCOPERTO rosso; Meduno/Claut/Anduins sempre "scoperto" grigio, perché il turno MMG non le copre mai).
 10. **Spaziatura temporale** — a parità di alternative valide, evita di assegnare due turni consecutivi allo stesso medico; non lascia mai sedi scoperte per questo (§3.7)
 11. **Tetto settimanale opzionale** — il medico dichiara un massimo di turni per settimana, impostabile da UI (Rapido) o AI (§3.8)
 12. **AI integrata** — conosce tutte le regole (incluse titolarità e verde/blu), può modificare disponibilità e schema tramite JSON
@@ -530,7 +515,6 @@ open('engine_test.mjs', 'w').write(engine + '\nexport { MEDICI, MEDICI_DEFAULT, 
 
 # Lancia tutti i test
 node run_tests2.mjs            # 48 test runtime (gerarchia, titolarità universale, scenari verde/blu, debito)
-node test_preferiti2.mjs       # 13 test preferiti (sede specifica) e ordine elaborazione
 node test_rapido2.mjs          # 18 test inserimento rapido, menu a tendina e protezione NO
 node test_livelli_verde_blu.mjs # 11 test livelli verde 1-5 e blu 1-4
 node test_stesso_cat2.mjs      # 9 test conflitti stessa categoria
@@ -610,7 +594,7 @@ done
 
 # 3. Estrai motore e lancia tutti i test
 python3 -c "..."  # vedi sopra
-node run_tests2.mjs && node test_preferiti2.mjs && node test_rapido2.mjs && \
+node run_tests2.mjs && node test_rapido2.mjs && \
   node test_livelli_verde_blu.mjs && node test_stesso_cat2.mjs && \
   node test_nuove_funzioni.mjs && node test_spaziatura_settimana.mjs && \
   node test_categorie_12h.mjs && node test_preferenza_turno.mjs && node test_turni_extra.mjs && \
@@ -788,6 +772,8 @@ Questi bug sono stati trovati e corretti durante lo sviluppo. Se riappaiono è u
 60. **UI — rinomina campi 📅 + avvisi in linguaggio umano (motore byte-identico)** — quattro modifiche di sola UI, chiavi/logica motore invariate. (1) Nel pannellino 📅 il tetto settimanale (prima senza label) ha ora una label **"Al massimo"** accanto al campo (chiave `SETT:` invariata); (2) il minimo settimanale (voce 57) è etichettato **"Vorrei assolutamente"** (chiave `SETTWK:` invariata); (3) rimossa l'intestazione esplicativa in cima al pannello 📅 ("Tetto turni per singola settimana ISO…"). (4) **Avvisi del banner tab 4**: titolo → *"⚠️ Da verificare prima di esportare"*; poiché la stringa SCOPERTO nasce nel MOTORE (`elaboraTurno`, "con N medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): …"), il ripasso è un **transform di sola visualizzazione** su `dati.avvisi` (const `avvisiUI`, il motore e l'array passato all'AI restano identici): sostituisce "nessuna disponibilità verde o blu dichiarata" → "nessun medico disponibile come sede fisica o copertura a distanza", "con 1 medici presenti" → "con 1 solo medico presente", e **filtra** gli avvisi SCOPERTO con 1 solo medico presente (ovvi/rumorosi: l'unico motivo è la mancanza di medici; l'avviso SCOPERTO resta solo con 2+ medici). **Verifiche**: esbuild OK; `engine_test.mjs` **byte-identico** (nessuna riga motore toccata); Playwright smoke (📅 mostra "Al massimo"/"Voglio", 0 errori); transform verificato su stringhe campione; `docs/app.jsx` rigenerato.
 
 61. **Distribuzione §3.11 — pin del TURNO PREFERITO (§3.9) come punto fisso** — quando un medico vince sia il diurno (G) sia il notturno (N) dello STESSO giorno e ha dichiarato una preferenza (`TURNOPREF`), il turno **preferito** diventa un pin in `kept` (via il set `prefForzati`, unito a `obblVinti` insieme a obbligatori/finestre): la distribuzione §3.11 gli costruisce attorno invece di cederlo, così nel PASSAGGIO 2 il medico lavora davvero il turno che voleva. **Fix "A"** (scelto dal coordinatore): si pinna **solo** il turno preferito; il non preferito resta candidato ordinario (tipicamente ceduto a un backup, che lo copre in P2). Si attiva SOLO quando vince ENTRAMBI i turni del giorno (`pool.some(altroKey)`): con un solo turno vinto, `prefForzati` è vuoto → comportamento identico a prima. Nota di meccanismo: `giorniFissi` sono **ancore da cui allontanarsi** (spaziatura), NON slot tenuti — aggiungere solo il giorno lì avrebbe **ceduto** entrambi i turni; il pin corretto passa da `kept`, come obbligatori/finestre. **Verifiche**: nuovo `test_pref_pin_distribuzione.mjs` **4/4** con **controprova diretta** (stesso scenario: senza preferenza §3.11 cede il 14 diurno; con preferenza lo mantiene, tetto rispettato) + no-op se vince un solo turno + determinismo — la sim 100k da sola NON basta (cedere il preferito non viola invarianti). **Intera suite unit verde**; **sim 100k: 0 violazioni**. `engine_test.mjs`/`docs/app.jsx` rigenerati; esbuild OK.
+
+62. **RIMOZIONE completa della ☆ "sede preferita"** — eliminato ovunque il campo `preferito` dell'entry dispo e tutto ciò che lo riguardava (motore + UI + prompt AI + test). ⚠️ **Impatto sul motore verificato e accettato dal coordinatore**: `preferito` NON entrava nella gerarchia (assente da `candidatiOrdinati`/`elaboraTurno`/`provaFisica`/`risolviBlu`), MA alimentava `slotHaPreferiti` → l'ordine `conPref`/`resto` (i turni con un preferito elaborati per primi): rimuoverlo rende l'elaborazione **puramente cronologica** (§3.4) → **gli schemi cambiano** negli scenari con preferiti + debito conteso (NON byte-identico). Rimossi: `slotHaPreferiti`, `conPref/resto` (→ `ordineVoci = voci`), il campo in `costruisciEntryDispo`/`normDispo`/entry-literal, il blocco avvisi "★ preferita non ottenuta", `preferito` da `statoRealeMedico`; in UI il toggle ☆/★ nel popup cella + `setPreferitoSede` + display ★; nel prompt AI il campo `"preferito"`, il `PREF:`, i trigger ☆. **NON toccata** la preferenza di TURNO (`TURNOPREF`, §3.9/voce 61), cosa diversa. **Test**: eliminato `test_preferiti2.mjs` (13 test, era interamente la feature); ripuliti gli altri (`turnoDisp` senza `preferito`; `test_stato_azzera`/`dispo_set_equivalenza`/`rapido2`/`preferenza_turno` senza il campo; generatori sim senza generazione preferito). Anche **task 2**: legenda tab 1 rinominata 📌 "Ci tengo a questa data" · ⚓ "Ci tengo a questa data solo se sono in questa sede". **Verifiche**: 0 residui `preferito`/★/☆ (solo la preferenza di TURNO resta); esbuild OK; ESLint nessun nuovo warning; **intera suite unit verde**; **sim 100k: 0 violazioni** (schemi cambiati ma invarianti intatti); Playwright smoke OK; `engine_test.mjs`/`docs/app.jsx` rigenerati.
 
 ---
 

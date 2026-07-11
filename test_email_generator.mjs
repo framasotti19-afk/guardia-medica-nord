@@ -109,12 +109,8 @@ times(54, (i) => {
   });
 });
 
-// ============ 3. SEDI FISICHE "PREFERIBILMENTE X, ALTRIMENTI Y" (livelli 1/2, NON il campo "preferito") ============
-// Nota: il prompt (sezione dispo_aggiungi) mappa ESPLICITAMENTE questa formulazione su sedi_liv
-// (es. Maniago:1, Spilimbergo:2), non sul campo "preferito" (★) — quello è un concetto diverso e
-// più forte (§3.5, CONTEXT.md), che sposta l'elaborazione del turno in testa al mese. Il primo
-// corpus generato per questa categoria testava (erroneamente) "preferito": la run reale ha
-// confermato che l'AI risponde correttamente con i livelli, come da prompt — corretto qui l'atteso.
+// ============ 3. SEDI FISICHE "PREFERIBILMENTE X, ALTRIMENTI Y" (livelli 1/2) ============
+// Nota: il prompt (sezione dispo_aggiungi) mappa ESPLICITAMENTE questa formulazione su sedi_liv (es. Maniago:1, Spilimbergo:2).
 times(54, (i) => {
   const giorno = pick(GIORNI_FERIALI);
   const m = pick(contrattualizzati);

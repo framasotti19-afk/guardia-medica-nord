@@ -52,7 +52,7 @@ export function turnoDisp(verde = [], blu = [], extra = {}) {
   return {
     verde, verdeLiv: extra.verdeLiv || {},
     blu, bluLiv: extra.bluLiv || {},
-    no: !!extra.no, preferito: extra.preferito || null, // preferito: nome della sede verde preferita, o null
+    no: !!extra.no,
   };
 }
 

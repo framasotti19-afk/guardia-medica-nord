@@ -46,7 +46,6 @@ MEDICI.forEach((m, idx) => {
   // un paio di medici dichiarano DUE sedi verdi a pari livello (indifferenti)
   const verde2 = chance(0.15) ? pick(SEDI_MAGGIORI.filter((s) => s !== casa)) : null;
 
-  let preferitiDati = 0;
   for (let d = 1; d <= N_GIORNI; d++) {
     const info = turniDelGiorno(ANNO, MESE, d, extras);
     info.turni.forEach((turno) => {
@@ -54,13 +53,13 @@ MEDICI.forEach((m, idx) => {
       if (turno.extra) {
         // disponibile ai turni extra solo se "vicino" (verde = casa) e non troppo spesso
         if (chance(0.35)) {
-          dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false, preferito: null };
+          dispo[m.id][slotKey] = { verde: [casa], verdeLiv: {}, blu: [], bluLiv: {}, no: false };
         }
         return;
       }
       if (chance(0.22)) {
         // indisponibilità esplicita (impegno personale)
-        dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true, preferito: null };
+        dispo[m.id][slotKey] = { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true };
         return;
       }
       const verde = [casa];
@@ -69,12 +68,7 @@ MEDICI.forEach((m, idx) => {
       const blu = [blu1];
       const bluLiv = { [blu1]: 1 };
       if (blu2) { blu.push(blu2); bluLiv[blu2] = 2; }
-      let preferito = null;
-      if (preferitiDati < 2 && chance(0.05)) {
-        preferito = pick(verde); // ★ su una sede verde specifica dichiarata
-        preferitiDati++;
-      }
-      dispo[m.id][slotKey] = { verde, verdeLiv, blu, bluLiv, no: false, preferito };
+      dispo[m.id][slotKey] = { verde, verdeLiv, blu, bluLiv, no: false };
     });
   }
 });

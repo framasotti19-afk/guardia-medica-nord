@@ -181,9 +181,9 @@ suite.test("senza preferenza dichiarata, il vincitore mantiene ENTRAMBI i turni:
   suite.eq(tN.slots[0], BERTUZZI, "senza preferenza dichiarata, BERTUZZI mantiene anche il notturno: nessuna rotazione automatica verso CERVESATO");
 });
 
-suite.test("★ preferito sul notturno + nessuna preferenza di turno: mantiene ENTRAMBI, l'ordine conPref/resto non ha più alcun effetto collaterale sulla spaziatura (rimossa)", () => {
+suite.test("senza preferenza di turno dichiarata: mantiene ENTRAMBI (nessuna cessione automatica)", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // ★ sul notturno: elaborato per primo (§3.5)
+  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
   d[CERVESATO][G(G8)] = turnoDisp(["Maniago"]); // alternativa disponibile, ma senza preferenza dichiarata non entra in gioco
   const { schema } = schemaCompleto(d);
@@ -192,9 +192,9 @@ suite.test("★ preferito sul notturno + nessuna preferenza di turno: mantiene E
   suite.eq(tG.slots[0], BERTUZZI, "senza una preferenza di turno esplicita, mantiene anche il diurno: nessuna cessione automatica, indipendentemente da quale dei due è stato elaborato per primo");
 });
 
-suite.test("★ preferito sul notturno + preferenza di turno ☀️ diurno: la preferenza esplicita prevale sull'ordine conPref/resto", () => {
+suite.test("preferenza di turno ☀️ diurno dichiarata: la preferenza esplicita prevale", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" }); // ★ sul notturno: elaborato per primo
+  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
   d[CERVESATO][G(G8)] = turnoDisp(["Maniago"]); // presente solo sul diurno: non è un'alternativa per il notturno
   d[BERTUZZI][TURNOPREF(G8)] = "G"; // dichiara esplicitamente di preferire il diurno
@@ -204,16 +204,16 @@ suite.test("★ preferito sul notturno + preferenza di turno ☀️ diurno: la p
   suite.eq(tN.slots[0], BERTUZZI, "il notturno non preferito non ha alternative valide (CERVESATO ha dichiarato solo il diurno): nessuna alternativa, la copertura vince e resta comunque a BERTUZZI");
 });
 
-suite.test("★ preferito sul notturno + preferenza di turno ☀️ diurno, con alternativa disponibile anche sul notturno: lo scambio completa il quadro", () => {
+suite.test("preferenza di turno ☀️ diurno con alternativa disponibile sul notturno: lo scambio completa il quadro", () => {
   const d = dispoBase(MEDICI);
-  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"], [], { preferito: "Maniago" });
+  d[BERTUZZI][N(G8)] = turnoDisp(["Maniago"]);
   d[BERTUZZI][G(G8)] = turnoDisp(["Maniago"]);
   d[CERVESATO][N(G8)] = turnoDisp(["Maniago"]); // alternativa valida sul notturno, non preferito
   d[BERTUZZI][TURNOPREF(G8)] = "G";
   const { schema } = schemaCompleto(d);
   const { tG, tN } = turniGiorno(schema, G8);
   suite.eq(tG.slots[0], BERTUZZI, "mantiene il diurno preferito, protetto dalla spaziatura grazie alla preferenza esplicita");
-  suite.eq(tN.slots[0], CERVESATO, "il notturno non preferito passa all'alternativa, esattamente come nel caso senza ★");
+  suite.eq(tN.slots[0], CERVESATO, "il notturno non preferito passa all'alternativa, esattamente come atteso");
 });
 
 suite.finish();
