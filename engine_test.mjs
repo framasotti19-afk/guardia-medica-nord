@@ -119,14 +119,14 @@ function turniDelGiorno(y, m, d, extras) {
   const weekend = dow === 0 || dow === 6;
   const turni = [];
   const ex = (extras && extras[key]) || {};
-  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true, sede: ex.M_sede || null, blu: ex.M_blu || null });
+  if (ex.M) turni.push({ id: "M", label: "MATTINA MMG 8-14", ore: 6, extra: true });
   if (festivo || prefestivo || weekend) {
     let lbl = "DIURNO 8-20";
     if (festivo) lbl = "SUPERFESTIVO DIURNO 08-20";
     else if (prefestivo) lbl = "PREFESTIVO(SUPER) DIURNO 8-20";
     turni.push({ id: "G", label: lbl, ore: 12 });
   }
-  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true, sede: ex.P_sede || null, blu: ex.P_blu || null });
+  if (ex.P) turni.push({ id: "P", label: "POMERIGGIO MMG 14-20", ore: 6, extra: true });
   let nlbl = "NOTTURNO";
   if (festivo) nlbl = "SUPERFESTIVO NOTTURNO 20-08";
   else if (prefestivo) nlbl = "PREFESTIVO(SUPER) NOTTURNO 20-08";
@@ -630,26 +630,20 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
     // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
     // niente doppione, senza toccare la FASE 2.
-    // Sedi fisiche del turno. MMG (extra): l'UNICA sede fisica è quella ATTIVATA dal coordinatore
-    // (turno.sede) — imposta, mai scelta dalla preferenza del medico (niente ramo dinamico
-    // nFisici===1). Se la sede MMG manca (dati vecchi/non impostata) sediFisiche resta vuoto → turno
-    // attivo ma SCOPERTO, con avviso dedicato (§10 migrazione 3a). Ordinario: Maniago/Spilimbergo/
-    // Meduno sempre, +Claut/Anduins nel diurno.
-    const sediFisiche = turno.extra
-      ? (turno.sede && SEDI5.indexOf(turno.sede) >= 0 ? [SEDI5.indexOf(turno.sede)] : [])
-      : (turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2]);
+    // Sedi fisiche del turno. Un MMG (extra) compete su TUTTE le sedi esattamente come un turno
+    // ordinario: la sede la decide il motore in base alle disponibilità dei medici (verde), non il
+    // coordinatore (§10 voce 55). Maniago/Spilimbergo/Meduno fisiche sempre; Claut/Anduins fisiche solo
+    // nel diurno G (di notte e nell'anticipo MMG sono coperte solo a distanza, FASE 2). Con 1 solo
+    // medico il target è dinamico: la sua preferenza verde migliore tra le sedi oggi fisiche.
+    const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
+    const nFisici = Math.min(ordinati.length, sediFisiche.length);
     let target = [];
-    if (turno.extra) {
-      target = sediFisiche; // MMG: target = la sola sede attivata dal coordinatore
+    if (nFisici === 1) {
+      const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
+      if (top !== undefined) target = [SEDI5.indexOf(top)];
     } else {
-      const nFisici = Math.min(ordinati.length, sediFisiche.length);
-      if (nFisici === 1) {
-        const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
-        const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
-        if (top !== undefined) target = [SEDI5.indexOf(top)];
-      } else {
-        target = sediFisiche.slice(0, nFisici);
-      }
+      target = sediFisiche.slice(0, nFisici);
     }
 
     const accVerdeDi = (mid) => {
@@ -801,40 +795,20 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    // MMG con copertura a distanza scelta dal coordinatore (§10 voce 53): `turno.blu` (da extras.M_blu/
-    // P_blu) viene attribuita al VINCITORE fisico dell'MMG come se l'avesse dichiarata lui, in una COPIA
-    // LOCALE della dispo (mai mutata quella reale), così `risolviBlu` la copre con gli STESSI vincoli
-    // territoriali degli ordinari (Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno) — se non è
-    // raggiungibile dalla sede attivata, resta semplicemente scoperta. Solo per gli MMG: sul percorso
-    // ordinario `turno.blu` è undefined → dispoBlu === dispo → comportamento invariato.
-    let dispoBlu = dispo;
-    if (turno.extra && turno.blu && fisMids.length) {
-      dispoBlu = { ...dispo };
-      fisMids.forEach((mid) => {
-        const base = normDispo(dispo[mid]?.[slotKey]);
-        if (!base.blu.includes(turno.blu)) {
-          dispoBlu[mid] = { ...(dispo[mid] || {}), [slotKey]: { ...base, blu: [...base.blu, turno.blu], bluLiv: { ...base.bluLiv, [turno.blu]: base.bluLiv[turno.blu] || 1 } } };
-        }
-      });
-    }
-    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispoBlu, debiti, debitiExtra);
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
-    // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione.
-    // MMG senza sede impostata (dati vecchi/da completare): avviso di migrazione dedicato (§10, 3a),
-    // nessun blocco. Per un MMG "da coprire" è SOLO la sede attivata; per un ordinario tutte e 5.
-    if (turno.extra && !turno.sede) {
-      avviso = `Giorno ${d} · ${turno.label}: turno MMG attivo ma senza sede impostata — scegliere la sede (nessuna assegnazione possibile).`;
-    } else {
-      const daCoprire = turno.extra ? sediFisiche : [0, 1, 2, 3, 4];
-      const scoperte = daCoprire.filter((si) => slots[si] === null);
+    // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione — per
+    // gli MMG identico agli ordinari (l'MMG compete su tutte le sedi in base alle disponibilità).
+    {
+      const scoperte = [0, 1, 2, 3, 4].filter((si) => slots[si] === null);
       if (scoperte.length && ordinati.length) {
         avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): ${scoperte.map((si) => SEDI5[si]).join(", ")}.`;
       }
     }
   }
 
-  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, sede: turno.sede || null, blu: turno.blu || null, slots, fis: fisiche }, avviso };
+  return { turnoOut: { id: turno.id, label: turno.label, ore: turno.ore, extra: !!turno.extra, slots, fis: fisiche }, avviso };
 }
 
 // Un turno ha "preferiti" se almeno un medico ha marcato con ★ una sua sede verde per questo

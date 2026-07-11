@@ -47,19 +47,9 @@ function generaScenario(seed, anno, mese) {
   const chance = (p) => rnd() < p;
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
   const extras = {};
-  // MMG attivati casualmente CON sede (§10 voce 51): ogni turno MMG si svolge in una sede fisica —
-  // extras.M_sede/P_sede — su cui il motore assegna come per un turno ordinario. La sede è casuale tra
-  // le 5: a volte combacia con la "casa" di un medico che ha dichiarato l'MMG (→ assegnato), a volte no
-  // (→ scoperto). Entrambi i rami sono esercitati a scala.
-  for (let d = 1; d <= nGiorni; d++) {
-    if (!chance(0.1)) continue;
-    const e = {};
-    // ogni tanto anche una copertura a distanza scelta dal coordinatore (§10 voce 53): una sede ≠ sede
-    // fisica; il vincolo territoriale lo applica risolviBlu (se non raggiungibile resta scoperta).
-    if (chance(0.5)) { e.M = true; e.M_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.M_sede)); e.M_blu = b; } }
-    if (chance(0.5)) { e.P = true; e.P_sede = pick(SEDI5); if (chance(0.35)) { const b = pick(SEDI5.filter((s) => s !== e.P_sede)); e.P_blu = b; } }
-    if (e.M || e.P) extras[dk(anno, mese, d)] = e;
-  }
+  // MMG attivati casualmente (§10 voce 55): la sola attivazione (M/P). La sede e la copertura a
+  // distanza le decide il motore dalle disponibilità dei medici, come per un turno ordinario.
+  for (let d = 1; d <= nGiorni; d++) if (chance(0.1)) extras[dk(anno, mese, d)] = { M: chance(0.5), P: chance(0.5) };
 
   // Combinazioni estreme (CONTEXT.md §12): alcuni medici con ZERO disponibilità dichiarata in
   // tutto il mese (restano candidati "assenti", mai eleggibili), altri disponibili TUTTI i 31
@@ -201,10 +191,9 @@ function verificaTurno(giorno, t, dispo, slotKeyBase, turniExtra, contesto) {
       // INV3: la copertura a distanza deve provenire da un fisico DI QUESTO turno
       const presenteAltrove = t.fis.some((fi) => t.slots[fi] === mid);
       if (!presenteAltrove) violazioni.push(`${pfx}g${giorno} ${t.label} ${SEDI5[si]}: copertura a distanza da medico non fisico nel turno (INV3)`);
-      // deve aver dichiarato quella sede come blu — OPPURE, per un MMG, la copertura a distanza è
-      // stata scelta dal coordinatore (t.blu, §10 voce 53): è attribuita al vincitore, legittima.
-      const bluOk = v.blu.includes(SEDI5[si]) || (t.extra && t.blu === SEDI5[si]);
-      if (!bluOk) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
+      // deve aver dichiarato quella sede come blu (per gli MMG identico agli ordinari: la copertura
+      // a distanza viene dalla blu del medico, §10 voce 55)
+      if (!v.blu.includes(SEDI5[si])) violazioni.push(`${pfx}g${giorno} ${t.label}: ${byId[mid]?.nome} copre ${SEDI5[si]} a distanza senza averla dichiarata come blu`);
       // INV-TERRITORIALE (§3.2, §10 voce 31): Claut coperta a distanza SOLO dal fisico di Maniago (0);
       // Anduins SOLO dal fisico di Spilimbergo (1) o Meduno (2). Le altre sedi non hanno vincolo. Uso
       // la sede-base fisica del medico nel turno (dove è fisicamente presente). Vincolo rigido.

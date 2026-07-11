@@ -151,7 +151,7 @@ suite.test("il tetto si azzera alla settimana successiva", () => {
 });
 
 suite.test("il tetto conta anche i turni EXTRA (MMG)", () => {
-  const extras = { [dk(ANNO_TEST, MESE_TEST, G3)]: { M: true, M_sede: "Maniago" }, [dk(ANNO_TEST, MESE_TEST, G5)]: { M: true, M_sede: "Maniago" } };
+  const extras = { [dk(ANNO_TEST, MESE_TEST, G3)]: { M: true }, [dk(ANNO_TEST, MESE_TEST, G5)]: { M: true } };
   const M3 = `${dk(ANNO_TEST, MESE_TEST, G3)}|M`, M5 = `${dk(ANNO_TEST, MESE_TEST, G5)}|M`;
   const d = dispoBase(MEDICI);
   d[PRESSACCO][M3] = turnoDisp(["Maniago"]);
