@@ -3695,7 +3695,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           {tab === "dispo" && (
             <div>
               <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-                Legenda: <b>📌</b> slot obbligatorio · <b>⚓</b> obbligatorio solo su una sede · <b style={{color:T.primary}}>pallino verde</b> = sede fisica, <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza · a distanza: Claut solo da Maniago, Anduins solo da Spilimbergo/Meduno (max 1 sede a distanza).
+                Legenda: <b>📌</b> slot obbligatorio · <b>⚓</b> obbligatorio solo su una sede · <b style={{color:T.primary}}>pallino verde</b> = sede fisica, <b style={{color:T.blu}}>pallino blu</b> = copertura a distanza.
               </p>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <button onClick={azzeraMese}
