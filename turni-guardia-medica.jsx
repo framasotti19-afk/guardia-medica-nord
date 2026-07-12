@@ -1411,6 +1411,12 @@ export default function App() {
   const MODELLI_AI = { sonnet: { modello: "claude-sonnet-5", nome: "Sonnet", desc: "veloce, modello attuale" }, opus: { modello: "claude-opus-4-8", nome: "Opus", desc: "più accurato, più lento" } };
   const [aiModel, setAiModel] = useState(() => { try { return localStorage.getItem("gmn_ai_model") === "opus" ? "opus" : "sonnet"; } catch (e) { return "sonnet"; } });
   const cambiaModello = (k) => { setAiModel(k); try { localStorage.setItem("gmn_ai_model", k); } catch (e) { /* storage non disponibile: la scelta resta valida per la sessione */ } };
+  // Livello di ragionamento (effort) dell'assistente AI, scelto dal pannello chat e persistito in localStorage.
+  // Passato al body come output_config.effort (sintassi identica per Sonnet 5 e Opus 4.8). Default: "high"
+  // (= comportamento attuale: high è già il default del server, quindi di default non cambia nulla).
+  const EFFORT_AI = { low: { nome: "Low", desc: "veloce, meno ragionamento" }, medium: { nome: "Medium", desc: "bilanciato" }, high: { nome: "High", desc: "massima accuratezza" } };
+  const [aiEffort, setAiEffort] = useState(() => { try { const v = localStorage.getItem("gmn_ai_effort"); return (v === "low" || v === "medium") ? v : "high"; } catch (e) { return "high"; } });
+  const cambiaEffort = (k) => { setAiEffort(k); try { localStorage.setItem("gmn_ai_effort", k); } catch (e) { /* storage non disponibile: la scelta resta valida per la sessione */ } };
   const [proposta, setProposta] = useState(null); // {azioni, spiegazione}
   const [azioniRestanti, setAzioniRestanti] = useState(false); // true se l'AI ha altre azioni per un round successivo
   const [troncato, setTroncato] = useState(false); // true se l'ultima risposta è stata tagliata per limite di token (JSON incompleto)
@@ -2828,6 +2834,10 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           signal: abortCtrl.signal,
           body: JSON.stringify({
             model: (MODELLI_AI[aiModel] || MODELLI_AI.sonnet).modello, max_tokens: 16000,
+            // Livello di ragionamento selezionato nel pannello. output_config.effort è la sintassi
+            // corretta e identica per Sonnet 5 e Opus 4.8 (NON dentro thinking, NON top-level).
+            // "high" è già il default del server, quindi inviarlo esplicitamente non cambia il comportamento.
+            output_config: { effort: aiEffort },
             // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
             // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
             messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
@@ -4351,6 +4361,23 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
                         opacity: aiBusy && !attivo ? 0.45 : 1, transition: "background .12s" }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: attivo ? T.primary : T.textMuted, lineHeight: 1.25 }}>{m.nome}</div>
                       <div style={{ fontSize: 10, color: T.textFaint, lineHeight: 1.2 }}>{m.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.textFaint, whiteSpace: "nowrap", letterSpacing: ".02em" }}>Effort</span>
+              <div style={{ display: "flex", flex: 1, gap: 4, background: T.surfaceAlt, borderRadius: 8, padding: 3 }}>
+                {["low", "medium", "high"].map((k) => {
+                  const e = EFFORT_AI[k], attivo = aiEffort === k;
+                  return (
+                    <button key={k} onClick={() => cambiaEffort(k)} disabled={aiBusy} title={aiBusy ? "Attendi la fine della risposta per cambiare effort" : `${e.nome} — ${e.desc}`}
+                      style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "none", textAlign: "left", cursor: aiBusy ? "default" : "pointer",
+                        background: attivo ? T.surface : "transparent", boxShadow: attivo ? "0 1px 2px rgba(20,102,79,.12)" : "none",
+                        opacity: aiBusy && !attivo ? 0.45 : 1, transition: "background .12s" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: attivo ? T.primary : T.textMuted, lineHeight: 1.25 }}>{e.nome}</div>
+                      <div style={{ fontSize: 10, color: T.textFaint, lineHeight: 1.2 }}>{e.desc}</div>
                     </button>
                   );
                 })}
