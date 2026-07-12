@@ -3382,8 +3382,15 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       if (a.az === "slot_obbligatorio") {
         // Slot che il medico vuole tenere ASSOLUTAMENTE se lo vince per gerarchia (§10 voce 49): punto
         // fisso nella distribuzione §3.11. Chiave dispo[mid]["OBBL:"+slotKey]=true; presente:false rimuove.
-        // Ortogonale alla disponibilità (non la crea): se il medico non è disponibile lì o non lo vince,
+        // ORTOGONALE alla disponibilità (non la crea): se il medico non è disponibile lì o non lo vince,
         // il motore lo ignora silenziosamente. Il turno (N/G) deve esistere quel giorno.
+        // PERCHÉ ortogonale — DECISIONE CHIUSA (§10 voce 82, NON riaprire): il pin dice "tienimelo SE lo
+        // vinco", NON "sono disponibile". Accoppiare pin↔disponibilità (auto-creare la dispo dal pin) farebbe
+        // INVENTARE disponibilità — assegnerebbe il medico a uno slot mai offerto: un bug peggiore. E un pin
+        // "inerte" ha due facce indistinguibili qui all'apply: (A) medico SENZA disponibilità = errore (bug 10);
+        // (B) medico disponibile ma che PERDE per gerarchia = corretto, giustamente ignorato. Un guard nel
+        // motore colpirebbe anche (B), che è legittimo → il MOTORE NON SI TOCCA MAI. La difesa del bug 10 sta
+        // altrove: prompt (voce 70, "pin solo sui turni dichiarati") + avviso caso-A component-side batch-aware (PENDING).
         const mid = nomeToId(a.medico);
         if (mid === undefined || mid === null) { errori.push(erroreMedico(a.medico)); return; }
         const info = turniDelGiorno(anno, mese, a.giorno, extras);
