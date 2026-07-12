@@ -1340,9 +1340,11 @@ function azzeraDispoMedico(dispo, mid) {
 
 // ---- Indicatore "iniquità percepita" sui turni extra (tab Medici) — SOLO VISUALIZZAZIONE ----
 // Nessun impatto su motore/assegnazione/calcoli: usa soltanto lo schema già prodotto. Soglie
-// facilmente tarabili a mano dopo averle viste sul campo. Il "divario" è la differenza (in punti
-// percentuali) tra la soddisfazione più alta e la più bassa (ottenuti ÷ richiesti) tra i medici
-// che hanno chiesto turni extra; viene tradotto in un'etichetta secondo queste soglie crescenti.
+// facilmente tarabili a mano dopo averle viste sul campo. Il "divario" del SINGOLO medico è la
+// distanza (in punti percentuali) tra la sua soddisfazione (ottenuti ÷ richiesti) e quella del più
+// soddisfatto tra i medici che hanno chiesto turni extra; viene tradotta in un'etichetta secondo
+// queste soglie crescenti (equità di Adams: il risentimento nasce dal confronto, non dal valore
+// assoluto). "Nessuna" = nessuno gli è stato preferito in modo apprezzabile.
 const INIQUITA_SOGLIE = [
   { maxDivario: 15, label: "Nessuna" },       // divario ≤ 15 punti
   { maxDivario: 35, label: "Bassa" },         // 16–35
@@ -1350,16 +1352,6 @@ const INIQUITA_SOGLIE = [
   { maxDivario: 75, label: "Alta" },          // 56–75
   { maxDivario: Infinity, label: "Altissima" },// > 75
 ];
-// Correttivo "chi sta peggio", PESATO sul numero di penalizzati (§10 voce 29; ancora resa RELATIVA §10 voce 87):
-// un medico è "penalizzato" se la sua soddisfazione è sotto (maxP − questo MARGINE), cioè MOLTO peggio del PIÙ
-// soddisfatto — NON sotto una soglia ASSOLUTA. La vecchia soglia assoluta (< 0.25) in un mese di penuria (tutti
-// bassi ma UGUALI) contava tutti come penalizzati pur SENZA iniquità, gonfiando l'etichetta: l'insoddisfazione
-// assoluta non è iniquità, il risentimento nasce dal confronto ("a lui hai dato e a me no"). Se c'è disparità
-// reale (max > min) e almeno un penalizzato, l'etichetta sale di UNO scatto; se i penalizzati sono almeno la
-// metà dei richiedenti, sale di DUE. "N penalizzati" mostrato in etichetta solo da "Media" in su. Su un mese
-// con maxP=0.5 il MARGINE 0.25 coincide con la vecchia soglia (drop-in sui casi canonici di voce 29). Frazione
-// 0..1 (0.25 = 25 punti sotto il migliore).
-const INIQUITA_MARGINE_RISENTIMENTO = 0.25;
 
 // Estrae il primo oggetto JSON valido e "riconoscibile" (con un campo "tipo") da un testo che
 // potrebbe contenere un preambolo prima o dopo il JSON (es. un ragionamento scritto per errore
@@ -3657,10 +3649,10 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
   // debitoOrdinarioIniziale (monte ore AGGIUSTATO per mese §3.11 + eventuale recupero) — la stessa
   // soglia oltre cui il motore inizia a consumare il budget extra (§3.10); i turni coperti da quel
   // budget ordinario sono ceil(monteOrd / 12) turni da 12h (esatto per i turni ordinari G/N).
-  // Ritorna anche l'etichetta di "iniquità percepita" (vedi INIQUITA_SOGLIE in cima al componente).
+  // Ritorna il dettaglio per-medico dell'"iniquità percepita" (vedi INIQUITA_SOGLIE in cima al componente).
   const equitaExtra = useMemo(() => {
     const perMedico = {};
-    if (!dati.schema) return { perMedico, label: null };
+    if (!dati.schema) return { perMedico };
     // turni assegnati per medico (una volta per turno, stesso criterio di oreAssegnateDi)
     const turniAssegnati = {};
     dati.schema.forEach((g) => g.turni.forEach((t) => {
@@ -3684,37 +3676,17 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       richiedenti.push({ id: m.id, x, y, s });
       soddisf.push(s);
     });
-    let label = null, testo = null, sogliaPen = null, disparitaReale = false;
-    if (soddisf.length === 1) {
-      label = "Nessuna"; testo = "Nessuna"; // un solo medico ha chiesto extra: nessun confronto possibile
-    } else if (soddisf.length >= 2) {
-      const maxP = Math.max(...soddisf), minP = Math.min(...soddisf);
-      const n = soddisf.length;
-      disparitaReale = maxP > minP;
-      // "penalizzato" RELATIVO (§10 voce 87): MOLTO peggio del PIÙ soddisfatto, non sotto una soglia assoluta.
-      sogliaPen = maxP - INIQUITA_MARGINE_RISENTIMENTO;
-      const penalizzati = soddisf.filter((s) => s < sogliaPen).length;
-      const divario = (maxP - minP) * 100;
-      let idx = INIQUITA_SOGLIE.findIndex((s) => divario <= s.maxDivario);
-      // correttivo "chi sta peggio" PESATO sul numero di penalizzati: scatta solo se c'è disparità
-      // reale (max > min); +1 con almeno un penalizzato, +2 se sono almeno la metà dei richiedenti.
-      if (disparitaReale && penalizzati >= 1) idx = Math.min(idx + (penalizzati * 2 >= n ? 2 : 1), INIQUITA_SOGLIE.length - 1);
-      label = INIQUITA_SOGLIE[idx].label;
-      // "N penalizzati" mostrato SOLO da Media in su (idx >= 2) e con disparità reale.
-      const mostraNumero = penalizzati >= 1 && disparitaReale && idx >= 2;
-      testo = mostraNumero ? `${label} — ${penalizzati} medic${penalizzati === 1 ? "o" : "i"} penalizzat${penalizzati === 1 ? "o" : "i"}` : label;
-    }
     // Dettaglio per-medico per la tabella (§10 voce 87): x, y, soddisfazione e LIVELLO di iniquità percepita del
-    // SINGOLO = distanza dal più soddisfatto (maxP − s, in punti), mappata sulle STESSE soglie INIQUITA_SOGLIE
-    // del totale (equità di Adams applicata al singolo: quanto sto sotto chi è stato servito meglio). Così il
-    // coordinatore vede CHI, QUANTO e a che livello — non un totale anonimo.
+    // SINGOLO = distanza dal più soddisfatto (maxP − s, in punti), mappata sulle soglie INIQUITA_SOGLIE (equità di
+    // Adams applicata al singolo: quanto sto sotto chi è stato servito meglio). Così il coordinatore vede CHI,
+    // QUANTO e a che livello. Con un solo richiedente non c'è confronto → dist 0 → "Nessuna".
     const maxPall = soddisf.length ? Math.max(...soddisf) : 0;
     for (const r of richiedenti) {
       const dist = (maxPall - r.s) * 100;
       const livello = INIQUITA_SOGLIE[INIQUITA_SOGLIE.findIndex((x) => dist <= x.maxDivario)].label;
       perMedico[r.id] = { x: r.x, y: r.y, s: r.s, dist, livello };
     }
-    return { perMedico, label, testo };
+    return { perMedico };
   }, [dati.schema, dati.turniExtra, dati.extraOre, mese]);
   const iconaT = { G: "☀", N: "☾", M: "am", P: "pm" };
   // Palette condivisa del restyling grafico (solo stile, nessun impatto sulla logica). Verde
@@ -4114,18 +4086,14 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
 
           {tab === "medici" && (
             <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e9e6", padding: 16, maxWidth: 860, overflow: "auto" }}>
-              {dati.schema && equitaExtra.label && (() => {
-                const colore = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primary
-                  : equitaExtra.label === "Media" ? "#c17d0f" : T.danger;
-                const sfondo = equitaExtra.label === "Nessuna" || equitaExtra.label === "Bassa" ? T.primaryTint
-                  : equitaExtra.label === "Media" ? "#fbf1df" : T.dangerBg;
-                return (
-                  <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: sfondo, border: `1px solid ${colore}44`, display: "flex", alignItems: "center", gap: 8, fontSize: 13, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, color: T.textMuted }}>Iniquità percepita sui turni extra:</span>
-                    <span style={{ fontWeight: 800, color: colore }}>{equitaExtra.testo}</span>
-                  </div>
-                );
-              })()}
+              {dati.schema && Object.values(equitaExtra.perMedico).some((d) => d.livello !== "Nessuna") && (
+                // Mini-nota SOPRA la tabella, discreta, mostrata SOLO quando c'è almeno un medico con iniquità
+                // percepita > "Nessuna" (altrimenti spazio pulito). Non ripete i valori (già in tabella): spiega
+                // solo COSA guardare — il confronto, non il conteggio dei turni.
+                <div style={{ marginBottom: 12, fontSize: 11, color: T.textFaint, lineHeight: 1.5, maxWidth: 620 }}>
+                  <b style={{ color: T.textMuted }}>Iniquità percepita</b> — quanto un medico è stato servito peggio dei colleghi, in proporzione a quello che aveva chiesto. Non è il numero di turni che conta: è il confronto.
+                </div>
+              )}
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
                 <thead><tr style={{ textAlign: "left", borderBottom: "2px solid #d3dad6" }}>
                   <th style={{ padding: "6px 8px" }}>Medico</th><th style={{ padding: "6px 8px" }}>Categoria</th><th style={{ padding: "6px 8px" }}>Grad.</th><th style={{ padding: "6px 8px" }}>Titolarità</th><th style={{ padding: "6px 8px" }}>Monte ore</th><th style={{ padding: "6px 8px" }}>Ore da recuperare</th><th style={{ padding: "6px 8px" }}>Turni extra</th><th style={{ padding: "6px 8px" }}>Max turni mese</th><th style={{ padding: "6px 8px" }}>Max turni sett.</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore assegnate</th><th style={{ padding: "6px 8px", color: T.textMuted }} title="Sola lettura: visibile solo dopo l'elaborazione dello schema del mese">Ore mancanti</th><th style={{ padding: "6px 8px" }}></th>
@@ -4181,7 +4149,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                           const d = equitaExtra.perMedico[m.id];
                           if (!d) return null;
                           const pct = Math.round((d.s || 0) * 100);
-                          // stessa mappa colore della barra in cima: verde (Nessuna/Bassa) → ambra (Media) → rosso (Alta/Altissima)
+                          // mappa colore del livello: verde (Nessuna/Bassa) → ambra (Media) → rosso (Alta/Altissima)
                           const col = d.livello === "Nessuna" || d.livello === "Bassa" ? T.primary : d.livello === "Media" ? "#c17d0f" : T.danger;
                           return (
                             <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
