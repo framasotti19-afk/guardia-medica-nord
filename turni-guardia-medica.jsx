@@ -1406,6 +1406,11 @@ export default function App() {
   const [aiMsgs, setAiMsgs] = useState([]);
   const [aiInput, setAiInput] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  // Modello dell'assistente AI, scelto dal pannello chat e persistito in localStorage (chiave "sonnet"/"opus";
+  // il model string vero è mappato al momento della chiamata API). Default: Sonnet (veloce, modello attuale).
+  const MODELLI_AI = { sonnet: { modello: "claude-sonnet-5", nome: "Sonnet", desc: "veloce, modello attuale" }, opus: { modello: "claude-opus-4-8", nome: "Opus", desc: "più accurato, più lento" } };
+  const [aiModel, setAiModel] = useState(() => { try { return localStorage.getItem("gmn_ai_model") === "opus" ? "opus" : "sonnet"; } catch (e) { return "sonnet"; } });
+  const cambiaModello = (k) => { setAiModel(k); try { localStorage.setItem("gmn_ai_model", k); } catch (e) { /* storage non disponibile: la scelta resta valida per la sessione */ } };
   const [proposta, setProposta] = useState(null); // {azioni, spiegazione}
   const [azioniRestanti, setAzioniRestanti] = useState(false); // true se l'AI ha altre azioni per un round successivo
   const [troncato, setTroncato] = useState(false); // true se l'ultima risposta è stata tagliata per limite di token (JSON incompleto)
@@ -2801,7 +2806,7 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
           headers: { "Content-Type": "application/json" },
           signal: abortCtrl.signal,
           body: JSON.stringify({
-            model: "claude-sonnet-5", max_tokens: 16000,
+            model: (MODELLI_AI[aiModel] || MODELLI_AI.sonnet).modello, max_tokens: 16000,
             // Intera cronologia della conversazione (mai troncata): il testo incollato dall'utente
             // (es. email dei medici) deve restare nel contesto per tutti i round successivi.
             messages: [...msgs.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: `${sys}\n\nRICHIESTA: ${domanda}` }],
@@ -4312,6 +4317,23 @@ STATO ATTUALE: ${JSON.stringify(stato)}`;
             <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef1ee", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: T.textFaint }}>— risponde solo se interpellata</span></div>
               <button onClick={nuovaConversazione} disabled={aiBusy} title="Svuota la chat e il registro delle azioni già eseguite" style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>Nuova conversazione</button>
+            </div>
+            <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.textFaint, whiteSpace: "nowrap", letterSpacing: ".02em" }}>Modello AI</span>
+              <div style={{ display: "flex", flex: 1, gap: 4, background: T.surfaceAlt, borderRadius: 8, padding: 3 }}>
+                {["sonnet", "opus"].map((k) => {
+                  const m = MODELLI_AI[k], attivo = aiModel === k;
+                  return (
+                    <button key={k} onClick={() => cambiaModello(k)} disabled={aiBusy} title={aiBusy ? "Attendi la fine della risposta per cambiare modello" : `${m.nome} — ${m.desc}`}
+                      style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "none", textAlign: "left", cursor: aiBusy ? "default" : "pointer",
+                        background: attivo ? T.surface : "transparent", boxShadow: attivo ? "0 1px 2px rgba(20,102,79,.12)" : "none",
+                        opacity: aiBusy && !attivo ? 0.45 : 1, transition: "background .12s" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: attivo ? T.primary : T.textMuted, lineHeight: 1.25 }}>{m.nome}</div>
+                      <div style={{ fontSize: 10, color: T.textFaint, lineHeight: 1.2 }}>{m.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div style={{ flex: 1, overflow: "auto", padding: 12, display: "grid", gap: 8, alignContent: "start" }}>
               {aiMsgs.length === 0 && <div style={{ fontSize: 12, color: T.textFaint }}>Chiedimi es.: "ci sono turni scoperti?", "chi lavora a Ferragosto?", "riassumi lo schema".</div>}
