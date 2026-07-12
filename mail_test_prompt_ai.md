@@ -626,3 +626,96 @@ Il contesto è: agosto 2026, medici del roster ASFO Distretto Nord. Lo stato ini
 
 **Note CRITICA (bug reale osservato):** l'errore era duplice — (1) l'AI dichiarava tutte e 5 le sedi, agganciando "tutte le sedi" e ignorando "tranne Maniago"; (2) messa davanti all'errore, proponeva un `dispo_no` su Maniago per rimediare. Entrambe sbagliate: la risposta corretta dichiara direttamente solo le 4 sedi ≠ Maniago. FOSCHIANI è titolare Spilimbergo, che RESTA tra le sedi dichiarate → nessuna domanda "titolare fuori sede". (Nota: di notte Claut/Anduins sono coperte solo a distanza, ma si dichiarano lo stesso come verdi, esattamente come farebbe la regola "TUTTE LE SEDI PARI" — è il motore a gestire quali sedi sono fisiche quel turno.)
 
+---
+
+## MAIL 42 — Pin solo sui turni con disponibilità dichiarata (Bug 10)
+**Da:** FOSCHIANI
+**Testo:**
+> Buongiorno, per agosto: Spilimbergo, tutti i notturni. Vorrei fare il Ferragosto, mi porto avanti così a Natale sto a casa. Se possibile anche il prefestivo del giorno prima, ma quello solo se non vi incasina i conti. Grazie, Foschiani
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Spilimbergo"] FOSCHIANI
+- Il 15 (Ferragosto) è sabato superfestivo → ha G e N
+- `slot_obbligatorio` FOSCHIANI giorno 15 turno "N" 📌 — proposto con conferma — **SOLO sul notturno**
+- **NESSUN pin sul diurno del 15**: FOSCHIANI ha dichiarato solo i notturni → il pin va solo sul turno con disponibilità dichiarata, anche se il 15 ha pure il diurno
+- Il 14 (prefestivo, vigilia) → **NESSUNA azione**: "se possibile… solo se non vi incasina i conti" = preferenza morbida non vincolante (al più nota testuale)
+
+**Note CRITICA (Bug 10):** un pin va emesso SOLO sui turni per cui il medico ha dichiarato disponibilità. "Solo notturni" + giorno G+N → pin solo su N. Mettere il pin anche su G lo pianterebbe su uno slot senza disponibilità (inerte, sporca la griglia).
+
+---
+
+## MAIL 43 — Contesto + "non provateci nemmeno" = TOGLI-me (dispo_no)
+**Da:** ZURLO
+**Testo:**
+> Ma scusate, l'anno scorso mi avete messo tre notti di fila e nessuno mi ha chiesto niente. Comunque. Maniago, notti, massimo 4 al mese e non venitemi a dire che è poco. Dal 17 al 21 sono via, non provateci nemmeno. Zurlo
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Maniago"] ZURLO
+- `tetto_mese` ZURLO maxTurni 4
+- `dispo_no` ZURLO giorni 17, 18, 19, 20, 21 turno "N" (17-21 agosto = lun-ven feriali → solo N)
+- La lamentela sull'anno scorso è **CONTESTO** (AZIONE vs CONTESTO) → nessuna azione
+
+**Note:** "dal 17 al 21 sono via, non provateci nemmeno" = indisponibilità (TOGLI-me) → `dispo_no`, NON un pin. "non provateci nemmeno" rafforza il NO, non è un "TIENI-lo".
+
+---
+
+## MAIL 44 — "il 5 mattina no" su un feriale (il diurno non esiste)
+**Da:** TRIGODKO
+**Testo:**
+> ciao scusa di corsa
+> maniago notti ok
+> il 5 mattina no che ho il dentista, il resto va bene
+> grazie
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Maniago"] TRIGODKO
+- Il 5 agosto è mercoledì **feriale** → ha solo il notturno, il diurno NON esiste
+- Nessun `dispo_no`: non c'è un diurno da escludere → segnala "🔴 ATTENZIONE: TRIGODKO ha scritto 'il 5 mattina no' ma il 5 agosto è un feriale con solo il notturno — nessun turno diurno da togliere; il notturno del 5 resta disponibile."
+- Il **notturno del 5 resta disponibile** (l'impegno dal dentista è di giorno, non tocca la notte)
+
+**Note:** l'indisponibilità dichiarata su un turno che quel giorno non esiste → 🔴, nessuna azione; non estendere il NO al notturno.
+
+---
+
+## MAIL 45 — Contraddizione aritmetica (Bug 11)
+**Da:** BEKAEVA
+**Testo:**
+> Salve, agosto: Maniago, notturni. Massimo 3 turni in tutto il mese. Però la settimana del 10 vorrei farne almeno due, e anche quella del 24 almeno due — sono le settimane in cui mio marito è a casa e mi copre coi bambini. Se non torna, ditemelo che rivedo.
+
+**Risposta attesa:**
+- **Contraddizione ARITMETICA**: tetto_mese = 3, ma due finestre da almeno 2 sommano a 2+2 = 4 > 3 → impossibile
+- **NESSUNA azione** (né tetto_mese, né le due finestra_settimanale, né la disponibilità) → 🔴 "ATTENZIONE: BEKAEVA ha chiesto numeri incompatibili (tetto mensile 3 ma minimi settimanali che sommano 4) — non ho inserito nulla, verificare con il medico quale prevale."
+- Il medico stesso invita a segnalare ("se non torna, ditemelo") → è esattamente il caso da 🔴
+
+**Note CRITICA (Bug 11):** ogni frase è sensata da sola; è la SOMMA a non tornare. Serve il controllo numerico (tetto_mese vs somma dei minimi settimanali) prima di emettere.
+
+---
+
+## MAIL 46 — Copertura territoriale blu (Claut/Anduins a distanza) + senza incarico ampio
+**Da:** PRESSACCO
+**Testo:**
+> Buonasera, mettetemi dove serve, io a Claut e Anduins ci vado volentieri, tanto abito lì vicino. Notti. Fate voi il numero, non ho vincoli particolari — quest'estate non vado da nessuna parte. Grazie del lavoro che fate, so che non è semplice.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi verdi ["Maniago","Spilimbergo","Meduno"] + blu ["Claut","Anduins"] PRESSACCO
+- Di notte Claut e Anduins NON sono sedi fisiche → sono coperibili SOLO a distanza (blu), dal fisico di Maniago (Claut) o Spilimbergo/Meduno (Anduins) — §3.2 vincolo territoriale
+- "mettetemi dove serve" = indifferenza sulle sedi fisiche notturne (MA/SP/ME, livelli pari)
+- PRESSACCO è senza incarico, disponibilità ampia (tutto il mese notturni) = insieme determinato → **inserisce + 🔴** "senza incarico, nessun numero di guardie mensili indicato" (non blocca, "fate voi il numero" non è un numero)
+
+**Note:** il ringraziamento finale è contesto. "Claut e Anduins volentieri" NON diventa verde di notte (non sono fisiche) → blu.
+
+---
+
+## MAIL 47 — Riferimenti relativi risolti dal calendario + ultima risorsa
+**Da:** MORANO
+**Testo:**
+> Buongiorno, Maniago, notturni. L'ultimo weekend del mese vorrei averlo libero, ho il matrimonio di mio fratello. Per il resto ci sono. Ah, e se capita il turno del lunedì successivo preferirei evitarlo, che dopo il matrimonio sarò a pezzi — ma se non c'è alternativa lo faccio.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Maniago"] MORANO
+- "l'ultimo weekend del mese" → 29-30 agosto (sab-dom) → `dispo_no` MORANO giorni 29, 30 turno "N"
+- "il lunedì successivo" → 31 agosto (lunedì) → **ultima risorsa**: "preferirei evitarlo ma se non c'è alternativa lo faccio" → NON inserito come verde e NON escluso → 🔴 "MORANO è disponibile il 31 SOLO come ultima risorsa (\"se non c'è alternativa lo faccio\") — non inserito automaticamente"
+- Il matrimonio è **contesto** (motivazione), non un'azione
+
+**Note:** riferimenti relativi ("ultimo weekend", "lunedì successivo") risolti col calendario nello stato, mai a mente. Il 31 non è né dentro né fuori l'ambito: è una disponibilità condizionata (ultima risorsa) → segnalata, non inserita.
+
