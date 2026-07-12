@@ -1,5 +1,5 @@
 # MAIL DI TEST — Prompt AI Turni Guardia Medica
-# 53 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
+# 56 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
 
 ## ISTRUZIONI PER CLAUDE CODE
 
@@ -779,3 +779,35 @@ Il contesto è: agosto 2026, medici del roster ASFO Distretto Nord. Lo stato ini
 
 **Risposta attesa:**
 - solo la disponibilità · il riferimento a luglio è CONTESTO, nessuna azione · senza incarico → inserisce + 🔴
+
+---
+
+## MAIL 54 — Titolarità FUORI-SEDE: titolare chiede solo un'altra sede → domanda conferma
+**Da:** MARTINETTI
+**Testo:**
+> Buongiorno, per agosto avrei bisogno di stare a Meduno. Lo so che il mio ambulatorio è a Spilimbergo, ma mia madre è ricoverata a Maniago e da Meduno ci arrivo in venti minuti — da Spilimbergo il doppio. Notturni, quelli che riuscite a darmi. Se è un problema ditemelo che mi organizzo diversamente.
+
+**Risposta attesa:**
+- Titolare che chiede SOLO una sede diversa dalla propria (Meduno, mai la sua Spilimbergo) → DOMANDA di conferma al coordinatore (§3.1a), NON inserimento silenzioso · la motivazione personale (madre ricoverata) è CONTESTO, nessuna azione
+
+---
+
+## MAIL 55 — Copertura territoriale (blu): una sì (copribile), una no (e comunque non copribile)
+**Da:** TRIGODKO
+**Testo:**
+> Ciao, per agosto: Maniago, notti. Se vi serve copertura anche su Claut ci vado, ho fatto la strada mille volte e non mi spaventa. Ad Anduins invece no, è dall'altra parte e in inverno non ci arrivo — anche se ora è estate, preferisco non prendere impegni che poi non mantengo. Massimo 6 al mese.
+
+**Risposta attesa:**
+- Maniago verde · Claut blu (copribile da Maniago) · Anduins rifiutata E comunque non copribile da Maniago per il vincolo §3.2 → nessuna azione · tetto_mese 6
+
+---
+
+## MAIL 56 — MMG: attivazione con sede e data + disponibilità parziale + domanda al coordinatore
+**Da:** ZURLO
+**Testo:**
+> Buonasera, vi avviso che da metà agosto riprendo l'ambulatorio di medicina generale a Spilimbergo — ho firmato la settimana scorsa, parte il 17. Per le guardie: fino al 16 sono disponibile come sempre, Maniago notturni. Dopo vediamo, immagino cambi qualcosa ma ditemelo voi come funziona.
+
+**Risposta attesa:**
+- `dispo_set` giorni 1-16 Maniago notturni ZURLO · NESSUNA azione `mmg` (il medico ANNUNCIA un fatto e chiede come funziona, non chiede l'attivazione: auto-attivare un MMG per 15 giorni da un annuncio sarebbe inventare un'azione) · avviso al coordinatore che il medico ha annunciato l'apertura dell'ambulatorio dal 17 e che serve decidere come gestire il resto del mese
+
+**Note:** l'attesa originale ("attivazione MMG") era troppo aggressiva — corretta dopo la baseline: il comportamento sicuro (dispo fino al 16 + segnalazione) è quello giusto, coerente col principio anti-invenzione (turni_extra fantasma, pin in silenzio).
