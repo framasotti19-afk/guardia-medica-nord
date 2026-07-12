@@ -2946,13 +2946,38 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
         const domandeTutte = [...altreDomande, ...pinDomande];
         // Avvisi (voce A2): 🔴/ℹ️ come campo strutturato, non più prosa nella spiegazione. {livello:"rosso"|"info",testo}
         const avvisiNuovi = Array.isArray(obj.avvisi) ? obj.avvisi.filter((a) => a && a.testo).map((a) => ({ livello: a.livello === "info" ? "info" : "rosso", testo: String(a.testo) })) : [];
+        // GUARD-DATE (voce 84): controllo DETERMINISTICO app-side delle date IMPOSSIBILI citate nel TESTO della
+        // mail. Il motore rigetta già le date impossibili nelle azioni (giorno > giorniNelMese), ma il modello
+        // può soft-notarle o rimapparle in silenzio (es. "31 settembre" → "31 agosto"): l'unico posto dove il
+        // problema è visibile è il testo. Cerchiamo «<N> <mese>» con N oltre la fine di quel mese (fatto
+        // verificabile, non giudizio a temp-1). Promemoria, non blocco. Solo IMPOSSIBILI (scope A): le date
+        // valide di un altro mese NON si toccano (sarebbero falsi positivi — "a settembre ho le ferie" è contesto).
+        const avvisiData = [];
+        try {
+          const re = /\b(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\b/gi;
+          const testoMail = String(domanda || ""), visti = new Set();
+          let mm;
+          while ((mm = re.exec(testoMail)) !== null) {
+            const gg = Number(mm[1]), nomeMese = mm[2].toLowerCase();
+            const mi = MESI_IT.findIndex((x) => x.toLowerCase() === nomeMese);
+            if (mi < 0) continue;
+            const giorniDiQuelMese = new Date(anno, mi + 1, 0).getDate();
+            if (gg >= 1 && gg <= giorniDiQuelMese) continue; // data valida → non è compito di questo guard
+            const etichetta = `${gg} ${nomeMese}`;
+            if (visti.has(etichetta)) continue; visti.add(etichetta);
+            // Dedup col modello: se un suo avviso o la spiegazione cita già quella data, non duplico il 🔴.
+            const giaCitata = avvisiNuovi.some((a) => a.testo.toLowerCase().includes(etichetta)) || String(obj.spiegazione || "").toLowerCase().includes(etichetta);
+            if (!giaCitata) avvisiData.push({ livello: "rosso", testo: `«${etichetta}» non è una data valida (${nomeMese} ${anno} ha ${giorniDiQuelMese} giorni): nessuna disponibilità presa per quel giorno, verifica con il medico quale data intendesse.` });
+          }
+        } catch (e) { /* il guard-date non deve mai rompere il flusso della risposta */ }
+        const avvisiFinali = [...avvisiNuovi, ...avvisiData];
         if (azioniSenzaPin.length) setProposta({ azioni: azioniSenzaPin, spiegazione: obj.spiegazione || "Modifica proposta" });
         if (domandeTutte.length) setDomande((prev) => [...prev, ...domandeTutte]); // accumula: non perde domande di round precedenti non ancora risposte
-        setAvvisi(avvisiNuovi);
+        setAvvisi(avvisiFinali);
         setAzioniRestanti(!!obj.altreAzioniRestanti || eTroncato); // eTroncato = rete di sicurezza se il modello non ha impostato il campo
-        let msg = obj.spiegazione || (azioniSenzaPin.length ? "Modifica proposta" : avvisiNuovi.length && !domandeTutte.length ? "Ho una segnalazione per te" : "Ho una domanda per te");
+        let msg = obj.spiegazione || (azioniSenzaPin.length ? "Modifica proposta" : avvisiFinali.length && !domandeTutte.length ? "Ho una segnalazione per te" : "Ho una domanda per te");
         if (azioniSenzaPin.length) msg += " — conferma o annulla qui sotto.";
-        if (avvisiNuovi.length) msg += ` (${avvisiNuovi.length} ${avvisiNuovi.length > 1 ? "avvisi" : "avviso"} da leggere qui sotto)`;
+        if (avvisiFinali.length) msg += ` (${avvisiFinali.length} ${avvisiFinali.length > 1 ? "avvisi" : "avviso"} da leggere qui sotto)`;
         if (domandeTutte.length) msg += ` (${domandeTutte.length} ${domandeTutte.length > 1 ? "domande" : "domanda"} da rispondere qui sotto)`;
         setAiMsgs((p) => [...p, { role: "assistant", content: azioniSenzaPin.length ? `PROPOSTA: ${msg}` : msg }]);
       } else if (obj?.tipo === "risposta") {
