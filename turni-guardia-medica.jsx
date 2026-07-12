@@ -1350,13 +1350,16 @@ const INIQUITA_SOGLIE = [
   { maxDivario: 75, label: "Alta" },          // 56–75
   { maxDivario: Infinity, label: "Altissima" },// > 75
 ];
-// Correttivo "chi sta peggio", PESATO sul numero di penalizzati (§10 voce 29): un medico è
-// "penalizzato" se la sua soddisfazione è sotto questa soglia. Se c'è disparità reale (max > min)
-// e almeno un penalizzato, l'etichetta sale di UNO scatto; se i penalizzati sono almeno la metà dei
-// richiedenti, sale di DUE scatti (il risentimento nasce da chi sta peggio, e pesa quanti stanno
-// peggio). Il conteggio "N penalizzati" viene mostrato in etichetta solo da "Media" in su, con lo
-// stesso criterio (< questa soglia). Frazione 0..1 (0.25 = 25%).
-const INIQUITA_SOGLIA_RISENTIMENTO = 0.25;
+// Correttivo "chi sta peggio", PESATO sul numero di penalizzati (§10 voce 29; ancora resa RELATIVA §10 voce 87):
+// un medico è "penalizzato" se la sua soddisfazione è sotto (maxP − questo MARGINE), cioè MOLTO peggio del PIÙ
+// soddisfatto — NON sotto una soglia ASSOLUTA. La vecchia soglia assoluta (< 0.25) in un mese di penuria (tutti
+// bassi ma UGUALI) contava tutti come penalizzati pur SENZA iniquità, gonfiando l'etichetta: l'insoddisfazione
+// assoluta non è iniquità, il risentimento nasce dal confronto ("a lui hai dato e a me no"). Se c'è disparità
+// reale (max > min) e almeno un penalizzato, l'etichetta sale di UNO scatto; se i penalizzati sono almeno la
+// metà dei richiedenti, sale di DUE. "N penalizzati" mostrato in etichetta solo da "Media" in su. Su un mese
+// con maxP=0.5 il MARGINE 0.25 coincide con la vecchia soglia (drop-in sui casi canonici di voce 29). Frazione
+// 0..1 (0.25 = 25 punti sotto il migliore).
+const INIQUITA_MARGINE_RISENTIMENTO = 0.25;
 
 // Estrae il primo oggetto JSON valido e "riconoscibile" (con un campo "tipo") da un testo che
 // potrebbe contenere un preambolo prima o dopo il JSON (es. un ragionamento scritto per errore
@@ -3669,6 +3672,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       });
     }));
     const soddisf = []; // soddisfazione (0..1 = ottenuti/richiesti) dei medici che hanno chiesto extra
+    const richiedenti = []; // dettaglio per la tabella: {id, x, y, s}
     MEDICI.forEach((m) => {
       const y = (dati.turniExtra || {})[m.id] || 0;
       if (y <= 0) return; // solo chi ha dichiarato turni extra
@@ -3676,26 +3680,39 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       if (monteOrd === null) return; // senza incarico: nessun monte ore (non dovrebbe avere extra)
       const ordinari = Math.ceil(monteOrd / 12); // turni coperti dal solo monte ore ordinario
       const x = Math.max(0, Math.min(y, (turniAssegnati[m.id] || 0) - ordinari)); // extra ottenuti, in [0, y]
-      perMedico[m.id] = x;
-      soddisf.push(x / y);
+      const s = x / y;
+      richiedenti.push({ id: m.id, x, y, s });
+      soddisf.push(s);
     });
-    let label = null, testo = null;
+    let label = null, testo = null, sogliaPen = null, disparitaReale = false;
     if (soddisf.length === 1) {
       label = "Nessuna"; testo = "Nessuna"; // un solo medico ha chiesto extra: nessun confronto possibile
     } else if (soddisf.length >= 2) {
       const maxP = Math.max(...soddisf), minP = Math.min(...soddisf);
       const n = soddisf.length;
-      const penalizzati = soddisf.filter((s) => s < INIQUITA_SOGLIA_RISENTIMENTO).length;
+      disparitaReale = maxP > minP;
+      // "penalizzato" RELATIVO (§10 voce 87): MOLTO peggio del PIÙ soddisfatto, non sotto una soglia assoluta.
+      sogliaPen = maxP - INIQUITA_MARGINE_RISENTIMENTO;
+      const penalizzati = soddisf.filter((s) => s < sogliaPen).length;
       const divario = (maxP - minP) * 100;
       let idx = INIQUITA_SOGLIE.findIndex((s) => divario <= s.maxDivario);
       // correttivo "chi sta peggio" PESATO sul numero di penalizzati: scatta solo se c'è disparità
       // reale (max > min); +1 con almeno un penalizzato, +2 se sono almeno la metà dei richiedenti.
-      if (maxP > minP && penalizzati >= 1) idx = Math.min(idx + (penalizzati * 2 >= n ? 2 : 1), INIQUITA_SOGLIE.length - 1);
+      if (disparitaReale && penalizzati >= 1) idx = Math.min(idx + (penalizzati * 2 >= n ? 2 : 1), INIQUITA_SOGLIE.length - 1);
       label = INIQUITA_SOGLIE[idx].label;
-      // "N penalizzati" mostrato SOLO da Media in su (idx >= 2) e con disparità reale: a Nessuna/Bassa
-      // si mostra il solo livello (scelta di visualizzazione — coerente col Modo 1 concordato).
-      const mostraNumero = penalizzati >= 1 && maxP > minP && idx >= 2;
+      // "N penalizzati" mostrato SOLO da Media in su (idx >= 2) e con disparità reale.
+      const mostraNumero = penalizzati >= 1 && disparitaReale && idx >= 2;
       testo = mostraNumero ? `${label} — ${penalizzati} medic${penalizzati === 1 ? "o" : "i"} penalizzat${penalizzati === 1 ? "o" : "i"}` : label;
+    }
+    // Dettaglio per-medico per la tabella (§10 voce 87): x, y, soddisfazione e LIVELLO di iniquità percepita del
+    // SINGOLO = distanza dal più soddisfatto (maxP − s, in punti), mappata sulle STESSE soglie INIQUITA_SOGLIE
+    // del totale (equità di Adams applicata al singolo: quanto sto sotto chi è stato servito meglio). Così il
+    // coordinatore vede CHI, QUANTO e a che livello — non un totale anonimo.
+    const maxPall = soddisf.length ? Math.max(...soddisf) : 0;
+    for (const r of richiedenti) {
+      const dist = (maxPall - r.s) * 100;
+      const livello = INIQUITA_SOGLIE[INIQUITA_SOGLIE.findIndex((x) => dist <= x.maxDivario)].label;
+      perMedico[r.id] = { x: r.x, y: r.y, s: r.s, dist, livello };
     }
     return { perMedico, label, testo };
   }, [dati.schema, dati.turniExtra, dati.extraOre, mese]);
@@ -4160,11 +4177,18 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             onChange={(e) => setDati({ turniExtra: { ...(dati.turniExtra || {}), [m.id]: Math.max(0, Number(e.target.value) || 0) }, schema: null })}
                             style={{ width: 50, padding: "3px 5px", borderRadius: 5, border: "1px solid #e5e9e6" }} />
                         ) : "—"}
-                        {dati.schema && ((dati.turniExtra || {})[m.id] || 0) > 0 && (
-                          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
-                            Extra: <b style={{ color: (equitaExtra.perMedico[m.id] || 0) >= ((dati.turniExtra || {})[m.id] || 0) ? T.primary : T.danger }}>{equitaExtra.perMedico[m.id] || 0}/{(dati.turniExtra || {})[m.id] || 0}</b>
-                          </div>
-                        )}
+                        {dati.schema && ((dati.turniExtra || {})[m.id] || 0) > 0 && (() => {
+                          const d = equitaExtra.perMedico[m.id];
+                          if (!d) return null;
+                          const pct = Math.round((d.s || 0) * 100);
+                          // stessa mappa colore della barra in cima: verde (Nessuna/Bassa) → ambra (Media) → rosso (Alta/Altissima)
+                          const col = d.livello === "Nessuna" || d.livello === "Bassa" ? T.primary : d.livello === "Media" ? "#c17d0f" : T.danger;
+                          return (
+                            <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
+                              Extra: <b>{d.x}/{d.y}</b> · {pct}% · <b style={{ color: col }}>{d.livello}</b>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: "6px 8px" }}>
                         <input type="number" min={0} step={1} placeholder="—" value={(dati.maxTurniMese || {})[m.id] ?? ""}
