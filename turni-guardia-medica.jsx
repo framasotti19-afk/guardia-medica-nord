@@ -2943,7 +2943,34 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
           domanda: `Piantare il pin sul giorno ${slot.giorno} ${slot.turno === "G" ? "diurno" : "notturno"}${slot.sede ? ` (⚓ solo se ottiene ${SEDI_BREVI[slot.sede] || slot.sede})` : ""}? È un vincolo RIGIDO: la distribuzione lo terrà fisso.${sedeFlag ? " ⚠️ due versioni del pin differivano sulla sede: tengo la più specifica (⚓)." : ""}`,
           seSi: [slot], seNo: [],
         }));
-        const domandeTutte = [...altreDomande, ...pinDomande];
+        // GUARD FUORI-SEDE (voce 86): §3.1a — un dispo_* di un TITOLARE le cui sedi VERDI sono TUTTE ≠ dalla
+        // sua titolarità non va applicato in silenzio col "Conferma": va confermato con una card Sì/No (stesso
+        // danno del pin — approvo una disponibilità normale e sposto un medico fuori titolarità senza sceglierlo).
+        const sedeTitolare = (nome) => { const mid = nomeToId(nome); return (mid !== undefined && mid !== null && byId[mid]) ? (byId[mid].sedeContratto || null) : null; };
+        const isFuoriSede = (a) => {
+          if (!a || (a.az !== "dispo_set" && a.az !== "dispo_aggiungi")) return false;
+          const tit = sedeTitolare(a.medico);
+          if (!tit) return false; // senza incarico o medico ignoto: non è il caso §3.1a
+          const verdi = Array.isArray(a.sedi) ? a.sedi : [];
+          return verdi.length > 0 && !verdi.includes(tit); // tutte le sedi verdi diverse dalla titolarità
+        };
+        const azioniFuoriSede = azioniSenzaPin.filter(isFuoriSede);
+        const azioniFinali = azioniSenzaPin.filter((a) => !isFuoriSede(a));
+        // Dedup col modello: se una sua domanda propone GIÀ l'inserimento fuori-sede di quel medico, non doppiare.
+        const fuoriSedeGiaChiesto = new Set();
+        for (const dq of altreDomande) if (Array.isArray(dq.seSi)) dq.seSi.filter(isFuoriSede).forEach((a) => fuoriSedeGiaChiesto.add(a.medico));
+        const fuoriSedeDomande = [];
+        for (const a of azioniFuoriSede) {
+          if (fuoriSedeGiaChiesto.has(a.medico)) continue; fuoriSedeGiaChiesto.add(a.medico);
+          const tit = sedeTitolare(a.medico), sediLabel = (a.sedi || []).join(", "); // nomi pieni: più chiari del codice breve per una conferma di titolarità
+          fuoriSedeDomande.push({
+            medico: a.medico, giorno: a.giorno,
+            situazione: `è titolare di ${tit} ma ha chiesto solo ${sediLabel}`,
+            domanda: `inserisco la disponibilità fuori dalla sua titolarità (${sediLabel})?`,
+            seSi: [a], seNo: [],
+          });
+        }
+        const domandeTutte = [...altreDomande, ...pinDomande, ...fuoriSedeDomande];
         // Avvisi (voce A2): 🔴/ℹ️ come campo strutturato, non più prosa nella spiegazione. {livello:"rosso"|"info",testo}
         const avvisiNuovi = Array.isArray(obj.avvisi) ? obj.avvisi.filter((a) => a && a.testo).map((a) => ({ livello: a.livello === "info" ? "info" : "rosso", testo: String(a.testo) })) : [];
         // GUARD-DATE (voce 84): controllo DETERMINISTICO app-side delle date IMPOSSIBILI citate nel TESTO della
@@ -2971,15 +2998,15 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
           }
         } catch (e) { /* il guard-date non deve mai rompere il flusso della risposta */ }
         const avvisiFinali = [...avvisiNuovi, ...avvisiData];
-        if (azioniSenzaPin.length) setProposta({ azioni: azioniSenzaPin, spiegazione: obj.spiegazione || "Modifica proposta" });
+        if (azioniFinali.length) setProposta({ azioni: azioniFinali, spiegazione: obj.spiegazione || "Modifica proposta" });
         if (domandeTutte.length) setDomande((prev) => [...prev, ...domandeTutte]); // accumula: non perde domande di round precedenti non ancora risposte
         setAvvisi(avvisiFinali);
         setAzioniRestanti(!!obj.altreAzioniRestanti || eTroncato); // eTroncato = rete di sicurezza se il modello non ha impostato il campo
-        let msg = obj.spiegazione || (azioniSenzaPin.length ? "Modifica proposta" : avvisiFinali.length && !domandeTutte.length ? "Ho una segnalazione per te" : "Ho una domanda per te");
-        if (azioniSenzaPin.length) msg += " — conferma o annulla qui sotto.";
+        let msg = obj.spiegazione || (azioniFinali.length ? "Modifica proposta" : avvisiFinali.length && !domandeTutte.length ? "Ho una segnalazione per te" : "Ho una domanda per te");
+        if (azioniFinali.length) msg += " — conferma o annulla qui sotto.";
         if (avvisiFinali.length) msg += ` (${avvisiFinali.length} ${avvisiFinali.length > 1 ? "avvisi" : "avviso"} da leggere qui sotto)`;
         if (domandeTutte.length) msg += ` (${domandeTutte.length} ${domandeTutte.length > 1 ? "domande" : "domanda"} da rispondere qui sotto)`;
-        setAiMsgs((p) => [...p, { role: "assistant", content: azioniSenzaPin.length ? `PROPOSTA: ${msg}` : msg }]);
+        setAiMsgs((p) => [...p, { role: "assistant", content: azioniFinali.length ? `PROPOSTA: ${msg}` : msg }]);
       } else if (obj?.tipo === "risposta") {
         setAiMsgs((p) => [...p, { role: "assistant", content: obj.testo }]);
       } else if (obj?.tipo === "stato_medico") {
