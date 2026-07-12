@@ -1,5 +1,5 @@
 # MAIL DI TEST — Prompt AI Turni Guardia Medica
-# 56 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
+# 59 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
 
 ## ISTRUZIONI PER CLAUDE CODE
 
@@ -811,3 +811,33 @@ Il contesto è: agosto 2026, medici del roster ASFO Distretto Nord. Lo stato ini
 - `dispo_set` giorni 1-16 Maniago notturni ZURLO · NESSUNA azione `mmg` (il medico ANNUNCIA un fatto e chiede come funziona, non chiede l'attivazione: auto-attivare un MMG per 15 giorni da un annuncio sarebbe inventare un'azione) · avviso al coordinatore che il medico ha annunciato l'apertura dell'ambulatorio dal 17 e che serve decidere come gestire il resto del mese
 
 **Note:** l'attesa originale ("attivazione MMG") era troppo aggressiva — corretta dopo la baseline: il comportamento sicuro (dispo fino al 16 + segnalazione) è quello giusto, coerente col principio anti-invenzione (turni_extra fantasma, pin in silenzio).
+
+---
+
+## MAIL 57 — Mese sbagliato in RICHIESTA NETTA → domanda "intendeva il mese di lavoro?"
+**Da:** BEKAEVA
+**Testo:**
+> Buongiorno, per agosto disponibile a Maniago, notturni. Aggiungetemi anche il 30 settembre, quel giorno voglio lavorare.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Maniago"] BEKAEVA (agosto) · DOMANDA di conferma "BEKAEVA ha scritto «il 30 settembre» ma stiamo lavorando su agosto — intendeva il 30 agosto?" (seSi = `dispo_aggiungi` giorno 30 turno "N" Maniago; seNo = []) · NON rimappare né inserire in silenzio su 30 agosto
+
+---
+
+## MAIL 58 — Mese sbagliato in RICHIESTA MORBIDA → deve chiedere lo stesso (precedenza sulla morbida)
+**Da:** FOSCHIANI
+**Testo:**
+> Salve, agosto Spilimbergo notti. Se possibile mi piacerebbe fare anche il 30 settembre, ma non è importante, vedete voi.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Spilimbergo"] FOSCHIANI (agosto) · DOMANDA di conferma "FOSCHIANI ha scritto «il 30 settembre» ma stiamo lavorando su agosto — intendeva il 30 agosto?" · la regola mese-sbagliato ha PRECEDENZA su PREFERENZE MORBIDE → NON declassare a semplice nota ℹ️ morbida, CHIEDI conferma
+
+---
+
+## MAIL 59 — Controllo negativo: mese diverso solo come CONTESTO → nessuna domanda
+**Da:** MERLINO
+**Testo:**
+> Agosto Spilimbergo notti. A settembre ho le ferie dal 10, quindi da lì non ci sono, ma è un altro mese lo so.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Spilimbergo"] MERLINO (agosto) · NESSUNA domanda (settembre è solo contesto, nessuna richiesta su un giorno) · senza incarico → inserisce + 🔴 (nessun numero di guardie mensili indicato)
