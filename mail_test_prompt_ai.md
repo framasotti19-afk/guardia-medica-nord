@@ -1,5 +1,5 @@
 # MAIL DI TEST — Prompt AI Turni Guardia Medica
-# 40 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
+# 53 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
 
 ## ISTRUZIONI PER CLAUDE CODE
 
@@ -719,3 +719,63 @@ Il contesto è: agosto 2026, medici del roster ASFO Distretto Nord. Lo stato ini
 
 **Note:** riferimenti relativi ("ultimo weekend", "lunedì successivo") risolti col calendario nello stato, mai a mente. Il 31 non è né dentro né fuori l'ambito: è una disponibilità condizionata (ultima risorsa) → segnalata, non inserita.
 
+
+---
+
+## MAIL 48 — Esclusione sede ("tranne Maniago") + pin libero + contesto adiacente
+**Da:** BERTUZZI
+**Testo:**
+> Buonasera, scusa il ritardo — sono appena rientrato da un notturno e ho visto solo ora la mail. Per agosto ci sono praticamente sempre, mi va bene ovunque tranne Maniago (ho la macchina dal meccanico e da lì non ci arrivo la sera). L'unica cosa: il 23 non me lo toccate. Ho una cosa di famiglia il 24 e mi organizzo il rientro attorno a quel turno. Grazie
+
+**Risposta attesa:**
+- SP/ME/CL/AN (Maniago esclusa) · pin 📌 sul 23 solo notturno (non ha dichiarato i diurni) · nessuna azione sul 24 (contesto) · nessun blocco su "praticamente sempre" · domanda sui diurni weekend
+
+---
+
+## MAIL 49 — Tetto mensile + preferenza morbida + data impossibile
+**Da:** PITAU
+**Testo:**
+> Ciao, agosto sono disponibile a Maniago, solo notti, non più di 5 turni che ho le ferie della bambina. Se possibile mi piacerebbe fare il 10 e il 31 settembre, ma non è indispensabile, vedete voi come vi torna meglio.
+
+**Risposta attesa:**
+- Maniago notti · tetto_mese 5 · nessun pin (preferenza morbida) · 🔴 data impossibile ("31 settembre")
+
+---
+
+## MAIL 50 — Pin ⚓ sede specifica (sottoinsieme proprio)
+**Da:** MARTINETTI
+**Testo:**
+> Buongiorno, per agosto do disponibilità su Spilimbergo e Meduno, notturni. Il 19 lo vorrei fare, ma solo se sto a Spilimbergo — a Meduno quella sera non riesco proprio a esserci, quindi in quel caso lasciate perdere e datelo a qualcun altro. Buona giornata
+
+**Risposta attesa:**
+- SP+ME notturni · ⚓ solo Spilimbergo sul 19N (sottoinsieme proprio)
+
+---
+
+## MAIL 51 — Mail complessa: complemento giorni + finestra + 6 tetti + pin G+N
+**Da:** VALERI
+**Testo:**
+> Allora, agosto: Spilimbergo, notti, e i diurni del weekend se servono. Massimo 2 a settimana, ho la riabilitazione al ginocchio il martedì e il giovedì. La settimana del 3 però almeno 2 me li fate fare, che poi dal 10 sono più incasinato. Il 22 è fisso, sabato. Giorno o notte è uguale, basta che ci sia. Fammi sapere se ho scritto qualche cavolata che sono di corsa
+
+**Risposta attesa:**
+- complemento giorni-settimana (mar/gio esclusi tutti) · diurni solo weekend · 6 tetti settimanali (1,3,10,17,24,31) · finestra sett. del 3 · pin 📌 sul 22 su G+N (contro-esempio del bug 10) · nessun turni_extra
+
+---
+
+## MAIL 52 — Pin ⚓ + turno_pref non applicabile (feriale) + senza incarico
+**Da:** CERVESATO
+**Testo:**
+> Salve, agosto disponibile a Spilimbergo e Meduno, solo notturni. Il 27 lo voglio assolutamente, ma solo se sono a Spilimbergo. E se dovesse esserci anche il diurno preferirei comunque restare sul notturno. Grazie mille
+
+**Risposta attesa:**
+- ⚓ Spilimbergo sul 27N · turno_pref NON applicabile (27 = giovedì feriale, il diurno non esiste) → 🔴 · senza incarico → inserisce + 🔴
+
+---
+
+## MAIL 53 — Contesto storico (luglio) ≠ azione + senza incarico
+**Da:** MERLINO
+**Testo:**
+> Buonasera, per agosto sono disponibile a Spilimbergo di notte, come sempre. A luglio nella settimana del 20 ho coperto tre guardie di fila e sono arrivato in fondo con la lingua di fuori, spero di non doverlo rifare — ma se serve, si fa. Buon lavoro
+
+**Risposta attesa:**
+- solo la disponibilità · il riferimento a luglio è CONTESTO, nessuna azione · senza incarico → inserisce + 🔴
