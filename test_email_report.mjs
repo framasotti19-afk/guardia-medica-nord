@@ -81,9 +81,13 @@ function domandaCorrisponde(spec, domande) {
   });
 }
 
-// ============ Matcher: avviso testuale (spiegazione/testo) ============
+// ============ Matcher: avviso testuale (spiegazione/testo/campo avvisi[]) ============
+// Gli avvisi vivono nel campo JSON `avvisi: [{livello, testo}]` (voci 76-77) — oltre che, storicamente,
+// nella spiegazione: si guarda in ENTRAMBI, così un avviso emesso correttamente nel campo strutturato
+// viene riconosciuto (prima veniva cercato solo in spiegazione/testo, un buco per gli avvisi INFO come la chiusura).
 function avvisoCorrisponde(spec, obj) {
-  const testo = `${obj?.spiegazione || ""} ${obj?.testo || ""}`.toLowerCase();
+  const avvisiTxt = Array.isArray(obj?.avvisi) ? obj.avvisi.map((a) => a?.testo || "").join(" ") : "";
+  const testo = `${obj?.spiegazione || ""} ${obj?.testo || ""} ${avvisiTxt}`.toLowerCase();
   return (spec.contiene || []).every((k) => testo.includes(k.toLowerCase()));
 }
 
@@ -129,6 +133,15 @@ function valutaCaso(r) {
     if (!avvisoCorrisponde(atteso.avvisoRichiesto, obj)) {
       motivi.push(`avviso mancante (parole attese: ${atteso.avvisoRichiesto.contiene.join(", ")})`);
       tipoErrore = tipoErrore || "avviso_mancante";
+    }
+  }
+  // avvisoVietato: un avviso con QUESTE parole NON deve comparire. È il CONTROLLO NEGATIVO (es. chiusura
+  // Claut/Anduins su un notturno FERIALE: la regola non deve scattare) — senza, un pass non distingue
+  // "la regola funziona" da "avvisa sempre".
+  if (atteso.avvisoVietato) {
+    if (avvisoCorrisponde(atteso.avvisoVietato, obj)) {
+      motivi.push(`avviso VIETATO presente (parole: ${atteso.avvisoVietato.contiene.join(", ")}) — la regola è scattata quando non doveva`);
+      tipoErrore = tipoErrore || "avviso_inatteso";
     }
   }
   return { esito: motivi.length === 0, motivi, tipoErrore };

@@ -736,6 +736,40 @@ times(8, () => {
   });
 });
 
+// ============ CHIUSURA CLAUT/ANDUINS NEI NOTTURNI CON DIURNO (§10 voce 96/97) ============
+// Regola motore (voce 96): Claut/Anduins sono CHIUSE nei notturni dei giorni con diurno (sab/dom/festivi/
+// prefestivi). Il prompt (voce 97) deve REGISTRARE comunque la blu (vale sui feriali) MA emettere un avviso
+// INFO. CONTROLLO NEGATIVO essenziale (notturno FERIALE → NESSUN avviso): senza, un 3/3 non distingue
+// "funziona" da "avvisa sempre" (stessa lezione delle MAIL 57-59 e del test §3.9). Metà positivi, metà negativi.
+times(8, (i) => {
+  const conDiurno = i % 2 === 0;                  // pari = notturno con diurno (positivo); dispari = feriale (controllo negativo)
+  const usaAnduins = i % 4 === 1 || i % 4 === 2;  // varia la sede chiusa fra Claut e Anduins
+  const sedeChiusa = usaAnduins ? "Anduins" : "Claut";
+  const sedeFisica = usaAnduins ? (i % 3 === 0 ? "Meduno" : "Spilimbergo") : "Maniago"; // base territoriale valida (Anduins←SP/ME; Claut←MA)
+  const giorno = conDiurno ? pick(GIORNI_WEEKEND_TUTTI) : pick(GIORNI_FERIALI);
+  const m = pick(contrattualizzati);
+  const email = `Il ${giorno} notte sono a ${sedeFisica} e copro anche ${sedeChiusa} a distanza.`;
+  const atteso = {
+    azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: [sedeFisica], blu: [sedeChiusa] } }],
+    azioniVietate: [], nessunaAzione: false,
+  };
+  if (conDiurno) atteso.avvisoRichiesto = { contiene: ["chius"] }; // notturno con diurno → deve avvisare (sede chiusa quella notte)
+  else atteso.avvisoVietato = { contiene: ["chius"] };             // CONTROLLO NEGATIVO: feriale → NESSUN avviso di chiusura
+  aggiungi("chiusura_notturno", m, giorno, email, atteso, statoBase(),
+    conDiurno ? `${giorno} ha il diurno → ${sedeChiusa} chiusa quel notturno: registra la blu + avviso INFO`
+              : `${giorno} feriale → ${sedeChiusa} aperta di notte: registra la blu, NESSUN avviso (controllo negativo)`);
+});
+// "tutto il mese" (dispo_set): ambito che include feriali (validi) e festivi (inerti) → registra tutto + UN avviso INFO
+times(2, () => {
+  const m = pick(contrattualizzati);
+  const email = `Per tutto ${MESE_LABEL} faccio le notti a Maniago e copro anche Claut a distanza.`;
+  aggiungi("chiusura_notturno", m, [], email, {
+    azioniRichieste: [{ az: "dispo_set", match: { medico: m.nome, sedi: ["Maniago"], blu: ["Claut"] } }],
+    azioniVietate: [], nessunaAzione: false,
+    avvisoRichiesto: { contiene: ["chius"] },
+  }, statoBase(), "ambito mese → valido sui feriali, inerte sui festivi: un solo avviso INFO");
+});
+
 export function generaCorpus() {
   return casi;
 }

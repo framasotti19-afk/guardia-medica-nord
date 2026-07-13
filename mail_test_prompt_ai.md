@@ -1,5 +1,5 @@
 # MAIL DI TEST — Prompt AI Turni Guardia Medica
-# 59 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate)
+# 63 mail con risposta attesa (regola pin ⚓/📌 aggiornata: ⚓ solo per sottoinsieme PROPRIO delle sedi dichiarate; MAIL 60-63 = chiusura Claut/Anduins notturni festivi, voce 96)
 
 ## ISTRUZIONI PER CLAUDE CODE
 
@@ -841,3 +841,55 @@ Il contesto è: agosto 2026, medici del roster ASFO Distretto Nord. Lo stato ini
 
 **Risposta attesa:**
 - `dispo_set` ambito "mese" turni ["N"] sedi ["Spilimbergo"] MERLINO (agosto) · NESSUNA domanda (settembre è solo contesto, nessuna richiesta su un giorno) · senza incarico → inserisce + 🔴 (nessun numero di guardie mensili indicato)
+
+---
+
+## MAIL 60 — CHIUSURA (voce 96): blu su Claut in un notturno FESTIVO → registra + avviso INFO
+**Da:** TRIGODKO
+**Testo:**
+> Sabato 8 agosto, di notte sono a Maniago e copro anche Claut a distanza.
+
+**Risposta attesa:**
+- `dispo_aggiungi` giorno 8 turno "N" sedi ["Maniago"] blu ["Claut"] TRIGODKO
+- Avviso INFO in "avvisi": `{"livello":"info","testo":"TRIGODKO: Claut è chiusa nei notturni di sab/dom/festivi/prefestivi (servizio non attivo, nemmeno a distanza) — la copertura dichiarata vale solo per i notturni feriali."}`
+
+**Note:** l'8 agosto 2026 è sabato → ha il diurno → il notturno è "con diurno" → Claut CHIUSA (voce 96). La blu è territorialmente valida (Claut da Maniago) ma INERTE quella notte: si registra comunque (vale sui feriali) + avviso INFO, NON 🔴. "Di notte" esplicito → nessuna domanda sul diurno.
+
+---
+
+## MAIL 61 — CONTROLLO NEGATIVO: stessa blu su Claut ma notturno FERIALE → registra, NESSUN avviso
+**Da:** PITAU
+**Testo:**
+> Martedì 11 agosto notte sono a Maniago, copro anche Claut a distanza.
+
+**Risposta attesa:**
+- `dispo_aggiungi` giorno 11 turno "N" sedi ["Maniago"] blu ["Claut"] PITAU
+- NESSUN avviso di chiusura (né info né 🔴)
+
+**Note CRITICA (controllo negativo):** l'11 agosto 2026 è martedì FERIALE (nessun diurno) → di notte Claut è APERTA e la copertura a distanza è VALIDA. Se qui compare un avviso di chiusura, la regola sta scattando SEMPRE invece che solo sui giorni con diurno (bug "avviso sempre") — è esattamente ciò che questo caso deve smascherare. Senza questo controllo, un 3/3 su MAIL 60/62/63 non distingue "la regola funziona" da "avvisa sempre".
+
+---
+
+## MAIL 62 — Ambito che include ENTRAMBI (caso più realistico): tutto il mese → registra tutto, un solo avviso INFO
+**Da:** BEKAEVA
+**Testo:**
+> Per tutto agosto, notti, sto a Maniago e copro Claut a distanza.
+
+**Risposta attesa:**
+- `dispo_set` ambito "mese" turni ["N"] sedi ["Maniago"] blu ["Claut"] BEKAEVA
+- Avviso INFO in "avvisi": `{"livello":"info","testo":"BEKAEVA: Claut è chiusa nei notturni di sab/dom/festivi/prefestivi (servizio non attivo, nemmeno a distanza) — la copertura dichiarata vale solo per i notturni feriali."}`
+
+**Note:** la dichiarazione copre l'INTERO mese → valida sui notturni feriali, inerte su quelli con diurno (weekend/festivi/prefestivi). Si registra tutto con un solo `dispo_set` + UN avviso INFO (non uno per giorno). Il motore fa già la parte giusta (copre solo i feriali); l'avviso serve solo perché il medico non pensi di aver coperto anche i festivi.
+
+---
+
+## MAIL 63 — Anduins in un PREFESTIVO notturno → il predicato copre tutti e quattro i casi, non solo il sabato
+**Da:** MARTINETTI
+**Testo:**
+> Il 14 agosto notte sono a Spilimbergo e copro Anduins a distanza.
+
+**Risposta attesa:**
+- `dispo_aggiungi` giorno 14 turno "N" sedi ["Spilimbergo"] blu ["Anduins"] MARTINETTI
+- Avviso INFO in "avvisi": `{"livello":"info","testo":"MARTINETTI: Anduins è chiusa nei notturni di sab/dom/festivi/prefestivi (servizio non attivo, nemmeno a distanza) — la copertura dichiarata vale solo per i notturni feriali."}`
+
+**Note:** il 14 agosto è PREFESTIVO (vigilia di Ferragosto) → ha il diurno → notturno "con diurno" → Anduins CHIUSA. Anduins da Spilimbergo è territorialmente valida. Verifica che il predicato copra il PREFESTIVO (non solo sabato/domenica/festivo) e la sede ANDUINS (non solo Claut).
