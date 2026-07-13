@@ -10,6 +10,8 @@
 
 > **MOTORE:** hash **`89f9bf3e`** (voce 96: chiusura Claut/Anduins nei notturni festivi portata nel motore, `sitiChiusi`). Storia hash: `c155ffce` → (v90 catena) `5bd338ba` → (v92 commento) `6591df4b` → (v93 titolarità target) `27c332e5` → (v96 chiusura Claut/Anduins) **`89f9bf3e`**. Suite: **unit 66/66** (incl. test dello scambio §3.9), **sim 100k = 0 violazioni su 34,6M check**. ⚠️ **RED-LINE MOTORE:** ogni modifica al motore è un cambio deliberato a sé, con sim 100k piena e testa fresca, MAI impilato su altro lavoro a fine nottata. NB (voce 96): la "cascata di 14.900 slot" che aveva bloccato questa modifica era un **artefatto di misura** (medici seedati su un solo motore) — ri-misurato: **0 diff fisici su 260.000 turni**. Vedi la lezione "§ IL METRO PRIMA DELL'OGGETTO — anche quando il metro sei TU" in CONTEXT.
 
+> **FINDINGS (propagazione §3.11):** la CATENA (voce 90) agisce PRIMA della distribuzione §3.11 → si PROPAGA: i turni che toglie vengono ridistribuiti, e muovono celle in giorni che non c'entrano con la regola. Titolarità (93) e chiusura (96) restano LOCALI. (Nessun numero: dipende dalla fixture.)
+
 **PRIMA DI LAVORARE:** leggere `turni-guardia-medica.jsx`, poi `CONTEXT.md`, poi questo file.
 
 > ### ✅ Claut/Anduins chiuse nei notturni festivi — LA REGOLA VIVE NEL MOTORE (voce 96)

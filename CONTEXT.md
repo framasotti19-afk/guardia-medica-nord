@@ -87,6 +87,11 @@ Quando cambi una di queste nel motore, aggiorna il prompt (sezione indicata) E i
 
 11. **Test e simulazioni come fonte di verità.** Ogni modifica rilevante mantiene verdi i **206 unit test** (14 file, vedi §8) e non introduce violazioni nella simulazione (`test_simulazione_completa.mjs`, 100.000 scenari). Invarianti rigidi della sim: INV1 (fisico solo su verde), INV2 (NO mai assegnato), INV3 (a distanza solo da un fisico presente su sede blu dichiarata), max-1-blu, `INV-TITOLARE` (con tolleranza del limite noto §3.1a: ≥3 contrattualizzati → tollerato-ma-riportato), `INV-MAXTURNI`, `INV-TETTO-IMPLICITO`, `INV-FISICO-UNICO`, `INV-DETERMINISMO`, `INV-TETTO-SETTIMANALE`, `INV-TERRITORIALE`. Il motore va toccato solo se, dopo, tutto resta verde (o la nuova tolleranza è esplicitamente giustificata e documentata).
 
+> ⚠️ **QUANDO SI TOCCA LA CATENA (voce 90), NON BASTA CONTROLLARE IL GIORNO CORRETTO.**
+> La catena agisce PRIMA della distribuzione temporale §3.11: i turni che toglie a un medico gli vengono ridistribuiti altrove. Quindi una modifica alla catena sposta turni anche in giorni che non c'entrano nulla con la regola.
+> Chi verifica un fix alla catena guardando solo il giorno che voleva sistemare NON STA VERIFICANDO NIENTE: l'effetto è sul mese intero. Va rigenerato e confrontato TUTTO il mese, prima e dopo.
+> Titolarità (voce 93) e chiusura (voce 96) invece sono LOCALI: lì il giorno basta.
+
 **Nota — espansione degli insiemi di giorni deterministica nel MOTORE (luglio 2026).** Il calcolo di QUALI `{giorno, turno}` compongono un insieme dichiarato in modo compatto ("notturni feriali", "weekend", "tutto il mese", "dal X al Y", **e i giorni della settimana nominati** "il lunedì" / "da martedì a giovedì") è DETERMINISTICO e vive nel motore (`espandiAmbito`, funzione pura sul calendario, subito dopo `turniDelGiorno`), **non** è più a carico del ragionamento dell'AI — che calcolando i giorni "a mente" (Zeller) occasionalmente ne saltava uno. `espandiAmbito`, `diurniNascosti` e `costruisciEntryDispo` sono aggiunte PURE al motore: **non chiamano né alterano `elaboraSchema`/`elaboraTurno`**, quindi gli invarianti 1-11 e la simulazione restano immutati (verificato: sim 100k identica nei conteggi). L'azione AI `dispo_set` (COMPONENTE) si limita a invocarle. Vedi §10 voci 41 e 43.
 
 ---
