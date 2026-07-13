@@ -541,7 +541,7 @@ function candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, 
 // perché serve in DUE punti con la stessa identica logica: durante l'elaborazione del turno
 // (sotto), e di nuovo dopo lo scambio preferenza-turno §3.9 in elaboraSchema — dove il rilascio
 // di uno slot fisico cambia l'insieme dei presenti e la copertura a distanza va rifatta da capo.
-function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra) {
+function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra, sitiChiusi) {
   const sitiCoperti = new Set(Object.values(sedeFisicaDi));
   // Vincolo TERRITORIALE (CONTEXT.md §3.2): Claut (indice 3) può essere coperta a distanza SOLO dal
   // medico fisicamente a Maniago (0) — unica via, la Val Cellina si raggiunge da lì; Anduins (4)
@@ -588,6 +588,7 @@ function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra) 
     for (const sede of acc) {
       const si = SEDI5.indexOf(sede);
       if (sitiCoperti.has(si) || visitate.has(si)) continue;
+      if (sitiChiusi && sitiChiusi.has(si)) continue; // sede CHIUSA (Claut/Anduins nei notturni con diurno, §10 voce 96): servizio non attivo, nemmeno a distanza
       if (!puoCoprireADistanza(mid, si)) continue; // vincolo territoriale, applicato prima della gerarchia
       visitate.add(si);
       const occ = sedeBluDi[si];
@@ -611,7 +612,14 @@ function risolviBlu(fisMids, sedeFisicaDi, slotKey, dispo, debiti, debitiExtra) 
 // in due passaggi (prima i turni "preferiti", poi il resto) mantenendo lo stesso stato debiti e
 // settimanaCount (turni già assegnati per medico/settimana) condivisi tra tutte le chiamate dello
 // stesso elaboraSchema.
-function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, esente) {
+function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCount, esente, haDiurno) {
+  // CHIUSURA ASFO (§10 voce 96): nei notturni/MMG dei giorni che hanno ANCHE il diurno (sab/dom/festivi/
+  // prefestivi → haDiurno) Claut e Anduins sono CHIUSE: servizio non attivo, nemmeno a distanza (di giorno
+  // hanno già avuto il loro servizio fisico). È l'UNICA modifica: chiude i loro slot in FASE 2 (risolviBlu).
+  // NON tocca il fisico (FASE 1 gira prima e non le vede mai fisiche di notte), né debiti/conteggi (la
+  // copertura a distanza non li consuma) → misurato: 0 diff fisici su 260.000 turni. Nei feriali (no diurno)
+  // la copertura a distanza resta valida com'era. Stesso predicato del display (esistenza del turno "G").
+  const sitiChiusi = (haDiurno && turno.id !== "G") ? new Set([3, 4]) : null;
   const dataStr = slotKey.split("|")[0];
   const wk = settimanaDi(dataStr);
   const ordinati = candidatiOrdinati(dispo, debiti, debitiExtra, settimanaCount, slotKey, esente); // già in ordine di gerarchia ufficiale
@@ -852,13 +860,13 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // isBetterPriority — stessa identica gerarchia usata per il fisico: titolarità sede → categoria
     // → debito → graduatoria (CONTEXT.md §3.1a).
     const fisMids = ordinati.filter((m) => sedeDi[m.id] !== undefined).map((m) => m.id);
-    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra);
+    const sedeBluDi = risolviBlu(fisMids, sedeDi, slotKey, dispo, debiti, debitiExtra, sitiChiusi);
     Object.entries(sedeBluDi).forEach(([siStr, mid]) => { slots[Number(siStr)] = mid; });
 
     // AVVISO: qualunque sede (fisica o a distanza) resti scoperta per mancanza di dichiarazione — per
     // gli MMG identico agli ordinari (l'MMG compete su tutte le sedi in base alle disponibilità).
     {
-      const scoperte = [0, 1, 2, 3, 4].filter((si) => slots[si] === null);
+      const scoperte = [0, 1, 2, 3, 4].filter((si) => slots[si] === null && !(sitiChiusi && sitiChiusi.has(si))); // le sedi CHIUSE (voce 96) non sono "scoperte": non entrano nell'avviso
       if (scoperte.length && ordinati.length) {
         avviso = `Giorno ${d} · ${turno.label}: con ${ordinati.length} medici presenti, restano SCOPERTE (nessuna disponibilità verde o blu dichiarata): ${scoperte.map((si) => SEDI5[si]).join(", ")}.`;
       }
@@ -909,9 +917,12 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   const nGiorni = new Date(anno, mese + 1, 0).getDate();
   // Flat list di tutti i turni del mese, in ordine di calendario
   const voci = [];
+  const haDiurnoDi = {}; // info.key → il giorno ha il turno diurno "G" (voce 96): predicato di chiusura Claut/Anduins
   for (let d = 1; d <= nGiorni; d++) {
     const info = turniDelGiorno(anno, mese, d, extras);
-    info.turni.forEach((turno) => voci.push({ d, turno, slotKey: `${info.key}|${turno.id}` }));
+    const haDiurno = info.turni.some((t) => t.id === "G");
+    haDiurnoDi[info.key] = haDiurno;
+    info.turni.forEach((turno) => voci.push({ d, turno, slotKey: `${info.key}|${turno.id}`, haDiurno }));
   }
   // I turni si elaborano in ordine cronologico (di calendario): è l'ordine in cui il debito viene
   // consumato. Stesso ordine SIA nel passaggio 1 (gerarchia pura) SIA nel passaggio 2 (definitivo, §3.11).
@@ -924,7 +935,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
   function eseguiMese(debiti, debitiExtra, settimanaCount, escludiPerSlot, dopoTurno, esente) {
     const risultati = {}; // "d|turnoId" -> turnoOut
     const avvisiRaw = []; // {d, testo}
-    ordineVoci.forEach(({ d, turno, slotKey }) => {
+    ordineVoci.forEach(({ d, turno, slotKey, haDiurno }) => {
       let dispoEff = dispo;
       const esclusi = escludiPerSlot && escludiPerSlot(slotKey);
       if (esclusi && esclusi.size) {
@@ -933,7 +944,7 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
           dispoEff[mid] = { ...dispoEff[mid], [slotKey]: { verde: [], verdeLiv: {}, blu: [], bluLiv: {}, no: true } };
         });
       }
-      const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount, esente);
+      const { turnoOut, avviso } = elaboraTurno(d, turno, slotKey, dispoEff, debiti, debitiExtra, settimanaCount, esente, haDiurno);
       risultati[`${d}|${turno.id}`] = turnoOut;
       if (avviso) avvisiRaw.push({ d, testo: avviso });
       if (dopoTurno) dopoTurno(turno, turnoOut);
@@ -1227,7 +1238,8 @@ function elaboraSchema(dispo, extraOre, anno, mese, extras, turniExtra = {}, max
       const sedeFisicaOut = {};
       out.fis.forEach((i) => { if (out.slots[i] !== null && out.slots[i] !== undefined) sedeFisicaOut[out.slots[i]] = i; });
       const fisMids = Object.keys(sedeFisicaOut).map(Number);
-      const sedeBluDi = risolviBlu(fisMids, sedeFisicaOut, skRic, dispo, debiti, debitiExtra);
+      const sitiChiusiRic = (haDiurnoDi[dataStr] && out.id !== "G") ? new Set([3, 4]) : null; // dopo lo scambio, Claut/Anduins restano chiuse sui notturni con diurno (voce 96)
+      const sedeBluDi = risolviBlu(fisMids, sedeFisicaOut, skRic, dispo, debiti, debitiExtra, sitiChiusiRic);
       Object.entries(sedeBluDi).forEach(([iStr, id]) => { out.slots[Number(iStr)] = id; });
     });
   }
@@ -2035,20 +2047,9 @@ function App() {
           if (mid) {
             const nota = notaSlot(t.slots, si, t.fis);
             if (nota.tipo === "copertura") { testo = nota.testo; stile = 10; }
-            else {
-              // nota "primaria": il medico fisico qui può coprire ALTRE sedi a distanza. Sui notturni con
-              // diurno Claut/Anduins sono CHIUSE (§10 voce 94/95): la nota "*copre Claut/Anduins" NON deve
-              // comparire — contraddirebbe il grigio "servizio non attivo" della loro riga. Ricalcolo le
-              // "altre" escludendo Claut(3)/Anduins(4); se copriva SOLO quelle, sotto il nome non va nulla.
-              // notaSlot è nel motore (intatto): il filtro vive qui, nel layer di export.
-              let ntesto = nota.testo;
-              if (treFisiche && haDiurno) {
-                const altre = [];
-                for (let ii = 0; ii < t.slots.length; ii++) if (ii !== si && t.slots[ii] === mid && ii !== 3 && ii !== 4) altre.push(SEDI5[ii]);
-                ntesto = altre.length ? `*copre ${altre.join(", ")}` : "";
-              }
-              testo = byId[mid].nome + (ntesto ? "\n" + ntesto : "");
-            }
+            // La nota "*copre Claut/Anduins" non può più comparire sui notturni con diurno: con la chiusura
+            // nel motore (voce 96) quelle sedi sono null lì, nessuno le copre → `notaSlot` non le elenca mai.
+            else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
           } else if (sede === "MANIAGO" || sede === "SPILIMBERGO") {
             testo = "SCOPERTO"; stile = 11; // anche se un'altra sede del turno è coperta, Maniago/Spilimbergo scoperte vanno sempre segnalate in rosso
           } else {
@@ -3862,30 +3863,10 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
   // Avvisi mostrati nel banner (SOLO visualizzazione — `dati.avvisi` resta identico, motore intatto):
   // linguaggio più umano e filtro degli avvisi SCOPERTO "ovvi" (con 1 solo medico presente il motivo è
   // solo la mancanza di medici; l'avviso SCOPERTO è utile solo con 2+ medici presenti).
-  // (voce 94) Chiuso ≠ scoperto: nei notturni/MMG dei giorni CON diurno Claut/Anduins sono CHIUSE
-  // (regola ASFO — servizio non attivo, nemmeno a distanza). Il motore, che resta INTATTO, le elenca
-  // ancora fra le SCOPERTE: qui — nello stesso layer di sola visualizzazione — le togliamo da quegli
-  // avvisi (mai dal diurno, dove sono aperte), e se erano l'unico motivo dell'avviso lo eliminiamo del
-  // tutto. `diurnoLabelDi`: per ogni giorno la label del suo turno "G" (se esiste), per riconoscere
-  // "giorno con diurno" e distinguere il turno diurno (dove NON si chiude) dai notturni/MMG.
-  const diurnoLabelDi = {};
-  (dati.schema || []).forEach((g) => { const gg = g.turni.find((x) => x && x.id === "G"); if (gg) diurnoLabelDi[g.giorno] = gg.label; });
-  const chiudiClautAnduins = (a) => {
-    if (!a.includes("SCOPERTE")) return a;
-    const m = a.match(/^Giorno (\d+) · (.+?): /);
-    if (!m) return a;
-    const dLbl = diurnoLabelDi[Number(m[1])];
-    if (!dLbl || m[2] === dLbl) return a; // giorno senza diurno, oppure è proprio il turno diurno → aperte
-    const sep = a.lastIndexOf("): ");
-    if (sep < 0) return a;
-    const restanti = a.slice(sep + 3).replace(/\.$/, "").split(", ").filter((s) => s !== "Claut" && s !== "Anduins");
-    if (restanti.length === 0) return null; // erano solo Claut/Anduins (chiuse, non scoperte) → via l'avviso
-    return a.slice(0, sep + 3) + restanti.join(", ") + ".";
-  };
+  // Claut/Anduins nei notturni con diurno sono CHIUSE nel MOTORE (voce 96): il suo avviso già le esclude
+  // dalle SCOPERTE (`scoperte` salta i siti chiusi) → qui non c'è più nulla da filtrare a valle.
   const avvisiUI = (dati.avvisi || [])
     .filter((a) => !(a.includes("SCOPERTE") && /con 1 medici presenti/.test(a)))
-    .map(chiudiClautAnduins)
-    .filter((a) => a !== null)
     .map((a) => a
       .replace("nessuna disponibilità verde o blu dichiarata", "nessun medico disponibile come sede fisica o copertura a distanza")
       .replace("con 1 medici presenti", "con 1 solo medico presente"));

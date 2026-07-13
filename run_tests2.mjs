@@ -657,6 +657,42 @@ suite.test("titolarità a parità di livello: il SINGOLO medico indifferente va 
   suite.eq(tb.slots[1], IENGO, "(b) IENGO ottiene Spilimbergo, la sua unica scelta — 2 sedi coperte, non 1");
 });
 
+suite.test("chiusura Claut/Anduins nei notturni CON diurno (§10 voce 96): festivo → CHIUSA (null), feriale → coperta a distanza", () => {
+  // FESTIVO notturno (SAB = 1 agosto, sabato → ha il diurno): ZURLO fisico Maniago + blu Claut.
+  // Regola ASFO: di notte, nei giorni con diurno, Claut è CHIUSA — nemmeno a distanza. La dichiarazione
+  // blu resta inerte (il motore non la copre). Feriale invariato: la copertura a distanza è valida.
+  const df = dispoBase(MEDICI);
+  df[ZURLO][N(SAB)] = turnoDisp(["Maniago"], ["Claut"], { verdeLiv: { Maniago: 1 }, bluLiv: { Claut: 1 } });
+  const tf = unicoTurno(df, {}, SAB);
+  suite.eq(tf.slots[0], ZURLO, "festivo: ZURLO fisico a Maniago");
+  suite.eq(tf.slots[3], null, "festivo notturno: Claut CHIUSA (servizio non attivo, nemmeno a distanza)");
+  // FERIALE notturno (G1 = 3 agosto, feriale semplice, niente diurno): stessa dichiarazione → Claut COPERTA.
+  const dl = dispoBase(MEDICI);
+  dl[ZURLO][N(G1)] = turnoDisp(["Maniago"], ["Claut"], { verdeLiv: { Maniago: 1 }, bluLiv: { Claut: 1 } });
+  const tl = unicoTurno(dl, {}, G1);
+  suite.eq(tl.slots[0], ZURLO, "feriale: ZURLO fisico a Maniago");
+  suite.eq(tl.slots[3], ZURLO, "feriale notturno: Claut coperta a distanza da ZURLO (a-distanza intatta)");
+});
+
+suite.test("chiusura Claut resiste allo SCAMBIO preferenza-turno §3.9 (voce 96): il notturno festivo ri-risolto NON ri-copre Claut", () => {
+  // Il call-site §3.9 ri-esegue risolviBlu dopo uno scambio: va provato che anche lì Claut resta chiusa.
+  // ZURLO (titolare Maniago) vince Maniago sia sul diurno sia sul notturno del sabato (festivo) e PREFERISCE
+  // il diurno → cede il notturno; VALERI subentra fisico a Maniago sul notturno e ha dichiarato blu Claut.
+  const d = dispoBase(MEDICI);
+  const sab = dk(ANNO_TEST, MESE_TEST, SAB);
+  d[ZURLO][Gd(SAB)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 } });
+  d[ZURLO][N(SAB)] = turnoDisp(["Maniago"], [], { verdeLiv: { Maniago: 1 } });
+  d[ZURLO]["TURNOPREF:" + sab] = "G"; // preferenza turno: il diurno
+  d[VALERI][N(SAB)] = turnoDisp(["Maniago"], ["Claut"], { verdeLiv: { Maniago: 1 }, bluLiv: { Claut: 1 } });
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, {}, {});
+  const g = schema.find((x) => x.giorno === SAB);
+  const tG = g.turni.find((t) => t.id === "G");
+  const tN = g.turni.find((t) => t.id === "N");
+  suite.eq(tG.slots[0], ZURLO, "ZURLO tiene il diurno (turno preferito)");
+  suite.eq(tN.slots[0], VALERI, "scambio §3.9 avvenuto: VALERI subentra fisico a Maniago sul notturno");
+  suite.eq(tN.slots[3], null, "Claut resta CHIUSA anche dopo il ri-risolviBlu dello scambio (blu Claut di VALERI ignorata)");
+});
+
 suite.test("parità di livello fra una CDC e una sede secondaria: vince sempre la CDC, MAI l'ordine di dichiarazione", () => {
   const d = dispoBase(MEDICI);
   // VALERI unico candidato (n=1, target dinamico): dichiara Meduno PRIMA di Maniago nell'array,
