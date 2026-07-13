@@ -1819,7 +1819,7 @@ export default function App() {
 <font><b/><sz val="8.5"/><color rgb="FFB03030"/><name val="Calibri"/></font>
 <font><sz val="8.5"/><color rgb="FF666666"/><name val="Calibri"/></font>
 </fonts>
-<fills count="7">
+<fills count="8">
 <fill><patternFill patternType="none"/></fill>
 <fill><patternFill patternType="gray125"/></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFDCE6DC"/></patternFill></fill>
@@ -1827,13 +1827,14 @@ export default function App() {
 <fill><patternFill patternType="solid"><fgColor rgb="FFF0F2EE"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE3F2EC"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFA6A6A6"/></patternFill></fill>
 </fills>
 <borders count="2">
 <border><left/><right/><top/><bottom/><diagonal/></border>
 <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="14">
+<cellXfs count="15">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -1848,9 +1849,10 @@ export default function App() {
 <xf numFmtId="0" fontId="8" fillId="6" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
 <xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 </cellXfs>
 </styleSheet>`;
-  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB
+  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio)
 
   const buildSheetXML = (mKey) => {
     const [y, m] = mKey.split("-").map(Number);
@@ -1912,10 +1914,19 @@ export default function App() {
       const r = 4 + ri;
       let row = cell(r, 0, sede, 8);
       cols.forEach(({ t }, k) => {
+        // Notturno/MMG: Claut e Anduins NON sono sedi fisiche (§10 voce 55) — il servizio non è
+        // attivo, non è un buco. In quel caso la cella scoperta diventa "servizio non attivo" su
+        // sfondo grigio (formato ASFO, stile 14), MAI "scoperto". Meduno resta fisica ovunque, il
+        // diurno ha tutte e 5 le sedi fisiche. Se invece la sede È coperta a distanza (slot pieno)
+        // si passa dal ramo copertura qui sotto, invariato.
+        const treFisiche = t.id === "N" || !!t.extra;
+        const nonAttiva = treFisiche && (sede === "CLAUT" || sede === "ANDUINS");
+        // testo/stile per una sede SECONDARIA (Meduno/Claut/Anduins) scoperta
+        const secScoperta = nonAttiva ? { testo: "servizio non attivo", stile: 14 } : { testo: "scoperto", stile: 13 };
         let testo = "", stile = 9;
         if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
-          else { testo = "scoperto"; stile = 13; } // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
+          else ({ testo, stile } = secScoperta);
         } else {
           const si = mapIdx[sede];
           const mid = t.slots[si];
@@ -1925,14 +1936,27 @@ export default function App() {
             else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
           } else if (sede === "MANIAGO" || sede === "SPILIMBERGO") {
             testo = "SCOPERTO"; stile = 11; // anche se un'altra sede del turno è coperta, Maniago/Spilimbergo scoperte vanno sempre segnalate in rosso
-          } else if (sede === "MEDUNO" || sede === "CLAUT" || sede === "ANDUINS") {
-            testo = "scoperto"; stile = 13; // sede secondaria scoperta: neutro, non un'emergenza come MA/SP
+          } else {
+            ({ testo, stile } = secScoperta); // Meduno/Claut/Anduins: "scoperto" oppure "servizio non attivo"
           }
         }
         row += cell(r, k + 1, testo, stile);
       });
       rows += `<row r="${r}" ht="42" customHeight="1">${row}</row>`;
     });
+    // ---- Sezione REPERIBILITÀ (§10 voce 89): struttura fissa da compilare A MANO dopo l'export
+    // (l'app non calcola nulla, lascia solo lo spazio con bordi/stile coerenti col foglio ASFO reale).
+    // Riga 9: stacco vuoto (nessun bordo esplicito). Riga 10: intestazione "Reperibilità". Riga 11:
+    // "Area 1" con celle giorno vuote e bordate. Etichette con lo stesso stile delle sedi (8).
+    let rowSp = cellV(9, 0, 0);
+    cols.forEach((_, k) => { rowSp += cellV(9, k + 1, 0); });
+    rows += `<row r="9" ht="12" customHeight="1">${rowSp}</row>`;
+    // "Reperibilità" è SOLO un'etichetta di sezione: la cella a sinistra con la scritta, niente
+    // celle né griglia a destra (formato ASFO). Solo "Area 1" ha le celle vuote bordate da compilare.
+    rows += `<row r="10" ht="18" customHeight="1">${cell(10, 0, "Reperibilità", 8)}</row>`;
+    let rowArea = cell(11, 0, "Area 1", 8);
+    cols.forEach((_, k) => { rowArea += cellV(11, k + 1, 9); });
+    rows += `<row r="11" ht="30" customHeight="1">${rowArea}</row>`;
 
     const colsXML = `<cols><col min="1" max="1" width="15" customWidth="1"/><col min="2" max="${cols.length + 1}" width="19" customWidth="1"/></cols>`;
     const mergeXML = merges.length ? `<mergeCells count="${merges.length}">${merges.map((mm) => `<mergeCell ref="${mm}"/>`).join("")}</mergeCells>` : "";
@@ -3728,6 +3752,26 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
     .map((a) => a
       .replace("nessuna disponibilità verde o blu dichiarata", "nessun medico disponibile come sede fisica o copertura a distanza")
       .replace("con 1 medici presenti", "con 1 solo medico presente"));
+  // (c) Promemoria "CDC scoperta con personale altrove" (§10 voce 89) — SOLO visualizzazione,
+  // derivato dallo schema già prodotto (motore intatto). Anomalia CORREGGIBILE: una CDC (Maniago/
+  // Spilimbergo, sempre prioritaria) resta vuota MENTRE c'è un medico FISICAMENTE su una sede minore
+  // (Meduno/Claut/Anduins) — spostabile. Usa `fis` (corpo fisico, non copertura a distanza) per le
+  // minori: chi copre a distanza è già altrove, non si sposta. NON è la penuria (tutte scoperte): se
+  // nessuna minore è presidiata fisicamente, non c'è nessuno da muovere → niente promemoria. Ruolo
+  // distinto dal banner ambra (che dice il FATTO: nessuno disponibile lì); qui l'AZIONE possibile.
+  const promemoriaCDC = useMemo(() => {
+    if (!dati.schema) return [];
+    const out = [];
+    dati.schema.forEach((g) => g.turni.forEach((t) => {
+      if (!t) return;
+      const cdcScoperte = [0, 1].filter((si) => t.slots[si] === null);
+      const minoriFisiche = [2, 3, 4].filter((si) => t.fis.includes(si));
+      if (!cdcScoperte.length || !minoriFisiche.length) return;
+      const presenti = t.fis.filter((si) => t.slots[si] !== null).map((si) => `${SEDI5[si]} → ${byId[t.slots[si]].nome}`);
+      out.push({ giorno: g.giorno, turno: t.label, cdc: cdcScoperte.map((si) => SEDI5[si]).join(", "), presenti });
+    }));
+    return out;
+  }, [dati.schema]);
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
   // attualmente scelto — mai una combinazione inesistente in MESI_DISPONIBILI.
@@ -4091,7 +4135,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                 // percepita > "Nessuna" (altrimenti spazio pulito). Non ripete i valori (già in tabella): spiega
                 // solo COSA guardare — il confronto, non il conteggio dei turni.
                 <div style={{ marginBottom: 12, fontSize: 11, color: T.textFaint, lineHeight: 1.5, maxWidth: 620 }}>
-                  <b style={{ color: T.textMuted }}>Iniquità percepita</b> — quanto un medico è stato servito peggio dei colleghi, in proporzione a quello che aveva chiesto. Non è il numero di turni che conta: è il confronto.
+                  <b style={{ color: T.textMuted }}>Iniquità percepita</b> <span style={{ color: T.textFaint }}>(Nessuna · Bassa · Media · Alta · Altissima)</span> — quanto un medico è stato servito peggio dei colleghi, in proporzione a quello che aveva chiesto. Non è il numero di turni che conta: è il confronto.
                 </div>
               )}
               <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
@@ -4361,6 +4405,21 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                         ))}
                       </ul>
                     )}
+                  </div>
+                )}
+                {/* (c) PROMEMORIA CDC scoperte (§10 voce 89): una sede prioritaria (Maniago/Spilimbergo)
+                    vuota mentre c'è un medico fisicamente su una sede minore → azione possibile (spostamento).
+                    Tono blu/info, distinto dal banner ambra (che è il fatto: nessuno disponibile lì). */}
+                {promemoriaCDC.length > 0 && (
+                  <div style={{ background: T.bluTint, border: `1px solid ${T.blu}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 700, color: T.bluDark }}>↔ Sede prioritaria scoperta con personale altrove — valutare uno spostamento</div>
+                    <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
+                      {promemoriaCDC.map((p, i) => (
+                        <li key={i} style={{ fontSize: 11.5, color: T.bluDark, lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
+                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — CDC scoperta: <b>{p.cdc}</b>. Presenti: {p.presenti.join(", ")}.
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 {dati.schema.map((g, gi) => (
