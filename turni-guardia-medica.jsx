@@ -2003,16 +2003,25 @@ export default function App() {
         // cosa dica lo schema (anche se il motore, che resta intatto, avesse segnato una copertura a
         // distanza da una dichiarazione blu inerte). Stesso predicato del motore (esistenza di "G", voce 30).
         const chiusa = treFisiche && (sede === "CLAUT" || sede === "ANDUINS") && haDiurno;
+        // CRITERIO GENERALE (§10 voce 95): una cella scoperta si segnala "scoperto" SOLO se quella sede
+        // può davvero aprirsi; se una sede SOPRA la blocca (catena §3.2/voce 90), resta BIANCA — non è un
+        // buco da riempire, è chiusa per conseguenza. "Coperta" = presidiata FISICAMENTE (`fis`): una CDC
+        // coperta solo a distanza è "spenta" e non apre nulla sotto (voce 90), quindi si usa `fis`, non lo
+        // slot pieno — stessa semantica del motore, così non diverge.
+        const cdcFis = t.fis.includes(0) && t.fis.includes(1); // Maniago & Spilimbergo presidiate (corpo)
+        const meFis = t.fis.includes(2);                        // Meduno presidiata
         // testo/stile per una sede SECONDARIA scoperta:
-        // - MEDUNO vuota → frase di priorità (catena §10 voce 90). Neutro (stile 15).
-        // - CLAUT/ANDUINS non-diurne FERIALI (senza diurno) → cella bianca vuota (stile 9): nei feriali la
-        //   copertura a distanza è valida e non c'è nulla da segnalare finché resta scoperta. (Il caso CON
-        //   diurno è già intercettato sopra da `chiusa`.)
-        // - altrimenti (Claut/Anduins nel diurno) → "scoperto" neutro (stile 13), come prima.
+        // - MEDUNO vuota → frase di priorità (stile 15) SOLO se una CDC è scoperta (Meduno bloccata); se le
+        //   CDC sono presidiate ed è comunque vuota è un buco vero → "scoperto" (stile 13).
+        // - CLAUT/ANDUINS notturne/MMG FERIALI (il caso CON diurno è già preso sopra da `chiusa`) → BIANCA.
+        // - CLAUT/ANDUINS nel DIURNO → "scoperto" SOLO se Maniago, Spilimbergo E Meduno sono presidiate;
+        //   altrimenti la catena le tiene chiuse → BIANCA (stile 9), non "scoperto".
         const secScoperta = sede === "MEDUNO"
-          ? { testo: "Assegnazione solo dopo inserimento medico su Spilimbergo e Maniago", stile: 15 }
-          : ((treFisiche && (sede === "CLAUT" || sede === "ANDUINS"))
-              ? { testo: "", stile: 9 }
+          ? (cdcFis ? { testo: "scoperto", stile: 13 } : { testo: "Assegnazione solo dopo inserimento medico su Spilimbergo e Maniago", stile: 15 })
+          : ((sede === "CLAUT" || sede === "ANDUINS")
+              ? (treFisiche
+                  ? { testo: "", stile: 9 }
+                  : ((cdcFis && meFis) ? { testo: "scoperto", stile: 13 } : { testo: "", stile: 9 }))
               : { testo: "scoperto", stile: 13 });
         let testo = "", stile = 9;
         if (chiusa) {
@@ -2026,7 +2035,20 @@ export default function App() {
           if (mid) {
             const nota = notaSlot(t.slots, si, t.fis);
             if (nota.tipo === "copertura") { testo = nota.testo; stile = 10; }
-            else testo = byId[mid].nome + (nota.testo ? "\n" + nota.testo : "");
+            else {
+              // nota "primaria": il medico fisico qui può coprire ALTRE sedi a distanza. Sui notturni con
+              // diurno Claut/Anduins sono CHIUSE (§10 voce 94/95): la nota "*copre Claut/Anduins" NON deve
+              // comparire — contraddirebbe il grigio "servizio non attivo" della loro riga. Ricalcolo le
+              // "altre" escludendo Claut(3)/Anduins(4); se copriva SOLO quelle, sotto il nome non va nulla.
+              // notaSlot è nel motore (intatto): il filtro vive qui, nel layer di export.
+              let ntesto = nota.testo;
+              if (treFisiche && haDiurno) {
+                const altre = [];
+                for (let ii = 0; ii < t.slots.length; ii++) if (ii !== si && t.slots[ii] === mid && ii !== 3 && ii !== 4) altre.push(SEDI5[ii]);
+                ntesto = altre.length ? `*copre ${altre.join(", ")}` : "";
+              }
+              testo = byId[mid].nome + (ntesto ? "\n" + ntesto : "");
+            }
           } else if (sede === "MANIAGO" || sede === "SPILIMBERGO") {
             testo = "SCOPERTO"; stile = 11; // anche se un'altra sede del turno è coperta, Maniago/Spilimbergo scoperte vanno sempre segnalate in rosso
           } else {
@@ -4059,7 +4081,15 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                         </td>
                         {colonne.map((c, i) => {
                           const sk = `${c.key}|${c.turno.id}`;
-                          const sedi = normDispo(dati.dispo[m.id]?.[sk]);
+                          // (§10 voce 95) Claut/Anduins nei notturni dei giorni con diurno sono CHIUSE: una
+                          // dichiarazione GIÀ inserita su di loro resta INERTE nel dato (motore + dato intatti,
+                          // scelta voce 94), ma NON va mostrata come pallino "CL"/"AN" — coerente con la tendina
+                          // disabilitata. Filtro SOLO qui, per la resa; `dati.dispo` non si tocca.
+                          const chiusaCol = c.turno.id === "N" && c.turni.some((t) => t.id === "G");
+                          const sediRaw = normDispo(dati.dispo[m.id]?.[sk]);
+                          const sedi = chiusaCol
+                            ? { ...sediRaw, verde: sediRaw.verde.filter((s) => s !== "Claut" && s !== "Anduins"), blu: sediRaw.blu.filter((s) => s !== "Claut" && s !== "Anduins") }
+                            : sediRaw;
                           const on = !sedi.no && (sedi.verde.length + sedi.blu.length > 0);
                           const obblVal = dati.dispo[m.id]?.["OBBL:" + sk]; // slot obbligatorio (§10 voce 49): 📌 pin libero (alto-sx), ⚓ pin sede (alto-dx)
                           const inEdit = editCella && editCella.mid === m.id && editCella.slotKey === sk;
@@ -4171,7 +4201,9 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             </div>
                           );
                         })()}
-                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>Di notte Claut e Anduins solo <b style={{ color: T.blu }}>a distanza</b> (non sono sedi fisiche).</div>
+                        <div style={{ fontSize: 10, color: T.textFaint, marginBottom: 8 }}>{turnoIdCella === "N" && hasEntrambiTurni
+                          ? <>Claut e Anduins <b style={{ color: T.textMuted }}>chiuse</b> stanotte (servizio non attivo): di giorno hanno già il servizio, la notte no.</>
+                          : <>Di notte Claut e Anduins solo <b style={{ color: T.blu }}>a distanza</b> (non sono sedi fisiche).</>}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                           {SEDI5.map((s) => {
                             const valore = sedi.verde.includes(s) ? `V${sedi.verdeLiv[s] || 1}` : sedi.blu.includes(s) ? `B${sedi.bluLiv[s] || 1}` : "";
@@ -4180,9 +4212,16 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             // mostra SOLO le opzioni "A distanza". Filtro UI — i valori (V/B + livello)
                             // restano identici, cambia solo cosa è OFFERTO nel menu, mai il dato al motore.
                             const soloDistanza = (s === "Claut" || s === "Anduins") && turnoIdCella === "N";
+                            // (§10 voce 95) Claut/Anduins nei notturni dei giorni con diurno (predicato
+                            // `hasEntrambiTurni`) sono CHIUSE: impedire l'impossibile → nessuna tendina, solo
+                            // "servizio non attivo". Coerente con griglia/export (voce 94). Motore intatto.
+                            const chiusaDispo = (s === "Claut" || s === "Anduins") && turnoIdCella === "N" && hasEntrambiTurni;
                             return (
-                              <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                              <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, opacity: chiusaDispo ? .55 : 1 }}>
                                 <span style={{ fontWeight: 700, minWidth: 24 }}>{SEDI_BREVI[s]}</span>
+                                {chiusaDispo ? (
+                                  <span style={{ flex: 1, fontSize: 11, fontStyle: "italic", color: T.textFaint, padding: "5px 4px" }}>servizio non attivo</span>
+                                ) : (<>
                                 <select value={valore} onChange={(e) => setSedeOpzione(editCella.mid, editCella.slotKey, s, e.target.value)}
                                   style={{ flex: 1, fontSize: 12, padding: "5px 4px", borderRadius: 5, border: "1px solid #e5e9e6",
                                     background: valore.startsWith("V") ? T.primaryTint : valore.startsWith("B") ? T.bluTint : "#fff",
@@ -4208,6 +4247,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                                     </span>
                                   );
                                 })()}
+                                </>)}
                               </label>
                             );
                           })}
