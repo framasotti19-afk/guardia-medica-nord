@@ -1825,7 +1825,7 @@ function App() {
 
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="11">
+<fonts count="14">
 <font><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="8"/><name val="Calibri"/></font>
@@ -1837,6 +1837,9 @@ function App() {
 <font><b/><sz val="8.5"/><color rgb="FFB03030"/><name val="Calibri"/></font>
 <font><sz val="8.5"/><color rgb="FF666666"/><name val="Calibri"/></font>
 <font><i/><sz val="7"/><color rgb="FF666666"/><name val="Calibri"/></font>
+<font><b/><sz val="7"/><name val="Calibri"/></font>
+<font><sz val="7"/><name val="Calibri"/></font>
+<font><sz val="7"/><color rgb="FF666666"/><name val="Calibri"/></font>
 </fonts>
 <fills count="8">
 <fill><patternFill patternType="none"/></fill>
@@ -1853,7 +1856,7 @@ function App() {
 <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="16">
+<cellXfs count="21">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -1870,9 +1873,14 @@ function App() {
 <xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="11" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="12" fillId="0" borderId="1" xfId="0"/>
+<xf numFmtId="0" fontId="12" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="13" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="11" fillId="7" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 </cellXfs>
 </styleSheet>`;
-  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio) 15=sMedunoPriorita(neutro)
+  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio) 15=sMedunoPriorita(neutro) 16-20=varianti SMALL di 8/9/10/13/14 (righe Claut/Anduins)
 
   const buildSheetXML = (mKey) => {
     const [y, m] = mKey.split("-").map(Number);
@@ -1930,9 +1938,15 @@ function App() {
     // Sedi
     const SEDI_EXPORT = ["SPILIMBERGO", "MANIAGO", "MEDUNO", "CLAUT", "ANDUINS"];
     const mapIdx = { MANIAGO: 0, SPILIMBERGO: 1, MEDUNO: 2, CLAUT: 3, ANDUINS: 4 };
+    // Claut e Anduins (sedi minori) pesano meno anche visivamente: riga più bassa e font più piccolo
+    // per TUTTA la riga (§10). `small()` rimappa gli stili che compaiono in quelle righe alle loro
+    // varianti sz7 (16-20); gli altri stili restano invariati. Additivo, preesistenti byte-identici.
+    const SMALL_MAP = { 8: 16, 9: 17, 10: 18, 13: 19, 14: 20 };
     SEDI_EXPORT.forEach((sede, ri) => {
       const r = 4 + ri;
-      let row = cell(r, 0, sede, 8);
+      const isSmall = sede === "CLAUT" || sede === "ANDUINS";
+      const st = (s) => (isSmall ? (SMALL_MAP[s] ?? s) : s);
+      let row = cell(r, 0, sede, st(8));
       cols.forEach(({ t }, k) => {
         // Notturno/MMG: Claut e Anduins NON sono sedi fisiche (§10 voce 55) — il servizio non è
         // attivo, non è un buco. In quel caso la cella scoperta diventa "servizio non attivo" su
@@ -1965,9 +1979,9 @@ function App() {
             ({ testo, stile } = secScoperta); // Meduno/Claut/Anduins: "scoperto" oppure "servizio non attivo"
           }
         }
-        row += cell(r, k + 1, testo, stile);
+        row += cell(r, k + 1, testo, st(stile));
       });
-      rows += `<row r="${r}" ht="42" customHeight="1">${row}</row>`;
+      rows += `<row r="${r}" ht="${isSmall ? 28 : 42}" customHeight="1">${row}</row>`;
     });
     // ---- Sezione REPERIBILITÀ (§10 voce 89): struttura fissa da compilare A MANO dopo l'export
     // (l'app non calcola nulla, lascia solo lo spazio con bordi/stile coerenti col foglio ASFO reale).
@@ -4481,28 +4495,31 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             <span style={{ background: grave ? T.dangerBg : T.warningBg, color: grave ? T.danger : T.warning, border: `1px solid ${grave ? T.dangerBorder : T.warningBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .2, padding: "2px 8px", borderRadius: 999 }}>Scoperto: {scoperte.map((si) => SEDI5[si]).join(", ")}</span>
                           )}
                           {SEDI5.map((sede, si) => {
-                            // NOTTURNO/MMG: Claut/Anduins non hanno tendina fisica — mostra lo stato a distanza.
+                            // NOTTURNO/MMG: Claut/Anduins non sono fisiche → si coprono SOLO a distanza.
+                            // Ora editabili a mano (§10): la tendina offre SOLO i coprenti territorialmente
+                            // validi già FISICI nel turno — Claut dal fisico di Maniago, Anduins da quello di
+                            // Spilimbergo o Meduno (vincolo §3.2) — così le combinazioni impossibili non sono
+                            // nemmeno offerte. `sedePrimaria` (con fallback) al posto di `t.fis.find` → la sede
+                            // del coprente resta corretta anche dopo un edit manuale (fis non ricalcolato).
                             if (treFisiche && (si === 3 || si === 4)) {
                               const mid = t.slots[si];
-                              if (mid) {
-                                const prim = t.fis.find((fi) => t.slots[fi] === mid); // sede fisica di chi copre
-                                return (
-                                  <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: T.bluTint, border: `1px solid ${T.blu}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
-                                    <span style={{ color: T.bluDark, fontWeight: 700 }}><b style={{ fontSize: 10 }}>{sede}</b> ← {byId[mid].nome}</span>
-                                    <span style={{ color: T.bluDark, fontSize: 9 }}>a distanza da {prim !== undefined ? SEDI5[prim] : "?"}</span>
-                                  </span>
-                                );
-                              }
-                              if (dichiarataBlu(sede)) {
-                                return (
-                                  <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: "#fff", border: `1px solid ${T.warning}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
-                                    <span style={{ color: T.warning, fontWeight: 700 }}><b style={{ fontSize: 10 }}>{sede}</b> a distanza —</span>
-                                  </span>
-                                );
-                              }
+                              const basi = si === 3 ? [0] : [1, 2]; // basi territoriali ammesse
+                              const coprenti = basi.map((b) => t.slots[b]).filter((x) => x !== null && x !== undefined);
+                              const primOf = (id) => { const p = sedePrimaria(t.slots, id, t.fis); return p >= 0 ? SEDI5[p] : "?"; };
                               return (
-                                <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: T.surfaceAlt, border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 6px", fontSize: 11, opacity: .75 }}>
-                                  <span style={{ color: T.textFaint }}><b style={{ fontSize: 10 }}>{sede}</b> solo diurno</span>
+                                <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: mid ? T.bluTint : (coprenti.length ? "#fff" : T.surfaceAlt), border: `1px solid ${mid ? T.blu : (coprenti.length ? T.warning : T.border)}`, borderRadius: 5, padding: "3px 6px", fontSize: 11, opacity: (mid || coprenti.length) ? 1 : .75 }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                    <b style={{ fontSize: 10, color: mid ? T.bluDark : (coprenti.length ? T.warning : T.textFaint) }}>{sede}</b>
+                                    {coprenti.length > 0 ? (
+                                      <select value={mid || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 120 }}>
+                                        <option value="">— a distanza</option>
+                                        {coprenti.map((id) => <option key={id} value={id}>{byId[id].nome} (da {primOf(id)})</option>)}
+                                      </select>
+                                    ) : (
+                                      <span style={{ color: T.textFaint, fontSize: 9 }}>solo diurno</span>
+                                    )}
+                                  </span>
+                                  {mid && <span style={{ color: T.bluDark, fontSize: 9 }}>← {byId[mid].nome}, a distanza da {primOf(mid)}</span>}
                                 </span>
                               );
                             }
