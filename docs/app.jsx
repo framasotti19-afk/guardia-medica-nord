@@ -654,8 +654,8 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // nel turno DIURNO (id "G") — che nel calendario esiste esclusivamente nei giorni ad alta
     // domanda (weekend, festivi, prefestivi); nelle notti (sempre) restano coperte a DISTANZA
     // (FASE 2). Priorità invariata: Maniago e Spilimbergo prime, poi Meduno, poi Claut, poi Anduins
-    // (il target è il prefisso di quest'ordine). Con 1 solo medico il target è dinamico: la sua
-    // preferenza verde migliore TRA le sedi oggi fisiche (non più forzato su Maniago). Claut e
+    // (il target è il prefisso di quest'ordine). Con 1 solo medico il target è la sua CDC preferita
+    // (Maniago/Spilimbergo), MAI Meduno — catena di priorità ASFO (non forzato su Maniago). Claut e
     // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
     // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
     // niente doppione, senza toccare la FASE 2.
@@ -663,13 +663,16 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     // ordinario: la sede la decide il motore in base alle disponibilità dei medici (verde), non il
     // coordinatore (§10 voce 55). Maniago/Spilimbergo/Meduno fisiche sempre; Claut/Anduins fisiche solo
     // nel diurno G (di notte e nell'anticipo MMG sono coperte solo a distanza, FASE 2). Con 1 solo
-    // medico il target è dinamico: la sua preferenza verde migliore tra le sedi oggi fisiche.
+    // medico il target è la sua CDC preferita (Maniago/Spilimbergo), mai una sede sotto.
     const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
     const nFisici = Math.min(ordinati.length, sediFisiche.length);
     let target = [];
     if (nFisici === 1) {
       const v = normDispo(dispo[ordinati[0].id]?.[slotKey]);
-      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => sediFisiche.includes(SEDI5.indexOf(sd)));
+      // Catena di priorità ASFO (§10): con 1 solo medico il target è la sua CDC preferita
+      // (Maniago/Spilimbergo) — MAI Meduno/Claut/Anduins. Se non ha dichiarato verde nessuna CDC,
+      // target vuoto → non lavora (una casa di comunità viene prima di una sede periferica).
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => [0, 1].includes(SEDI5.indexOf(sd)));
       if (top !== undefined) target = [SEDI5.indexOf(top)];
     } else {
       target = sediFisiche.slice(0, nFisici);
@@ -808,6 +811,21 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
           if (!anduinsCop && clautCop) { slots[3] = null; slots[4] = mid; sedeDi[mid] = 4; }
         }
       }
+    }
+    // ---- Catena di priorità di copertura (regola aziendale ASFO, §10) ----
+    // Una sede si apre SOLO se tutte quelle sopra di lei hanno un medico FISICAMENTE presente (fis,
+    // non la copertura a distanza: una CDC presidiata solo al telefono è "spenta"). Livelli:
+    // L0 = {Maniago, Spilimbergo} (le due CDC, pari), L1 = {Meduno}, L2 = {Claut, Anduins}. Meduno
+    // non regge con una CDC scoperta; Claut/Anduins non reggono con MA/SP/ME scoperte. Alla prima
+    // scoperta dall'alto si svuotano tutte le sedi sotto; i medici liberati restano IDLE. Va DOPO lo
+    // step voce-32 e PRIMA di scalaDebito: rimuovendoli da sedeDi qui, il loro debito NON viene
+    // consumato (idle vero, come i medici in eccesso della voce 30). INV1 resta sacro: nessuno viene
+    // forzato altrove — semplicemente non lavora se sopra di lui manca qualcuno.
+    {
+      const cdcOk = slots[0] !== null && slots[1] !== null;
+      const meOk = slots[2] !== null;
+      const svuota = !cdcOk ? [2, 3, 4] : (!meOk ? [3, 4] : []);
+      svuota.forEach((si) => { const mid = slots[si]; if (mid !== null && mid !== undefined) { delete sedeDi[mid]; slots[si] = null; } });
     }
     Object.keys(sedeDi).forEach((midStr) => {
       const mid = Number(midStr);
@@ -1807,7 +1825,7 @@ function App() {
 
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="10">
+<fonts count="11">
 <font><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="9"/><name val="Calibri"/></font>
 <font><b/><sz val="8"/><name val="Calibri"/></font>
@@ -1818,6 +1836,7 @@ function App() {
 <font><i/><sz val="8"/><color rgb="FF5B5F59"/><name val="Calibri"/></font>
 <font><b/><sz val="8.5"/><color rgb="FFB03030"/><name val="Calibri"/></font>
 <font><sz val="8.5"/><color rgb="FF666666"/><name val="Calibri"/></font>
+<font><i/><sz val="7"/><color rgb="FF666666"/><name val="Calibri"/></font>
 </fonts>
 <fills count="8">
 <fill><patternFill patternType="none"/></fill>
@@ -1834,7 +1853,7 @@ function App() {
 <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="15">
+<cellXfs count="16">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -1850,9 +1869,10 @@ function App() {
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
 <xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 </cellXfs>
 </styleSheet>`;
-  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio)
+  // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio) 15=sMedunoPriorita(neutro)
 
   const buildSheetXML = (mKey) => {
     const [y, m] = mKey.split("-").map(Number);
@@ -1920,9 +1940,14 @@ function App() {
         // diurno ha tutte e 5 le sedi fisiche. Se invece la sede È coperta a distanza (slot pieno)
         // si passa dal ramo copertura qui sotto, invariato.
         const treFisiche = t.id === "N" || !!t.extra;
-        const nonAttiva = treFisiche && (sede === "CLAUT" || sede === "ANDUINS");
-        // testo/stile per una sede SECONDARIA (Meduno/Claut/Anduins) scoperta
-        const secScoperta = nonAttiva ? { testo: "servizio non attivo", stile: 14 } : { testo: "scoperto", stile: 13 };
+        // testo/stile per una sede SECONDARIA scoperta:
+        // - MEDUNO vuota → frase di priorità (catena §10 voce 90): si assegna solo dopo le CDC. Neutro
+        //   (stile 15), non l'allarme rosso: non è un'emergenza, è l'ordine di priorità.
+        // - CLAUT/ANDUINS nei turni non-diurni → "servizio non attivo" grigio (stile 14): lì non sono fisiche.
+        // - altrimenti (Claut/Anduins nel diurno) → "scoperto" neutro (stile 13), come prima.
+        const secScoperta = sede === "MEDUNO"
+          ? { testo: "Assegnazione solo dopo inserimento medico su Spilimbergo e Maniago", stile: 15 }
+          : ((treFisiche && (sede === "CLAUT" || sede === "ANDUINS")) ? { testo: "servizio non attivo", stile: 14 } : { testo: "scoperto", stile: 13 });
         let testo = "", stile = 9;
         if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }

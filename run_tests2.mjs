@@ -193,17 +193,42 @@ suite.test("nelle coperture a DISTANZA (blu), la titolarità vince PRIMA della c
   resetMedici();
 });
 
-suite.test("nelle coperture a distanza, a parità di categoria la titolarità decide come tie-break", () => {
+// CATENA DI PRIORITÀ DI COPERTURA (regola aziendale ASFO, §10): una sede si apre SOLO se tutte
+// quelle sopra hanno un medico FISICAMENTE presente (una CDC coperta solo a distanza è "spenta").
+// L0={Maniago,Spilimbergo}, L1={Meduno}, L2={Claut,Anduins}. NB: questo rende IRRAGGIUNGIBILE il
+// vecchio caso "titolarità decide il tie-break su una CDC coperta a distanza" — coprire una CDC a
+// distanza significa CDC fisicamente vuota, che ora chiude tutto ciò che sta sotto (ex-test qui
+// riscritto in (A); il tie-break a distanza superstite — su Anduins, per gerarchia — è in (B)).
+suite.test("(A) catena di priorità: una CDC coperta SOLO a distanza (Maniago senza corpo) NON apre Meduno — il fisico di Meduno resta idle", () => {
   resetMedici();
   const d = dispoBase(MEDICI);
-  // n=3: fisici a Spilimbergo (FOSCHIANI) e Meduno (IENGO); nessuno dichiara Maniago come verde,
-  // quindi resta fisicamente scoperta. Entrambi (stessa categoria DET38) la dichiarano come blu:
-  // titolare naturale di Maniago è IENGO (grad107, peggiore), non FOSCHIANI (grad3, migliore).
-  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad3, non titolare MA
-  d[IENGO][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // grad107, titolare Maniago
-  d[VALERI][N(G1)] = turnoDisp(["Claut"]); // 3° candidato presente, ma il suo verde non rientra nel target (MA,SP,ME)
+  // Stesso setup dell'ex-test sul tie-break a distanza. Ora la catena lo trasforma: Maniago è
+  // fisicamente VUOTA (nessuno la dichiara verde), coperta solo a distanza → CDC spenta → Meduno
+  // NON si apre → IENGO (fisico a Meduno) resta idle. La copertura a distanza di Maniago non riapre
+  // nulla sotto: la decide poi FASE 2 (l'unico fisico rimasto, FOSCHIANI da Spilimbergo).
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Maniago"], { bluLiv: { Maniago: 1 } });
+  d[IENGO][N(G1)] = turnoDisp(["Meduno"], ["Maniago"], { bluLiv: { Maniago: 1 } }); // titolare Maniago, ma solo blu
+  d[VALERI][N(G1)] = turnoDisp(["Claut"]); // fuori target (MA,SP,ME), idle
   const t = unicoTurno(d);
-  suite.eq(t.slots[0], IENGO, "a parità di categoria (DET38), il titolare di Maniago vince il blu su Maniago nonostante grad peggiore");
+  suite.eq(t.slots[2], null, "Meduno NON si apre con Maniago fisicamente scoperta (catena di priorità)");
+  suite.eq(t.slots.includes(IENGO), false, "IENGO (ex-fisico a Meduno) resta idle: non assegnato da nessuna parte");
+  suite.eq(t.slots[0], FOSCHIANI, "Maniago resta coperta SOLO a distanza (FOSCHIANI da Spilimbergo): non riapre Meduno");
+});
+
+suite.test("(B) catena di priorità: con tutte le sedi sopra coperte da un CORPO lo sweep è NO-OP, e il tie-break a distanza su Anduins regge (decide la gerarchia)", () => {
+  resetMedici();
+  const d = dispoBase(MEDICI);
+  // 3 fisici con un corpo su ogni sede prioritaria: Maniago (ZURLO), Spilimbergo (FOSCHIANI),
+  // Meduno (MARTINETTI). Anduins contesa a distanza tra il fisico di Spilimbergo e quello di Meduno
+  // (entrambe vie territoriali valide, §3.2): nessuna titolarità su Anduins → decide la gerarchia
+  // (categoria: DET38 FOSCHIANI > DET24 MARTINETTI). Tutte le sedi sopra hanno un corpo → la catena
+  // non svuota nulla (Meduno resta), e la copertura a distanza si risolve come sempre.
+  d[ZURLO][N(G1)] = turnoDisp(["Maniago"]);
+  d[FOSCHIANI][N(G1)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  d[MARTINETTI][N(G1)] = turnoDisp(["Meduno"], ["Anduins"], { bluLiv: { Anduins: 1 } });
+  const t = unicoTurno(d);
+  suite.eq(t.slots[2], MARTINETTI, "Meduno resta: la catena è NO-OP quando le CDC hanno un corpo fisico");
+  suite.eq(t.slots[4], FOSCHIANI, "Anduins coperta a distanza dal vincitore del tie-break (categoria DET38 > DET24)");
 });
 
 // ---------------------------------------------------------------------------
@@ -748,7 +773,10 @@ suite.test("turno extra (MMG mattina/pomeriggio): assegnazione singola secondo g
   const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, extras);
   const t = schema.find((g) => g.giorno === giorno).turni.find((x) => x.id === "M");
   suite.eq(t.slots[0], BERTUZZI, "INDET deve battere DET38 anche sul turno extra (nessuno dei due titolare di Maniago)");
-  suite.eq(t.slots.length, 1);
+  // Dalla voce 52 (unificazione MMG) un turno MMG ha 5 slot come gli ordinari: qui verifichiamo ciò
+  // che il test voleva dire davvero — UN SOLO medico assegnato (le altre 4 sedi restano scoperte),
+  // non la forma dell'array. La vecchia asserzione `slots.length===1` era rimasta al modello mono-slot.
+  suite.eq(t.slots.filter((x) => x != null).length, 1, "un solo medico assegnato (le altre 4 sedi restano scoperte)");
 });
 
 suite.test("recupero ore negativo esaurisce prima il debito e fa uscire dalla priorità di categoria", () => {
