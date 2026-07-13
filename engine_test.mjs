@@ -284,9 +284,10 @@ const ordinaPerLivello = (sedi, liv, maxLivello) => {
 };
 const MAX_LIV_VERDE = 5, MAX_LIV_BLU = 4;
 
-// Differenza in giorni interi tra due date "YYYY-MM-DD" (b - a). Usata per la regola di
-// spaziatura temporale (CONTEXT.md §3.7): confronta SEMPRE date di calendario, mai l'ordine
-// di elaborazione interno (che può processare i turni "preferiti" fuori ordine cronologico).
+// Differenza in giorni interi tra due date "YYYY-MM-DD" (b - a). NB: la regola di spaziatura
+// temporale §3.7 (l'unica che la chiamava nel motore) è stata RIMOSSA (CONTEXT.md §10 voce 10,
+// 5 luglio 2026). NON è codice morto: resta esportata e usata da test_spaziatura_settimana.mjs
+// (tetto settimanale §3.8) — non rimuoverla o quel test si rompe. Confronta SEMPRE date di calendario.
 const giorniTra = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
 
 // Lunedì (ISO, lun-dom) della settimana che contiene la data "YYYY-MM-DD", come chiave stringa —

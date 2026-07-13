@@ -286,9 +286,10 @@ const ordinaPerLivello = (sedi, liv, maxLivello) => {
 };
 const MAX_LIV_VERDE = 5, MAX_LIV_BLU = 4;
 
-// Differenza in giorni interi tra due date "YYYY-MM-DD" (b - a). Usata per la regola di
-// spaziatura temporale (CONTEXT.md §3.7): confronta SEMPRE date di calendario, mai l'ordine
-// di elaborazione interno (che può processare i turni "preferiti" fuori ordine cronologico).
+// Differenza in giorni interi tra due date "YYYY-MM-DD" (b - a). NB: la regola di spaziatura
+// temporale §3.7 (l'unica che la chiamava nel motore) è stata RIMOSSA (CONTEXT.md §10 voce 10,
+// 5 luglio 2026). NON è codice morto: resta esportata e usata da test_spaziatura_settimana.mjs
+// (tetto settimanale §3.8) — non rimuoverla o quel test si rompe. Confronta SEMPRE date di calendario.
 const giorniTra = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
 
 // Lunedì (ISO, lun-dom) della settimana che contiene la data "YYYY-MM-DD", come chiave stringa —
@@ -2166,7 +2167,8 @@ Maniago e Spilimbergo (le 2 CDC) devono sempre essere coperte PRIMA delle altre 
 Nessuna copertura a distanza è automatica: dipende SEMPRE da cosa i medici dichiarano (verde/blu, vedi sotto).
 SEDI FISICHE: Maniago, Spilimbergo, Meduno sono fisiche SEMPRE. Claut e Anduins sono sedi fisiche SOLO nel turno DIURNO (8-20) — che esiste unicamente nei giorni ad alta domanda (weekend, festivi, prefestivi); nel NOTTURNO (sempre) Claut e Anduins sono coperte SOLO a distanza (blu). Ordine di riempimento: Maniago, Spilimbergo, poi Meduno, poi — solo nel diurno — Claut, poi Anduins.
 VINCOLO TERRITORIALE sulla copertura a distanza (geografico, reale): Claut può essere coperta a distanza SOLO dal medico fisicamente a Maniago (unica via); Anduins SOLO dal medico fisicamente a Spilimbergo o Meduno (due vie, si sceglie con la gerarchia). Le altre sedi a distanza non hanno vincolo. Resta sempre necessaria la dichiarazione blu: se il fisico di Maniago non dichiara Claut, Claut resta SCOPERTA (mai coperta da altrove).
-- Scenario 1 (1 medico): fisico nella miglior sede verde ottenuta TRA quelle oggi fisiche (di notte solo Maniago/Spilimbergo/Meduno; nel diurno anche Claut/Anduins). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
+CATENA DI PRIORITÀ: una sede si apre SOLO se tutte quelle sopra hanno un medico FISICAMENTE presente. Ordine: Maniago = Spilimbergo → Meduno → Claut/Anduins. Una CDC coperta solo a distanza è "spenta" (dentro non c'è nessuno) e non conta come coperta. Se una CDC è vuota, Meduno (e nel diurno Claut/Anduins) NON si aprono, e i medici che avevano dichiarato SOLO quelle sedi restano inutilizzati (idle): l'azienda preferisce un medico a casa che una sede periferica accesa con le case di comunità spente.
+- Scenario 1 (1 medico): va in una CDC (Maniago o Spilimbergo), quella che preferisce (verde migliore tra le due). Se NON ha dichiarato nessuna CDC, non lavora (nessuna sede minore gli viene assegnata da solo — vedi CATENA DI PRIORITÀ sopra). Copre a distanza solo le sedi dichiarate blu, nell'ordine dei livelli, massimo 1. Il resto resta SCOPERTO.
 - Scenario 2 (2 medici): fisici nelle 2 CDC. Coprono a distanza le sedi per cui hanno dichiarato blu (massimo 1 a testa). Conflitti sulla stessa sede blu: titolarità sede → categoria → debito → graduatoria. Sedi senza blu dichiarato → SCOPERTE.
 - Scenario 3 (3 medici): fisici a Maniago, Spilimbergo, Meduno. Claut, Anduins e ogni altra sede solo a distanza (blu). Sedi senza blu → SCOPERTE.
 - Scenario 4 — SOLO nel turno DIURNO (4-5 medici): nel diurno Claut e Anduins si aggiungono come sedi fisiche se avanzano medici dopo le 3 prioritarie (4 medici → +Claut; 5 medici → +Claut +Anduins). Nel NOTTURNO restano SEMPRE a distanza (massimo 3 sedi fisiche, come lo scenario 3). Sedi senza copertura → SCOPERTE. Eventuali medici oltre le sedi disponibili restano inutilizzati.
@@ -2819,9 +2821,8 @@ Il medico ESPRIME una disponibilità reale, non un'incertezza da chiarire (diver
 - "Dal X al Y" (ferie, assenze, indisponibilità) include SEMPRE il giorno X, il giorno Y, e tutti i giorni intermedi — mai solo gli estremi, mai un giorno in meno o in più.
 - I NO espliciti ("dispo_no") vengono tracciati in "azioniGiaEseguite" esattamente come le disponibilità positive (stesso formato "MEDICO g{giorno}{turno}") — usali allo stesso modo per verificare cosa è già stato impostato, comprese le indisponibilità.
 
-== SPAZIATURA TEMPORALE E TETTO SETTIMANALE ==
-- Il motore preferisce SEMPRE, per ogni medico, il turno più distante dall'ultimo turno fisico già assegnato: se un vincitore ha lavorato il giorno prima (o lo stesso giorno su un altro turno) ED esiste un altro candidato che ha dichiarato verde la STESSA sede e non ha ancora ottenuto nulla quel turno, la sede passa a quest'ultimo. Non cambia MAI chi vince un conflitto tra medici diversi (tra eventuali alternative decide sempre la gerarchia normale) e non lascia MAI una sede scoperta per questo motivo: se non esiste un'alternativa valida, il medico più recente resta dov'è. Automatico, non richiede dichiarazioni.
-- Il medico può inoltre dichiarare esplicitamente un tetto massimo di turni per settimana (lun-dom): una volta raggiunto, non è più considerato candidato quella settimana, su nessuna sede. Nessuna copertura automatica di ripiego: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile.
+== TETTO SETTIMANALE ==
+- Il medico può dichiarare esplicitamente un tetto massimo di turni per settimana (lun-dom): una volta raggiunto, non è più considerato candidato quella settimana, su nessuna sede. Nessuna copertura automatica di ripiego: le sedi che sarebbero state sue restano scoperte se nessun altro medico è disponibile.
 
 == PREFERENZA DI TURNO STESSO GIORNO (solo giorni con diurno E notturno) ==
 - Weekend, festivi e prefestivi hanno SIA il diurno (G) SIA il notturno (N). Un medico può dichiarare quale dei due preferisce mantenere SE li vince entrambi fisicamente lo stesso giorno (es. "il 15 preferisce il notturno" o "☀️ il diurno se vince tutti e due").
