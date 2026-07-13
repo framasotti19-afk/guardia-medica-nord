@@ -277,10 +277,17 @@ const normDispo = (v) => {
 // → Anduins), non l'ordine in cui il medico le ha dichiarate. Così una CDC (Maniago/Spilimbergo)
 // pari con una sede secondaria vince comunque la CDC, esattamente come se fosse un livello
 // migliore — l'ordine di dichiarazione non ha alcun peso (CONTEXT.md §3.3).
-const ordinaPerLivello = (sedi, liv, maxLivello) => {
+// Param opzionale `sedeTit` (titolarità del medico): a parità di livello la titolarità rompe il
+// pareggio (la sua sede prima delle altre pari). Usato SOLO dal target del singolo medico
+// (nFisici===1): lì mandarlo alla sua sede è gratis (nessuno da spostare). NON si passa nella FASE 1
+// competitiva: a più medici la ricollocazione per titolarità sistema già gli incroci, e forzare la
+// titolarità toglierebbe al motore la libertà di spostare gli indifferenti per massimizzare la
+// copertura (§10: il caso IENGO). Senza sedeTit → comportamento identico a prima.
+const ordinaPerLivello = (sedi, liv, maxLivello, sedeTit) => {
   const out = [];
   for (let l = 1; l <= maxLivello; l++) {
-    SEDI5.forEach((s) => { if (sedi.includes(s) && (liv[s] || 1) === l) out.push(s); });
+    if (sedeTit && sedi.includes(sedeTit) && (liv[sedeTit] || 1) === l) out.push(sedeTit);
+    SEDI5.forEach((s) => { if (s !== sedeTit && sedi.includes(s) && (liv[s] || 1) === l) out.push(s); });
   }
   return out;
 };
@@ -673,7 +680,9 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       // Catena di priorità ASFO (§10): con 1 solo medico il target è la sua CDC preferita
       // (Maniago/Spilimbergo) — MAI Meduno/Claut/Anduins. Se non ha dichiarato verde nessuna CDC,
       // target vuoto → non lavora (una casa di comunità viene prima di una sede periferica).
-      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => [0, 1].includes(SEDI5.indexOf(sd)));
+      // A parità di livello fra le due CDC, la TITOLARITÀ rompe il pareggio (§10): l'indifferente
+      // va nella SUA sede — qui è gratis (è solo, nessuno da spostare). `sedeTit` passato apposta.
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE, byId[ordinati[0].id].sedeContratto).find((sd) => [0, 1].includes(SEDI5.indexOf(sd)));
       if (top !== undefined) target = [SEDI5.indexOf(top)];
     } else {
       target = sediFisiche.slice(0, nFisici);
@@ -1624,6 +1633,36 @@ function App() {
     });
     setDati({ schema });
   };
+  // Assegna a mano una sede in modalità FISICA (un corpo) o A DISTANZA (copre da dove sta), mantenendo
+  // sia `slots` sia `fis` (§10). id=null → scoperta. FISICO: il corpo di id si sposta su si → id viene
+  // rimosso da ogni altro slot (il vecchio corpo e le coperture a distanza ora territorialmente INVALIDE
+  // dalla nuova sede si azzerano; quelle ancora valide restano). A DISTANZA: id resta fisico dov'è, copre
+  // si in più. Mantenere `fis` chiude il PENDING voce 90 (il box (c) e la resa a-distanza vedono gli
+  // inserimenti manuali). Il vincolo territoriale (Claut←Maniago, Anduins←Spilimbergo/Meduno) è §3.2.
+  const setSlotModo = (gi, ti, si, id, fisico) => {
+    setDati({ schema: dati.schema.map((g, a) => a !== gi ? g : {
+      ...g, turni: g.turni.map((t, b) => {
+        if (b !== ti || !t) return t;
+        const slots = [...t.slots];
+        let fis = t.fis.filter((x) => x !== si); // si riparte pulito
+        if (id === null) {
+          slots[si] = null;
+        } else if (!fisico) {
+          slots[si] = id; // a distanza: si NON è fisico
+        } else {
+          // fisico: sposta il corpo su si, libera id da ogni altra posizione
+          for (let sj = 0; sj < slots.length; sj++) {
+            if (sj === si || slots[sj] !== id) continue;
+            if (t.fis.includes(sj)) { slots[sj] = null; fis = fis.filter((x) => x !== sj); } // vecchio corpo → via
+            else { const valida = sj === 3 ? si === 0 : sj === 4 ? (si === 1 || si === 2) : true; if (!valida) slots[sj] = null; } // copertura a distanza invalida → azzera
+          }
+          slots[si] = id;
+          fis = [...fis, si];
+        }
+        return { ...t, slots, fis };
+      }),
+    }) });
+  };
 
   // Applica una patch a più mesi in un colpo solo (un unico passo di ↶ Annulla)
   const applicaPatchMultiMese = (patchByMonth) => {
@@ -1837,10 +1876,10 @@ function App() {
 <font><i/><sz val="8"/><color rgb="FF5B5F59"/><name val="Calibri"/></font>
 <font><b/><sz val="8.5"/><color rgb="FFB03030"/><name val="Calibri"/></font>
 <font><sz val="8.5"/><color rgb="FF666666"/><name val="Calibri"/></font>
-<font><i/><sz val="7"/><color rgb="FF666666"/><name val="Calibri"/></font>
-<font><b/><sz val="7"/><name val="Calibri"/></font>
-<font><sz val="7"/><name val="Calibri"/></font>
-<font><sz val="7"/><color rgb="FF666666"/><name val="Calibri"/></font>
+<font><i/><sz val="9"/><color rgb="FF666666"/><name val="Calibri"/></font>
+<font><b/><sz val="8.5"/><name val="Calibri"/></font>
+<font><sz val="9"/><name val="Calibri"/></font>
+<font><sz val="9"/><color rgb="FF666666"/><name val="Calibri"/></font>
 </fonts>
 <fills count="8">
 <fill><patternFill patternType="none"/></fill>
@@ -1874,7 +1913,7 @@ function App() {
 <xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="11" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="12" fillId="0" borderId="1" xfId="0"/>
 <xf numFmtId="0" fontId="12" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="13" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
@@ -1948,23 +1987,37 @@ function App() {
       const isSmall = sede === "CLAUT" || sede === "ANDUINS";
       const st = (s) => (isSmall ? (SMALL_MAP[s] ?? s) : s);
       let row = cell(r, 0, sede, st(8));
-      cols.forEach(({ t }, k) => {
-        // Notturno/MMG: Claut e Anduins NON sono sedi fisiche (§10 voce 55) — il servizio non è
-        // attivo, non è un buco. In quel caso la cella scoperta diventa "servizio non attivo" su
-        // sfondo grigio (formato ASFO, stile 14), MAI "scoperto". Meduno resta fisica ovunque, il
-        // diurno ha tutte e 5 le sedi fisiche. Se invece la sede È coperta a distanza (slot pieno)
-        // si passa dal ramo copertura qui sotto, invariato.
+      cols.forEach(({ t, g }, k) => {
+        // Notturno/MMG: Claut e Anduins NON sono sedi fisiche (§10 voce 55). Ma "servizio non attivo"
+        // (grigio, stile 14) va scritto SOLO nei giorni che hanno ANCHE il diurno — sabato/domenica
+        // sera, festivi, prefestivi (§10 voce 30: esistenza del turno "G", stesso predicato del motore
+        // così non divergono). Nei feriali normali quelle sedi non hanno mai un servizio da attivare →
+        // cella BIANCA vuota, niente scritta. Meduno resta fisica ovunque, il diurno ha tutte e 5 le
+        // sedi. Se la sede È coperta a distanza (slot pieno) si passa dal ramo copertura, invariato.
         const treFisiche = t.id === "N" || !!t.extra;
+        const haDiurno = g.turni.some((x) => x && x.id === "G");
+        // CHIUSA (regola aziendale ASFO, §10 voce 94): nei notturni/MMG dei giorni CON diurno (sab/dom/
+        // festivi/prefestivi) Claut e Anduins sono CHIUSE — servizio non attivo, nemmeno a distanza. Lì
+        // di giorno hanno già avuto il loro servizio fisico. Un documento ufficiale non deve MAI dichiarare
+        // aperto un servizio chiuso: si scrive SEMPRE "servizio non attivo" (grigio, stile 14), qualunque
+        // cosa dica lo schema (anche se il motore, che resta intatto, avesse segnato una copertura a
+        // distanza da una dichiarazione blu inerte). Stesso predicato del motore (esistenza di "G", voce 30).
+        const chiusa = treFisiche && (sede === "CLAUT" || sede === "ANDUINS") && haDiurno;
         // testo/stile per una sede SECONDARIA scoperta:
-        // - MEDUNO vuota → frase di priorità (catena §10 voce 90): si assegna solo dopo le CDC. Neutro
-        //   (stile 15), non l'allarme rosso: non è un'emergenza, è l'ordine di priorità.
-        // - CLAUT/ANDUINS nei turni non-diurni → "servizio non attivo" grigio (stile 14): lì non sono fisiche.
+        // - MEDUNO vuota → frase di priorità (catena §10 voce 90). Neutro (stile 15).
+        // - CLAUT/ANDUINS non-diurne FERIALI (senza diurno) → cella bianca vuota (stile 9): nei feriali la
+        //   copertura a distanza è valida e non c'è nulla da segnalare finché resta scoperta. (Il caso CON
+        //   diurno è già intercettato sopra da `chiusa`.)
         // - altrimenti (Claut/Anduins nel diurno) → "scoperto" neutro (stile 13), come prima.
         const secScoperta = sede === "MEDUNO"
           ? { testo: "Assegnazione solo dopo inserimento medico su Spilimbergo e Maniago", stile: 15 }
-          : ((treFisiche && (sede === "CLAUT" || sede === "ANDUINS")) ? { testo: "servizio non attivo", stile: 14 } : { testo: "scoperto", stile: 13 });
+          : ((treFisiche && (sede === "CLAUT" || sede === "ANDUINS"))
+              ? { testo: "", stile: 9 }
+              : { testo: "scoperto", stile: 13 });
         let testo = "", stile = 9;
-        if (!t.slots.some(Boolean)) {
+        if (chiusa) {
+          testo = "servizio non attivo"; stile = 14; // (voce 94) sempre chiuso, qualunque cosa dica lo schema
+        } else if (!t.slots.some(Boolean)) {
           if (sede === "MANIAGO" || sede === "SPILIMBERGO") { testo = "SCOPERTO"; stile = 11; }
           else ({ testo, stile } = secScoperta);
         } else {
@@ -3787,8 +3840,30 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
   // Avvisi mostrati nel banner (SOLO visualizzazione — `dati.avvisi` resta identico, motore intatto):
   // linguaggio più umano e filtro degli avvisi SCOPERTO "ovvi" (con 1 solo medico presente il motivo è
   // solo la mancanza di medici; l'avviso SCOPERTO è utile solo con 2+ medici presenti).
+  // (voce 94) Chiuso ≠ scoperto: nei notturni/MMG dei giorni CON diurno Claut/Anduins sono CHIUSE
+  // (regola ASFO — servizio non attivo, nemmeno a distanza). Il motore, che resta INTATTO, le elenca
+  // ancora fra le SCOPERTE: qui — nello stesso layer di sola visualizzazione — le togliamo da quegli
+  // avvisi (mai dal diurno, dove sono aperte), e se erano l'unico motivo dell'avviso lo eliminiamo del
+  // tutto. `diurnoLabelDi`: per ogni giorno la label del suo turno "G" (se esiste), per riconoscere
+  // "giorno con diurno" e distinguere il turno diurno (dove NON si chiude) dai notturni/MMG.
+  const diurnoLabelDi = {};
+  (dati.schema || []).forEach((g) => { const gg = g.turni.find((x) => x && x.id === "G"); if (gg) diurnoLabelDi[g.giorno] = gg.label; });
+  const chiudiClautAnduins = (a) => {
+    if (!a.includes("SCOPERTE")) return a;
+    const m = a.match(/^Giorno (\d+) · (.+?): /);
+    if (!m) return a;
+    const dLbl = diurnoLabelDi[Number(m[1])];
+    if (!dLbl || m[2] === dLbl) return a; // giorno senza diurno, oppure è proprio il turno diurno → aperte
+    const sep = a.lastIndexOf("): ");
+    if (sep < 0) return a;
+    const restanti = a.slice(sep + 3).replace(/\.$/, "").split(", ").filter((s) => s !== "Claut" && s !== "Anduins");
+    if (restanti.length === 0) return null; // erano solo Claut/Anduins (chiuse, non scoperte) → via l'avviso
+    return a.slice(0, sep + 3) + restanti.join(", ") + ".";
+  };
   const avvisiUI = (dati.avvisi || [])
     .filter((a) => !(a.includes("SCOPERTE") && /con 1 medici presenti/.test(a)))
+    .map(chiudiClautAnduins)
+    .filter((a) => a !== null)
     .map((a) => a
       .replace("nessuna disponibilità verde o blu dichiarata", "nessun medico disponibile come sede fisica o copertura a distanza")
       .replace("con 1 medici presenti", "con 1 solo medico presente"));
@@ -4483,8 +4558,15 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                       const dichiarataBlu = (sedeNome) => MEDICI.some((m) => normDispo(dati.dispo[m.id]?.[slotKeyT]).blu.includes(sedeNome));
                       // Sedi DA COPRIRE: notturno/MMG → Maniago/Spilimbergo/Meduno (+ Claut/Anduins solo se
                       // dichiarate a distanza); diurno → tutte e 5.
+                      // (voce 94) Regola aziendale ASFO: nei notturni/MMG dei giorni CON diurno (sab/dom/
+                      // festivi/prefestivi) Claut e Anduins sono CHIUSE — servizio non attivo, nemmeno a
+                      // distanza. SOLO DISPLAY (motore intatto): stesso predicato dell'export/motore
+                      // (esistenza del turno "G", voce 30). Chiuso ≠ scoperto: le sedi chiuse NON entrano
+                      // in `daCoprire`, quindi non compaiono nel badge "Scoperto:" né si offre la tendina.
+                      const haDiurno = g.turni.some((x) => x && x.id === "G");
+                      const chiusa = (si) => treFisiche && haDiurno && (si === 3 || si === 4);
                       let daCoprire = [];
-                      if (treFisiche) { daCoprire = [0, 1, 2]; [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
+                      if (treFisiche) { daCoprire = [0, 1, 2]; if (!haDiurno) [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
                       else daCoprire = [0, 1, 2, 3, 4];
                       const scoperte = daCoprire.filter((si) => !t.slots[si]);
                       const grave = scoperte.some((si) => si === 0 || si === 1); // Maniago/Spilimbergo mancanti = rosso
@@ -4496,46 +4578,59 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             <span style={{ background: grave ? T.dangerBg : T.warningBg, color: grave ? T.danger : T.warning, border: `1px solid ${grave ? T.dangerBorder : T.warningBorder}`, fontWeight: 700, fontSize: 10, letterSpacing: .2, padding: "2px 8px", borderRadius: 999 }}>Scoperto: {scoperte.map((si) => SEDI5[si]).join(", ")}</span>
                           )}
                           {SEDI5.map((sede, si) => {
-                            // NOTTURNO/MMG: Claut/Anduins non sono fisiche → si coprono SOLO a distanza.
-                            // Ora editabili a mano (§10): la tendina offre SOLO i coprenti territorialmente
-                            // validi già FISICI nel turno — Claut dal fisico di Maniago, Anduins da quello di
-                            // Spilimbergo o Meduno (vincolo §3.2) — così le combinazioni impossibili non sono
-                            // nemmeno offerte. `sedePrimaria` (con fallback) al posto di `t.fis.find` → la sede
-                            // del coprente resta corretta anche dopo un edit manuale (fis non ricalcolato).
-                            if (treFisiche && (si === 3 || si === 4)) {
-                              const mid = t.slots[si];
-                              const basi = si === 3 ? [0] : [1, 2]; // basi territoriali ammesse
-                              const coprenti = basi.map((b) => t.slots[b]).filter((x) => x !== null && x !== undefined);
-                              const primOf = (id) => { const p = sedePrimaria(t.slots, id, t.fis); return p >= 0 ? SEDI5[p] : "?"; };
+                            // (voce 94) Sede CHIUSA (Claut/Anduins nei notturni/MMG dei giorni con diurno):
+                            // servizio NON attivo, nemmeno a distanza → nessuna tendina (è IMPOSSIBILE, non
+                            // sconveniente), solo l'indicatore "servizio non attivo". Motore intatto.
+                            if (chiusa(si)) {
                               return (
-                                <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: mid ? T.bluTint : (coprenti.length ? "#fff" : T.surfaceAlt), border: `1px solid ${mid ? T.blu : (coprenti.length ? T.warning : T.border)}`, borderRadius: 5, padding: "3px 6px", fontSize: 11, opacity: (mid || coprenti.length) ? 1 : .75 }}>
+                                <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: T.surfaceAlt, border: "1px solid #e5e9e6", borderRadius: 5, padding: "3px 6px", fontSize: 11, opacity: .7 }}>
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                    <b style={{ fontSize: 10, color: mid ? T.bluDark : (coprenti.length ? T.warning : T.textFaint) }}>{sede}</b>
-                                    {coprenti.length > 0 ? (
-                                      <select value={mid || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 120 }}>
-                                        <option value="">— a distanza</option>
-                                        {coprenti.map((id) => <option key={id} value={id}>{byId[id].nome} (da {primOf(id)})</option>)}
-                                      </select>
-                                    ) : (
-                                      <span style={{ color: T.textFaint, fontSize: 9 }}>solo diurno</span>
-                                    )}
+                                    <b style={{ fontSize: 10, color: T.textFaint }}>{sede}</b>
+                                    <span style={{ color: T.textFaint, fontSize: 9 }}>servizio non attivo</span>
                                   </span>
-                                  {mid && <span style={{ color: T.bluDark, fontSize: 9 }}>← {byId[mid].nome}, a distanza da {primOf(mid)}</span>}
                                 </span>
                               );
                             }
-                            const nota = notaSlot(t.slots, si, t.fis);
+                            // TENDINA UNIFICATA (§10): una sola tendina, due optgroup mutuamente esclusivi —
+                            // "Fisicamente qui" (un CORPO) e "Coperta a distanza da" (copre da dove sta). Il
+                            // valore porta il modo: "fis:<id>" | "dist:<id>" | "" (scoperta). Eccezione ASSOLUTA:
+                            // nei notturni/MMG Claut/Anduins non sono mai fisiche → SOLO a distanza.
+                            // Principio: IMPEDIRE l'impossibile (non offrirlo), AVVISARE sullo sconveniente.
+                            const mid = t.slots[si];
+                            const fisicoQui = mid != null && t.fis.includes(si);
+                            const aDistanzaQui = mid != null && !t.fis.includes(si);
+                            const fisicoAmmesso = !(treFisiche && (si === 3 || si === 4));
+                            const sedeFisicaDi = (id) => { const p = t.fis.find((fi) => t.slots[fi] === id); return p !== undefined ? SEDI5[p] : "?"; };
+                            // COPRENTI a distanza (IMPOSSIBILE → non offerto): solo fisici del turno, territoriale
+                            // (Claut←Maniago; Anduins←Spilimbergo/Meduno; MA/SP/ME nessun vincolo §3.2), NON già
+                            // impegnati su un'altra copertura a distanza (1/medico), non il fisico di questa sede.
+                            const puoCoprire = (id) => { const suo = t.fis.find((fi) => t.slots[fi] === id); if (suo === undefined || suo === si) return false; if (si === 3) return suo === 0; if (si === 4) return suo === 1 || suo === 2; return true; };
+                            const giaADistanza = (id) => t.slots.some((occ, sj) => occ === id && !t.fis.includes(sj) && sj !== si);
+                            const coprenti = [...new Set(t.fis.map((fi) => t.slots[fi]).filter((x) => x != null))].filter((id) => puoCoprire(id) && (id === mid || !giaADistanza(id)));
+                            // SCONVENIENTE (avviso, non blocco): sedi con priorità su questa ancora scoperte.
+                            const sopra = si === 2 ? [0, 1] : (si === 3 || si === 4) ? [0, 1, 2] : [];
+                            const scoperteSopra = sopra.filter((s2) => t.slots[s2] === null).map((s2) => SEDI5[s2]);
+                            const val = mid == null ? "" : (fisicoQui ? "fis:" : "dist:") + mid;
+                            const onSel = (v) => { if (!v) return setSlotModo(gi, ti, si, null, false); const [modo, idS] = v.split(":"); setSlotModo(gi, ti, si, Number(idS), modo === "fis"); };
                             const bd = bordoSede(si);
                             return (
-                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: nota.tipo === "copertura" ? "#eef3ea" : T.divider, border: bd ? `1px solid ${bd}` : "1px solid transparent", borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                              <span key={si} style={{ display: "inline-flex", flexDirection: "column", gap: 1, background: aDistanzaQui ? T.bluTint : T.divider, border: `1px solid ${bd || (aDistanzaQui ? T.blu : "transparent")}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                  <b style={{ fontSize: 10 }}>{sede}</b>
-                                  <select value={t.slots[si] || ""} onChange={(e) => setSlot(gi, ti, si, e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 110 }}>
-                                    <option value="">—</option>
-                                    {MEDICI.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-                                  </select>
+                                  <b style={{ fontSize: 10, color: aDistanzaQui ? T.bluDark : T.text }}>{sede}</b>
+                                  {(!fisicoAmmesso && coprenti.length === 0) ? (
+                                    <span style={{ color: T.textFaint, fontSize: 9 }}>nessun coprente disponibile</span>
+                                  ) : (
+                                    <select value={val} onChange={(e) => onSel(e.target.value)} style={{ fontSize: 11, border: "1px solid #d3dad6", borderRadius: 4, padding: "1px 2px", maxWidth: 140 }}>
+                                      <option value="">—</option>
+                                      {fisicoAmmesso && <optgroup label="Fisicamente qui">{MEDICI.map((m) => <option key={"f" + m.id} value={"fis:" + m.id}>{m.nome}</option>)}</optgroup>}
+                                      {coprenti.length > 0 && <optgroup label="Coperta a distanza da">{coprenti.map((id) => <option key={"d" + id} value={"dist:" + id}>{byId[id].nome} (da {sedeFisicaDi(id)})</option>)}</optgroup>}
+                                    </select>
+                                  )}
                                 </span>
-                                {nota.testo && <span style={{ color: T.textMuted, fontSize: 9 }}>{nota.testo}</span>}
+                                {aDistanzaQui && <span style={{ color: T.bluDark, fontSize: 9 }}>← {byId[mid].nome}, a distanza da {sedeFisicaDi(mid)}</span>}
+                                {(mid != null || coprenti.length > 0) && scoperteSopra.length > 0 && (
+                                  <span style={{ color: T.warning, fontSize: 9 }}>⚠️ {scoperteSopra.join(", ")} scoperte — priorità su {sede}</span>
+                                )}
                               </span>
                             );
                           })}

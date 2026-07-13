@@ -275,10 +275,17 @@ const normDispo = (v) => {
 // → Anduins), non l'ordine in cui il medico le ha dichiarate. Così una CDC (Maniago/Spilimbergo)
 // pari con una sede secondaria vince comunque la CDC, esattamente come se fosse un livello
 // migliore — l'ordine di dichiarazione non ha alcun peso (CONTEXT.md §3.3).
-const ordinaPerLivello = (sedi, liv, maxLivello) => {
+// Param opzionale `sedeTit` (titolarità del medico): a parità di livello la titolarità rompe il
+// pareggio (la sua sede prima delle altre pari). Usato SOLO dal target del singolo medico
+// (nFisici===1): lì mandarlo alla sua sede è gratis (nessuno da spostare). NON si passa nella FASE 1
+// competitiva: a più medici la ricollocazione per titolarità sistema già gli incroci, e forzare la
+// titolarità toglierebbe al motore la libertà di spostare gli indifferenti per massimizzare la
+// copertura (§10: il caso IENGO). Senza sedeTit → comportamento identico a prima.
+const ordinaPerLivello = (sedi, liv, maxLivello, sedeTit) => {
   const out = [];
   for (let l = 1; l <= maxLivello; l++) {
-    SEDI5.forEach((s) => { if (sedi.includes(s) && (liv[s] || 1) === l) out.push(s); });
+    if (sedeTit && sedi.includes(sedeTit) && (liv[sedeTit] || 1) === l) out.push(sedeTit);
+    SEDI5.forEach((s) => { if (s !== sedeTit && sedi.includes(s) && (liv[s] || 1) === l) out.push(s); });
   }
   return out;
 };
@@ -671,7 +678,9 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
       // Catena di priorità ASFO (§10): con 1 solo medico il target è la sua CDC preferita
       // (Maniago/Spilimbergo) — MAI Meduno/Claut/Anduins. Se non ha dichiarato verde nessuna CDC,
       // target vuoto → non lavora (una casa di comunità viene prima di una sede periferica).
-      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE).find((sd) => [0, 1].includes(SEDI5.indexOf(sd)));
+      // A parità di livello fra le due CDC, la TITOLARITÀ rompe il pareggio (§10): l'indifferente
+      // va nella SUA sede — qui è gratis (è solo, nessuno da spostare). `sedeTit` passato apposta.
+      const top = ordinaPerLivello(v.verde, v.verdeLiv, MAX_LIV_VERDE, byId[ordinati[0].id].sedeContratto).find((sd) => [0, 1].includes(SEDI5.indexOf(sd)));
       if (top !== undefined) target = [SEDI5.indexOf(top)];
     } else {
       target = sediFisiche.slice(0, nFisici);

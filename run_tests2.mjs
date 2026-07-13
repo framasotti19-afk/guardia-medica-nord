@@ -638,6 +638,25 @@ suite.test("livelli verdi pari fra due sedi = indifferente: il motore ricolloca 
   suite.eq(t.slots[1], IENGO, "IENGO ottiene Spilimbergo, la sua unica scelta");
 });
 
+// GUARD DOPPIO (§10): fissa ENTRAMBI i comportamenti — chi "aggiusta" (a) rompendo (b) fa fallire qui.
+suite.test("titolarità a parità di livello: il SINGOLO medico indifferente va nella SUA sede; a più medici la copertura vince (l'indifferente si sposta)", () => {
+  // (a) SINGOLO medico indifferente con titolarità → va nella SUA (gratis: nessuno da spostare).
+  //     BERTUZZI titolare Spilimbergo, MA1+SP1, unico disponibile → Spilimbergo, non Maniago per indice.
+  const da = dispoBase(MEDICI);
+  da[BERTUZZI][N(G1)] = turnoDisp(["Maniago", "Spilimbergo"], [], { verdeLiv: { Maniago: 1, Spilimbergo: 1 } });
+  const ta = unicoTurno(da);
+  suite.eq(ta.slots[1], BERTUZZI, "(a) singolo indifferente → va nella sua titolarità Spilimbergo, non Maniago per indice");
+  suite.eq(ta.slots[0], null, "(a) Maniago resta scoperta: un solo medico copre una sede sola");
+  // (b) DUE medici: BERTUZZI indifferente + IENGO vincolato a Spilimbergo. La titolarità NON si forza:
+  //     BERTUZZI si sposta su Maniago per lasciare Spilimbergo a IENGO → 2 sedi coperte, non 1.
+  const db = dispoBase(MEDICI);
+  db[BERTUZZI][N(G1)] = turnoDisp(["Spilimbergo", "Maniago"], [], { verdeLiv: { Spilimbergo: 1, Maniago: 1 } });
+  db[IENGO][N(G1)] = turnoDisp(["Spilimbergo"]);
+  const tb = unicoTurno(db);
+  suite.eq(tb.slots[0], BERTUZZI, "(b) BERTUZZI indifferente si sposta su Maniago: la copertura vince sulla titolarità");
+  suite.eq(tb.slots[1], IENGO, "(b) IENGO ottiene Spilimbergo, la sua unica scelta — 2 sedi coperte, non 1");
+});
+
 suite.test("parità di livello fra una CDC e una sede secondaria: vince sempre la CDC, MAI l'ordine di dichiarazione", () => {
   const d = dispoBase(MEDICI);
   // VALERI unico candidato (n=1, target dinamico): dichiara Meduno PRIMA di Maniago nell'array,

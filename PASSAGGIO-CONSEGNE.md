@@ -3,14 +3,23 @@
 > **QUESTO È L'UNICO FILE DI PASSAGGIO CONSEGNE.** Da aggiornare a fine di ogni sessione: cambia il "RIPARTI DA QUI" in cima e aggiungi un blocco nuovo in cima allo STORICO. NON creare file di passaggio nuovi.
 
 ═══════════════════════════════════════════════════════════
-## 🚀 RIPARTI DA QUI  *(aggiornato: 13 luglio 2026, ore 5:00 — fine sessione)*
+## 🚀 RIPARTI DA QUI  *(aggiornato: 13 luglio 2026 — fine sessione voci 92-94)*
 ═══════════════════════════════════════════════════════════
 
-**STATO:** voci fino a **91** su `claude/new-session-tufavl`.
+**STATO:** voci fino a **94** su `claude/new-session-tufavl`. Questo file È ORA NEL REPO (committato in voce 91).
 
-> ⚠️ **QUESTO FILE NON È MAI STATO COMMITTATO NEL REPO.** Verificato da Claude Code: 149 commit, tutti i rami, stash, reflog — non c'è. **Vive solo qui, nei file che carichi e scarichi.** Se Claude Code dice "non esiste, lo creo", **fermalo e ricaricagli QUESTO** — altrimenti perdi lo storico dal 4 luglio in poi. **Da committare nel repo alla prossima sessione.** ⚠️ **IL MOTORE È CAMBIATO** (voce 90): hash **`c155ffce` → `5bd338ba`**. Prima modifica al motore dopo mesi — la **catena di priorità**. Verificata: **sim 100k = 0 violazioni su 35.013.231 check**, unit **63/63**. Tutto il lavoro è su **prompt AI** e **guard app-side**.
+> **MOTORE:** hash **`27c332e5`** (invariato da voce 93; **voce 94 è solo-display, motore BYTE-IDENTICO**). Storia hash: `c155ffce` → (v90 catena) `5bd338ba` → (v92 commento) `6591df4b` → (v93 #1 titolarità target singolo) **`27c332e5`**. Suite: **unit 64/64**, **sim 100k = 0 violazioni su 35.013.236 check** (ultimo run pieno v93). ⚠️ **RED-LINE MOTORE:** ogni modifica al motore è un cambio deliberato a sé, con sim 100k piena, MAI impilato su altro lavoro (vedi PENDING §7: la chiusura Claut/Anduins "versione A" nel motore costa una cascata month-wide di 6.006 slot feriali — misurata, non stimata).
 
 **PRIMA DI LAVORARE:** leggere `turni-guardia-medica.jsx`, poi `CONTEXT.md`, poi questo file.
+
+---
+
+## 📌 SESSIONE voci 92-94 (13 luglio)
+
+- **Voce 92 — audit prompt↔motore.** Il prompt prometteva ancora la spaziatura §3.7, morta dal 5/7. Audit sistematico di tutte le affermazioni fattuali del prompt (~18k parole) → **3 divergenze su 21**, tutte da modifiche motore non propagate. Corrette nel prompt (motore invariato salvo 1 commento). **Lezione:** quando il motore cambia, cerca SEMPRE nel prompt chi racconta ancora la regola vecchia.
+- **Voce 93 — titolarità target singolo (motore `27c332e5`) + font export + tendina unificata.** Fix RISTRETTO (non generale: il fix generale regrediva la copertura, caso IENGO). Test doppio a guardia di entrambi i comportamenti. Tendina unificata fisico+a-distanza (2 optgroup). Chiude il PENDING (c)-vs-`fis` (voce 90). Sim 100k = 0 violazioni.
+- **Voce 94 — Claut/Anduins CHIUSE nei notturni festivi. SOLO DISPLAY (motore intatto).** Regola ASFO: nei notturni dei giorni con diurno (sab/dom/festivi/prefestivi) Claut/Anduins chiuse, nemmeno a distanza; feriali invariati. **Scelta A-vs-B misurata:** la versione motore ("A") NON è chirurgica — il §3.9 (`!target.slots.includes` conta la a-distanza come "già nel turno") provoca una **cascata month-wide di 6.006 slot feriali** (misurata su 3.000 scenari). Scelto **B (solo app)**: griglia (no tendina, "servizio non attivo") + export (grigio SEMPRE, un documento ufficiale non dichiara aperto un servizio chiuso) + `avvisiUI` (chiuso ≠ scoperto). Coerente col pattern già benedetto "solo visualizzazione, motore intatto". Versione A completa → **PENDING §7** coi numeri. **Lezione:** una regola di visibilità/input vive nel display, non nel motore, anche se "in teoria" il motore resta impreciso. Il metro prima dell'oggetto.
+- **Metodo confermato:** ogni volta un tool di misura ha mentito (assert stale nei conteggi degli smoke); il segnale vero era sempre verde. Misura A-vs-B su copia scratch, mai sul working tree.
 
 ---
 
