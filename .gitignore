@@ -5,3 +5,8 @@ test_email_corpus.json
 test_email_results*.json
 test_email_report*.md
 test_email_batch_state*.json
+run14_out.json
+run14_ckpt.jsonl
+run14_live.log
+payload_bendato.json
+payload_vedente.json

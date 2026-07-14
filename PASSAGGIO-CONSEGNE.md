@@ -178,6 +178,9 @@ Rimozione da `sedeDi` **prima** di `scalaDebito` → **debito non consumato** �
 
 ## ⏳ PENDING — DA MANDARE A CLAUDE CODE
 
+### 🔴 FINDINGS (banco `run14.mjs`) — l'avviso di chiusura (voce 97) CADE accanto alla domanda fuori-sede §3.1a
+Sul banco AI `run14.mjs` (nel repo; casi bug10/bug11/COMBO): quando lo STESSO messaggio innesca sia la **chiusura** Claut/Anduins (avviso INFO, voce 97) sia la **domanda fuori-sede** §3.1a (titolare che dichiara sede ≠ titolarità), il modello costruisce **sempre** la domanda fuori-sede (6/6, perfetta: azione in `domande[].seSi`, giorno giusto, mai in silenzio) ma **omette a intermittenza l'avviso di chiusura** (array `avvisi` vuoto → casi 52 a 1/3, 53 a 2/3). Non confonde le due regole: lascia cadere la meno saliente mentre costruisce l'altra. → **fix prompt: ancorare l'avviso di chiusura perché sopravviva accanto a una domanda** (poche righe, non toccare il fuori-sede che è 6/6). Misura di successo: gli stessi 4 COMBO × 3 giri, 52 e 53 a 3/3.
+
 ### 🔴 §3.7 — DUBBIO SUL MOTORE (findings, prima cosa da chiarire)
 `giorniTra` (riga 292) è **codice morto**: zero chiamate in 4.658 righe. Il commento dice che serve a §3.7 (spaziatura temporale). **Ma il prompt (riga ~2760) promette ai medici una regola che non trovo nel motore:** *"se un vincitore ha lavorato il giorno prima, la sede passa a un altro candidato"*. **§3.11 esiste** (distribuzione equidistante, tetto implicito dal monte ore, attiva per tutti i contrattualizzati) — **ma distribuisce, non cede.** Chiedere: §3.7 esiste? È stata rimossa? Il prompt va corretto o il motore completato?
 

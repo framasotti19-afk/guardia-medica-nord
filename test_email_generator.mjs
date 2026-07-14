@@ -747,7 +747,9 @@ times(8, (i) => {
   const sedeChiusa = usaAnduins ? "Anduins" : "Claut";
   const sedeFisica = usaAnduins ? (i % 3 === 0 ? "Meduno" : "Spilimbergo") : "Maniago"; // base territoriale valida (Anduins←SP/ME; Claut←MA)
   const giorno = conDiurno ? pick(GIORNI_WEEKEND_TUTTI) : pick(GIORNI_FERIALI);
-  const m = pick(contrattualizzati);
+  // Medico COERENTE con la sede fisica dichiarata: titolare di quella sede OPPURE senza incarico → il guard
+  // fuori-sede §3.1a NON scatta. Qui si isola la CHIUSURA; il fuori-sede ha i suoi casi e non deve entrare per caso.
+  const m = pick([...MEDICI_DEFAULT.filter((x) => x.sedeContratto === sedeFisica), ...senzaIncarico]);
   const email = `Il ${giorno} notte sono a ${sedeFisica} e copro anche ${sedeChiusa} a distanza.`;
   const atteso = {
     azioniRichieste: [{ az: "dispo_aggiungi", match: { medico: m.nome, giorno, turno: "N", sedi: [sedeFisica], blu: [sedeChiusa] } }],
@@ -761,7 +763,7 @@ times(8, (i) => {
 });
 // "tutto il mese" (dispo_set): ambito che include feriali (validi) e festivi (inerti) → registra tutto + UN avviso INFO
 times(2, () => {
-  const m = pick(contrattualizzati);
+  const m = pick([...MEDICI_DEFAULT.filter((x) => x.sedeContratto === "Maniago"), ...senzaIncarico]); // coerente con Maniago dichiarata → no fuori-sede
   const email = `Per tutto ${MESE_LABEL} faccio le notti a Maniago e copro anche Claut a distanza.`;
   aggiungi("chiusura_notturno", m, [], email, {
     azioniRichieste: [{ az: "dispo_set", match: { medico: m.nome, sedi: ["Maniago"], blu: ["Claut"] } }],
