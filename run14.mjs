@@ -282,10 +282,13 @@ if (fs.existsSync(CKPT)) {
   }
   console.log(`RESUME: ${done.size} chiamate già nel checkpoint → le salto.`);
 }
+// ONLY=<n,n,...|CAT> → gira solo un sottoinsieme (per rimisurare un fix mirato senza ripagare tutto).
+const onlySet = process.env.ONLY ? new Set(process.env.ONLY.split(",").map((s) => s.trim())) : null;
+const casiRun = onlySet ? casi.filter((c) => onlySet.has(String(c.n)) || onlySet.has(c.cat)) : casi;
 for (const cfg of CONFIGS) {
   for (let round = 1; round <= ROUNDS; round++) {
     console.log(`\n───────── ${cfg.nome} · ROUND ${round}/${ROUNDS} ─────────`);
-    for (const caso of casi) {
+    for (const caso of casiRun) {
       const key = `${cfg.nome}|${round}|${caso.n}`;
       if (done.has(key)) { console.log(`[${caso.n}] ${caso.cat} ⏭ (checkpoint)`); continue; }
       const r = await call(caso.email, cfg.vedente);
