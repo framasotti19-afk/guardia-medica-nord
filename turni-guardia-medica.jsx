@@ -2128,7 +2128,7 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = tutto ? "ASFO_turni_CA_DistrettoNord.xlsx" : `ASFO_turni_CA_${MESI_IT[mese]}_${anno}.xlsx`;
+      a.download = tutto ? `Schema turni CA Distretto Nord ${anno}.xlsx` : `Schema turni CA ${MESI_IT[mese]} ${anno}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
