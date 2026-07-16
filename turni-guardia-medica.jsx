@@ -2021,19 +2021,18 @@ export default function App() {
         // coperta solo a distanza è "spenta" e non apre nulla sotto (voce 90), quindi si usa `fis`, non lo
         // slot pieno — stessa semantica del motore, così non diverge.
         const cdcFis = t.fis.includes(0) && t.fis.includes(1); // Maniago & Spilimbergo presidiate (corpo)
-        const meFis = t.fis.includes(2);                        // Meduno presidiata
         // testo/stile per una sede SECONDARIA scoperta:
         // - MEDUNO vuota → frase di priorità (stile 15) SOLO se una CDC è scoperta (Meduno bloccata); se le
         //   CDC sono presidiate ed è comunque vuota è un buco vero → "scoperto" (stile 13).
-        // - CLAUT/ANDUINS notturne/MMG FERIALI (il caso CON diurno è già preso sopra da `chiusa`) → BIANCA.
-        // - CLAUT/ANDUINS nel DIURNO → "scoperto" SOLO se Maniago, Spilimbergo E Meduno sono presidiate;
-        //   altrimenti la catena le tiene chiuse → BIANCA (stile 9), non "scoperto".
+        // - CLAUT/ANDUINS vuote (diurno E notturno FERIALE; il notturno CON diurno è già preso sopra da
+        //   `chiusa`) → "scoperto" (stile 13) SOLO se le due CDC {Maniago, Spilimbergo} sono presidiate
+        //   FISICAMENTE (`cdcFis`, stesso discriminante che fa sparire la frase d'attesa di Meduno); se le
+        //   CDC non sono entrambe coperte la catena le tiene chiuse → BIANCA (stile 9). Non serve che Meduno
+        //   sia coperto: basta {Maniago, Spilimbergo}. La copertura a distanza (slot pieno) non passa di qui.
         const secScoperta = sede === "MEDUNO"
           ? (cdcFis ? { testo: "scoperto", stile: 13 } : { testo: "Assegnazione solo dopo inserimento medico su Spilimbergo e Maniago", stile: 15 })
           : ((sede === "CLAUT" || sede === "ANDUINS")
-              ? (treFisiche
-                  ? { testo: "", stile: 9 }
-                  : ((cdcFis && meFis) ? { testo: "scoperto", stile: 13 } : { testo: "", stile: 9 }))
+              ? (cdcFis ? { testo: "scoperto", stile: 13 } : { testo: "", stile: 9 })
               : { testo: "scoperto", stile: 13 });
         let testo = "", stile = 9;
         if (chiusa) {
