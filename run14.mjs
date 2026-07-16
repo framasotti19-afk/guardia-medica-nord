@@ -53,14 +53,15 @@ const casi = [
   { n: 3, cat: "A", email: "Zurlo ha lavorato la notte del 31 luglio", exp: { tp: { medico: "ZURLO", giorno: 31, turno: "N" } } },
   { n: 4, cat: "A", email: "Trigodko ha fatto il diurno il 27 luglio", exp: { tp: { medico: "TRIGODKO", giorno: 27, turno: "G" } } },
   // CAT B — NON deve MAI emettere turno_precedente
-  { n: 5, cat: "B", email: "Sono Bekaeva, per agosto sono disponibile tutte le notti feriali a Maniago", exp: { noTp: true } },
-  { n: 6, cat: "B", email: "Ciao, Martinetti. Il mese prossimo posso coprire i weekend a Spilimbergo", exp: { noTp: true } },
-  { n: 7, cat: "B", email: "Valeri: a fine luglio ero in ferie, quindi per agosto sono disponibile solo dal 10 in poi", exp: { noTp: true } },
-  { n: 8, cat: "B", email: "Pressacco, disponibile il 30 e 31 agosto per i notturni", exp: { noTp: true } },
-  { n: 9, cat: "B", email: "Cervesato: come sai il mese scorso ho fatto pochi turni, quindi ad agosto vorrei recuperare, disponibile tutte le notti", exp: { noTp: true } },
-  { n: 10, cat: "B", email: "De Candido, l'ultima settimana di luglio ho già lavorato parecchio, per agosto preferirei solo i weekend", exp: { noTp: true } },
-  { n: 11, cat: "B", email: "Iengo qui. Confermo disponibilità 5, 12, 19 agosto notturni", exp: { noTp: true } },
-  { n: 12, cat: "B", email: "Sono Morano, ho fatto il turno del 3 agosto l'anno scorso, quest'anno sono disponibile lo stesso giorno", exp: { noTp: true } },
+  // CAT B — check VERI derivati dalla regola ASFO (non più solo "no turno_precedente"). Ognuno mantiene noTp.
+  { n: 5, cat: "B", email: "Sono Bekaeva, per agosto sono disponibile tutte le notti feriali a Maniago", exp: { catb: { richiede: { az: "dispo_set", medico: "BEKAEVA", sedi: ["Maniago"], turni: ["N"], ambito: "feriali" } } } },
+  { n: 6, cat: "B", email: "Ciao, Martinetti. Il mese prossimo posso coprire i weekend a Spilimbergo", exp: { catb: { richiede: { az: "dispo_set", medico: "MARTINETTI", sedi: ["Spilimbergo"], turni: ["N"], ambito: "weekend" } } } },
+  { n: 7, cat: "B", email: "Valeri: a fine luglio ero in ferie, quindi per agosto sono disponibile solo dal 10 in poi", exp: { catb: { richiede: { az: "dispo_set", medico: "VALERI", sedi: ["Spilimbergo"], ambitoDa: 10 } } } }, // turno NON verificato (incerto)
+  { n: 8, cat: "B", email: "Pressacco, disponibile il 30 e 31 agosto per i notturni", exp: { catb: { noDispo: true } } }, // senza-incarico + no sede → 🔴 blocco
+  { n: 9, cat: "B", email: "Cervesato: come sai il mese scorso ho fatto pochi turni, quindi ad agosto vorrei recuperare, disponibile tutte le notti", exp: { catb: { noDispo: true, noOreExtra: true } } }, // + recupero non si applica ai senza incarico
+  { n: 10, cat: "B", email: "De Candido, l'ultima settimana di luglio ho già lavorato parecchio, per agosto preferirei solo i weekend", exp: { catb: { noDispo: true } } },
+  { n: 11, cat: "B", email: "Iengo qui. Confermo disponibilità 5, 12, 19 agosto notturni", exp: { catb: { noDispo: true } } },
+  { n: 12, cat: "B", email: "Sono Morano, ho fatto il turno del 3 agosto l'anno scorso, quest'anno sono disponibile lo stesso giorno", exp: { catb: { richiede: { az: "dispo_aggiungi", medico: "MORANO", sedi: ["Maniago"], turni: ["N"], giorno: 3 } } } },
   // CAT C — deve CHIEDERE il giorno, non inventarlo
   { n: 13, cat: "C", email: "Bertuzzi ha fatto un turno a luglio", exp: { chiede: true } },
   { n: 14, cat: "C", email: "segna che Merlino ha lavorato nella settimana a cavallo", exp: { chiede: true } },
@@ -136,6 +137,32 @@ function valuta(caso, obj) {
     const altre = azioni.filter((x) => x.az !== "turno_precedente" && x.az !== "elabora");
     if (altre.length) return { ok: false, why: `azioni extra non attese: ${altre.map((x) => x.az).join(",")}` };
     return { ok: true, why: `turno_precedente ${a.medico} g${a.giorno} ${turnoA ?? "(omesso)"}` };
+  }
+  if (caso.exp.catb) {
+    // Check VERO dei CAT B: sempre no turno_precedente + il minimo blindato dalla regola.
+    const e = caso.exp.catb;
+    if (tps.length) return { ok: false, why: `❌ turno_precedente EMESSO (vietato!): ${JSON.stringify(tps[0])}` };
+    const dispo = azioni.filter((a) => a.az === "dispo_set" || a.az === "dispo_aggiungi");
+    const rosso = (Array.isArray(obj?.avvisi) ? obj.avvisi : []).some((a) => /ross|red/i.test(String(a?.livello || "")));
+    if (e.noDispo) {
+      // senza-incarico + no sede → deve BLOCCARE: nessuna dispo + un rosso (reg. 2545)
+      if (dispo.length) return { ok: false, why: `❌ ha INSERITO dispo per un senza-incarico-senza-sede (va bloccato): ${dispo.map((a) => a.az).join(",")}` };
+      if (e.noOreExtra && azioni.some((a) => a.az === "ore_extra")) return { ok: false, why: `❌ ore_extra emesso (recupero non si applica ai senza incarico)` };
+      if (!rosso) return { ok: false, why: `❌ nessun avviso rosso (il blocco va segnalato; azioni: ${tipiAzioni.join(",") || "nessuna"})` };
+      return { ok: true, why: `bloccato correttamente (nessuna dispo${e.noOreExtra ? ", nessun ore_extra" : ""}, avviso rosso)` };
+    }
+    // caso "richiede": esiste una dispo che combacia col minimo (az + medico + sedi ⊇ + turni ⊇ + ambito/giorno)
+    const m = e.richiede;
+    const okTurni = (a) => (m.turni || []).every((t) => (a.turni || []).includes(t) || a.turno === t);
+    const found = dispo.find((a) => a.az === m.az
+      && (a.medico || "").toUpperCase() === m.medico
+      && (m.sedi || []).every((s) => (a.sedi || []).includes(s))
+      && okTurni(a)
+      && (m.ambito === undefined || a.ambito === m.ambito)
+      && (m.giorno === undefined || Number(a.giorno) === m.giorno)
+      && (m.ambitoDa === undefined || (a.ambito && Number(a.ambito.da) === m.ambitoDa)));
+    if (!found) return { ok: false, why: `❌ manca ${m.az} atteso (sedi ${JSON.stringify(m.sedi)}${m.ambito ? " ambito " + m.ambito : ""}${m.ambitoDa ? " da " + m.ambitoDa : ""}${m.giorno ? " g" + m.giorno : ""}) — azioni: ${tipiAzioni.join(",") || "nessuna"}` };
+    return { ok: true, why: `${m.az} corretto (${(found.sedi || []).join(",")}${found.ambito ? " " + JSON.stringify(found.ambito) : ""}${found.giorno ? " g" + found.giorno : ""})` };
   }
   if (caso.exp.noTp) {
     if (tps.length) return { ok: false, why: `❌ turno_precedente EMESSO (vietato!): ${JSON.stringify(tps[0])}` };
@@ -223,6 +250,15 @@ if (process.env.DRY) {
   t("combo avviso+domanda(seSi) → PASSA", cc, { avvisi: [{ livello: "info", testo: "Anduins è chiusa quella notte" }], domande: [{ domanda: "MORANO è titolare di Maniago, confermi Spilimbergo?", seSi: [{ az: "dispo_aggiungi", medico: "MORANO", sedi: ["Spilimbergo"], blu: ["Anduins"] }] }] }, true);
   t("combo manca avviso → deve FALLIRE", cc, { domande: [{ seSi: [{ az: "dispo_aggiungi", medico: "MORANO", sedi: ["Spilimbergo"], blu: ["Anduins"] }] }] }, false);
   t("combo inserita in azioni (silenzio) → deve FALLIRE", cc, { avvisi: [{ livello: "info", testo: "chiusa" }], azioni: [{ az: "dispo_aggiungi", medico: "MORANO", sedi: ["Spilimbergo"], blu: ["Anduins"] }] }, false);
+  const c5 = { exp: { catb: { richiede: { az: "dispo_set", medico: "BEKAEVA", sedi: ["Maniago"], turni: ["N"], ambito: "feriali" } } } };
+  t("catb5 dispo_set feriali Maniago N → PASSA", c5, { azioni: [{ az: "dispo_set", medico: "BEKAEVA", ambito: "feriali", turni: ["N"], sedi: ["Maniago"] }] }, true);
+  t("catb5 ambito sbagliato (mese) → FALLISCE", c5, { azioni: [{ az: "dispo_set", medico: "BEKAEVA", ambito: "mese", turni: ["N"], sedi: ["Maniago"] }] }, false);
+  const c8 = { exp: { catb: { noDispo: true } } };
+  t("catb8 blocco (no dispo + rosso) → PASSA", c8, { azioni: [], avvisi: [{ livello: "rosso", testo: "non ha specificato la sede" }] }, true);
+  t("catb8 ha inserito dispo → FALLISCE", c8, { azioni: [{ az: "dispo_aggiungi", medico: "PRESSACCO", giorno: 30, turno: "N" }], avvisi: [{ livello: "rosso", testo: "x" }] }, false);
+  t("catb8 nessun rosso → FALLISCE", c8, { azioni: [], avvisi: [] }, false);
+  const c12 = { exp: { catb: { richiede: { az: "dispo_aggiungi", medico: "MORANO", sedi: ["Maniago"], turni: ["N"], giorno: 3 } } } };
+  t("catb12 dispo_aggiungi g3 N Maniago (turno singolare) → PASSA", c12, { azioni: [{ az: "dispo_aggiungi", medico: "MORANO", giorno: 3, turno: "N", sedi: ["Maniago"] }] }, true);
   console.log("\ncasi totali:", casi.length, "→", casi.length, "× 3 giri (solo vedente) =", casi.length * 3, "chiamate");
   process.exit(0);
 }
