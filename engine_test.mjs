@@ -1375,4 +1375,4 @@ function azzeraDispoMedico(dispo, mid) {
 }
 
 
-export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, diurniNascosti, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi, statoRealeMedico, azzeraDispoMedico, scegliConRiferimento, scegliIndiciEquidistanti };
+export { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, SEDI5, SEDI_BREVI, CDC, dk, mk, turniDelGiorno, espandiAmbito, diurniNascosti, costruisciEntryDispo, elaboraSchema, normDispo, ordinaPerLivello, MAX_LIV_VERDE, MAX_LIV_BLU, isDeterminato, isContrattualizzato, MESI_DISPONIBILI, MESI_IT, giorniTra, settimanaDi, capSettimanale, debitoOrdinarioIniziale, tettoDistribuzioneDi, statoRealeMedico, azzeraDispoMedico, scegliConRiferimento, scegliIndiciEquidistanti, notaSlot, GIORNI_IT, MESI_BREVI };

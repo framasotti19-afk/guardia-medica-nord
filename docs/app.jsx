@@ -1934,7 +1934,7 @@ function App() {
 </styleSheet>`;
   // indici stile: 1=sAgg 2=sHead 3=sHeadF 4=sDate 5=sTurno 6=sTurnoF 7=sTurnoX 8=sSede 9=sCell 10=sCov 11=sScop 12=sB 13=sScopSec 14=sNonAttiva(grigio) 15=sMedunoPriorita(neutro) 16-20=varianti SMALL di 8/9/10/13/14 (righe Claut/Anduins)
 
-  const buildSheetXML = (mKey) => {
+  const buildSheetModel = (mKey) => {
     const [y, m] = mKey.split("-").map(Number);
     const d = store[mKey];
     if (!d?.schema) return null;
@@ -1943,33 +1943,33 @@ function App() {
     const oggi = new Date();
     const agg = `aggiornato al ${String(oggi.getDate()).padStart(2, "0")}.${String(oggi.getMonth() + 1).padStart(2, "0")}.${oggi.getFullYear()}`;
 
-    const cell = (r, c, testo, stile) => `<c r="${colLetter(c)}${r}" s="${stile}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(testo)}</t></is></c>`;
-    const cellV = (r, c, stile) => `<c r="${colLetter(c)}${r}" s="${stile}"/>`;
-
-    let rows = "";
+    // MODEL condiviso Excel↔PDF: righe [{ r, ht, cells:[{c,testo,stile,vuota}] }]. C = cella con testo, CV = cella vuota (ex cellV).
+    const rowsModel = [];
     const merges = [];
+    const C = (c, testo, stile) => ({ c, testo, stile, vuota: false });
+    const CV = (c, stile) => ({ c, testo: null, stile, vuota: true });
 
     // R1 giorni settimana
-    let r1 = cell(1, 0, agg, 1);
+    const cR1 = [C(0, agg, 1)];
     let ci = 1;
     let i = 0;
     while (i < cols.length) {
       const c = cols[i];
       const fest = c.g.festivo || c.g.prefestivo;
-      r1 += cell(1, ci, GIORNI_IT[c.g.dow], fest ? 3 : 2);
+      cR1.push(C(ci, GIORNI_IT[c.g.dow], fest ? 3 : 2));
       if (c.span > 1) {
         merges.push(`${colLetter(ci)}1:${colLetter(ci + c.span - 1)}1`);
-        for (let k = 1; k < c.span; k++) r1 += cellV(1, ci + k, fest ? 3 : 2);
+        for (let k = 1; k < c.span; k++) cR1.push(CV(ci + k, fest ? 3 : 2));
       }
       ci += c.span;
       i += c.span;
     }
-    rows += `<row r="1" ht="30" customHeight="1">${r1}</row>`;
+    rowsModel.push({ r: 1, ht: 30, cells: cR1 });
 
     // R2 date
-    let r2 = cellV(2, 0, 12);
-    cols.forEach(({ g }, k) => { r2 += cell(2, k + 1, `${String(g.giorno).padStart(2, "0")}-${MESI_BREVI[m]}`, 4); });
-    rows += `<row r="2" ht="15" customHeight="1">${r2}</row>`;
+    const cR2 = [CV(0, 12)];
+    cols.forEach(({ g }, k) => { cR2.push(C(k + 1, `${String(g.giorno).padStart(2, "0")}-${MESI_BREVI[m]}`, 4)); });
+    rowsModel.push({ r: 2, ht: 15, cells: cR2 });
 
     // R3 turni — etichette adattate solo per l'export (la griglia a schermo usa t.label invariato):
     // il diurno feriale/weekend "semplice" perde l'orario "8-20" (resta "DIURNO"), prefestivo e
@@ -1980,12 +1980,12 @@ function App() {
       "MATTINA MMG 8-14": "ANTICIPO DIURNO MMG e PLS 8-14",
       "POMERIGGIO MMG 14-20": "ANTICIPO DIURNO MMG e PLS 14-20",
     };
-    let r3 = cellV(3, 0, 12);
+    const cR3 = [CV(0, 12)];
     cols.forEach(({ t }, k) => {
       const st = t.extra ? 7 : (t.label.includes("SUPER") || t.label.includes("PREFESTIVO")) ? 6 : 5;
-      r3 += cell(3, k + 1, ETICHETTE_EXPORT[t.label] || t.label, st);
+      cR3.push(C(k + 1, ETICHETTE_EXPORT[t.label] || t.label, st));
     });
-    rows += `<row r="3" ht="34" customHeight="1">${r3}</row>`;
+    rowsModel.push({ r: 3, ht: 34, cells: cR3 });
 
     // Sedi
     const SEDI_EXPORT = ["SPILIMBERGO", "MANIAGO", "MEDUNO", "CLAUT", "ANDUINS"];
@@ -1998,7 +1998,7 @@ function App() {
       const r = 4 + ri;
       const isSmall = sede === "CLAUT" || sede === "ANDUINS";
       const st = (s) => (isSmall ? (SMALL_MAP[s] ?? s) : s);
-      let row = cell(r, 0, sede, st(8));
+      const cRow = [C(0, sede, st(8))];
       cols.forEach(({ t, g }, k) => {
         // Notturno/MMG: Claut e Anduins NON sono sedi fisiche (§10 voce 55). Ma "servizio non attivo"
         // (grigio, stile 14) va scritto SOLO nei giorni che hanno ANCHE il diurno — sabato/domenica
@@ -2056,24 +2056,38 @@ function App() {
             ({ testo, stile } = secScoperta); // Meduno/Claut/Anduins: "scoperto" oppure "servizio non attivo"
           }
         }
-        row += cell(r, k + 1, testo, st(stile));
+        cRow.push(C(k + 1, testo, st(stile)));
       });
-      rows += `<row r="${r}" ht="${isSmall ? 28 : 42}" customHeight="1">${row}</row>`;
+      rowsModel.push({ r, ht: isSmall ? 28 : 42, cells: cRow });
     });
     // ---- Sezione REPERIBILITÀ (§10 voce 89): struttura fissa da compilare A MANO dopo l'export
     // (l'app non calcola nulla, lascia solo lo spazio con bordi/stile coerenti col foglio ASFO reale).
     // Riga 9: stacco vuoto (nessun bordo esplicito). Riga 10: intestazione "Reperibilità". Riga 11:
     // "Area 1" con celle giorno vuote e bordate. Etichette con lo stesso stile delle sedi (8).
-    let rowSp = cellV(9, 0, 0);
-    cols.forEach((_, k) => { rowSp += cellV(9, k + 1, 0); });
-    rows += `<row r="9" ht="12" customHeight="1">${rowSp}</row>`;
+    const cR9 = [CV(0, 0)];
+    cols.forEach((_, k) => { cR9.push(CV(k + 1, 0)); });
+    rowsModel.push({ r: 9, ht: 12, cells: cR9 });
     // "Reperibilità" è SOLO un'etichetta di sezione: la cella a sinistra con la scritta, niente
     // celle né griglia a destra (formato ASFO). Solo "Area 1" ha le celle vuote bordate da compilare.
-    rows += `<row r="10" ht="18" customHeight="1">${cell(10, 0, "Reperibilità", 8)}</row>`;
-    let rowArea = cell(11, 0, "Area 1", 8);
-    cols.forEach((_, k) => { rowArea += cellV(11, k + 1, 9); });
-    rows += `<row r="11" ht="30" customHeight="1">${rowArea}</row>`;
+    rowsModel.push({ r: 10, ht: 18, cells: [C(0, "Reperibilità", 8)] });
+    const cR11 = [C(0, "Area 1", 8)];
+    cols.forEach((_, k) => { cR11.push(CV(k + 1, 9)); });
+    rowsModel.push({ r: 11, ht: 30, cells: cR11 });
 
+    return { cols, rowsModel, merges };
+  };
+  const buildSheetXML = (mKey) => {
+  const model = buildSheetModel(mKey);
+  if (!model) return null;
+  const { cols, rowsModel, merges } = model;
+    const cell = (r, c, testo, stile) => `<c r="${colLetter(c)}${r}" s="${stile}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(testo)}</t></is></c>`;
+    const cellV = (r, c, stile) => `<c r="${colLetter(c)}${r}" s="${stile}"/>`;
+    let rows = "";
+    for (const row of rowsModel) {
+      let s = "";
+      for (const cl of row.cells) s += cl.vuota ? cellV(row.r, cl.c, cl.stile) : cell(row.r, cl.c, cl.testo, cl.stile);
+      rows += `<row r="${row.r}" ht="${row.ht}" customHeight="1">${s}</row>`;
+    }
     const colsXML = `<cols><col min="1" max="1" width="15" customWidth="1"/><col min="2" max="${cols.length + 1}" width="19" customWidth="1"/></cols>`;
     const mergeXML = merges.length ? `<mergeCells count="${merges.length}">${merges.map((mm) => `<mergeCell ref="${mm}"/>`).join("")}</mergeCells>` : "";
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
