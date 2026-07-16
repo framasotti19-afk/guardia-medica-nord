@@ -4589,22 +4589,20 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                       // Un MMG (extra) ha la stessa struttura di sedi di un notturno: Maniago/Spilimbergo/
                       // Meduno fisiche, Claut/Anduins solo a distanza (§10 voce 55) → si rende come il notturno.
                       const treFisiche = isNotte || isExtra;
-                      const slotKeyT = `${g.key}|${t.id}`;
-                      // "qualcuno l'ha dichiarata a distanza (blu)?" — solo lettura dispo, per distinguere
-                      // "dichiarata ma scoperta" da "nessuno l'ha dichiarata".
-                      const dichiarataBlu = (sedeNome) => MEDICI.some((m) => normDispo(dati.dispo[m.id]?.[slotKeyT]).blu.includes(sedeNome));
-                      // Sedi DA COPRIRE: notturno/MMG → Maniago/Spilimbergo/Meduno (+ Claut/Anduins solo se
-                      // dichiarate a distanza); diurno → tutte e 5.
-                      // (voce 94) Regola aziendale ASFO: nei notturni/MMG dei giorni CON diurno (sab/dom/
-                      // festivi/prefestivi) Claut e Anduins sono CHIUSE — servizio non attivo, nemmeno a
-                      // distanza. SOLO DISPLAY (motore intatto): stesso predicato dell'export/motore
-                      // (esistenza del turno "G", voce 30). Chiuso ≠ scoperto: le sedi chiuse NON entrano
-                      // in `daCoprire`, quindi non compaiono nel badge "Scoperto:" né si offre la tendina.
+                      const cdcFis = t.fis.includes(0) && t.fis.includes(1); // Maniago & Spilimbergo presidiate (corpo)
+                      // Sedi DA COPRIRE (badge "Scoperto:"): Maniago/Spilimbergo/Meduno sempre. Claut/Anduins
+                      // entrano SOLO se il servizio è ATTIVO e le due CDC sono presidiate (`cdcFis`) — STESSA
+                      // regola dell'export (secScoperta, voce 99), così schermo ed Excel non divergono.
+                      // (voce 94) Nei notturni/MMG dei giorni CON diurno (sab/dom/festivi/prefestivi) Claut e
+                      // Anduins sono CHIUSE — servizio non attivo, nemmeno a distanza (predicato "esistenza del
+                      // turno G", voce 30) → fuori da `daCoprire`, niente badge né tendina. Se le CDC non sono
+                      // entrambe presidiate (`!cdcFis`) la catena le tiene chiuse → niente badge scoperto. La
+                      // copertura a distanza riempie lo slot → esclusa da `scoperte`.
                       const haDiurno = g.turni.some((x) => x && x.id === "G");
                       const chiusa = (si) => treFisiche && haDiurno && (si === 3 || si === 4);
-                      let daCoprire = [];
-                      if (treFisiche) { daCoprire = [0, 1, 2]; if (!haDiurno) [3, 4].forEach((si) => { if (dichiarataBlu(SEDI5[si])) daCoprire.push(si); }); }
-                      else daCoprire = [0, 1, 2, 3, 4];
+                      const clautAnduinsAttive = treFisiche ? (!haDiurno && cdcFis) : cdcFis;
+                      let daCoprire = [0, 1, 2];
+                      if (clautAnduinsAttive) daCoprire.push(3, 4);
                       const scoperte = daCoprire.filter((si) => !t.slots[si]);
                       const grave = scoperte.some((si) => si === 0 || si === 1); // Maniago/Spilimbergo mancanti = rosso
                       const bordoSede = (si) => scoperte.includes(si) ? (si === 0 || si === 1 ? T.danger : T.warning) : null;
