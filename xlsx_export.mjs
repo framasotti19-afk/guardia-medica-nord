@@ -116,8 +116,6 @@ export function buildSheetModel(mKey, ctx) {
     if (!d?.schema) return null;
     const cols = [];
     d.schema.forEach((g) => g.turni.forEach((t, ti) => cols.push({ g, t, prima: ti === 0, span: g.turni.length })));
-    const oggi = new Date();
-    const agg = `aggiornato al ${String(oggi.getDate()).padStart(2, "0")}.${String(oggi.getMonth() + 1).padStart(2, "0")}.${oggi.getFullYear()}`;
 
     // MODEL condiviso Excel↔PDF: righe [{ r, ht, cells:[{c,testo,stile,vuota}] }]. C = cella con testo, CV = cella vuota (ex cellV).
     const rowsModel = [];
@@ -125,8 +123,9 @@ export function buildSheetModel(mKey, ctx) {
     const C = (c, testo, stile) => ({ c, testo, stile, vuota: false });
     const CV = (c, stile) => ({ c, testo: null, stile, vuota: true });
 
-    // R1 giorni settimana
-    const cR1 = [C(0, agg, 1)];
+    // R1 giorni settimana. Angolo A1 vuoto: la scritta "aggiornato al [data]" è stata rimossa dal
+    // model condiviso (sparisce da Excel e PDF insieme). Stile 1 invariato → cambia solo il testo di A1.
+    const cR1 = [CV(0, 1)];
     let ci = 1;
     let i = 0;
     while (i < cols.length) {
