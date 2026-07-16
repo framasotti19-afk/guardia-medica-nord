@@ -2151,34 +2151,60 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
     }
   };
 
-  // ============ EXPORT PDF ============
-  // buildPdfHtml consuma lo STESSO buildSheetModel dell'Excel (fonte condivisa) → Excel e PDF non
-  // divergono mai sul CONTENUTO (testo/stile arrivano dal model). Unico strato PDF-specifico: la
-  // mappa stile→CSS, derivata dagli STESSI colori/font di STYLES_XML (voce 101) così combacia a vista
-  // con l'Excel. Una pagina per SETTIMANA (settimanaDi, lun-based). keys = mesi (singolo o intero anno).
-  const buildPdfHtml = (keys) => {
+  // ============ EXPORT PDF (vettoriale, zero librerie) ============
+  // buildPdfBytes consuma lo STESSO buildSheetModel dell'Excel (fonte condivisa) → Excel e PDF non
+  // divergono sul CONTENUTO (testo/stile dal model). Il PDF è disegnato a mano come l'XLSX: rettangoli
+  // fill + bordi + testo Helvetica (WinAnsi), una pagina per SETTIMANA (settimanaDi, lun-based), righe
+  // ad altezza automatica per il testo a capo. La mappa stile→colori è derivata da STYLES_XML (voce 101).
+  const buildPdfBytes = (keys) => {
     const STILE = {
-      1:{sz:8,b:1}, 2:{bg:"#DCE6DC",sz:9,b:1}, 3:{bg:"#FBE5D6",sz:7.5,b:1,col:"#8A3A00"},
-      4:{sz:8,b:1}, 5:{bg:"#F0F2EE",sz:7.5,b:1}, 6:{bg:"#FBE5D6",sz:7.5,b:1,col:"#8A3A00"},
-      7:{bg:"#E3F2EC",sz:7.5,b:1,col:"#1A5C4A"}, 8:{bg:"#DCE6DC",sz:9,b:1}, 9:{sz:8.5},
-      10:{bg:"#F0F2EE",sz:8,i:1,col:"#5B5F59"}, 11:{bg:"#FDECEC",sz:8.5,b:1,col:"#B03030"},
-      12:{sz:9}, 13:{sz:8.5,col:"#666666"}, 14:{bg:"#A6A6A6",sz:8,b:1}, 15:{sz:9,i:1,col:"#666666"},
-      16:{bg:"#DCE6DC",sz:9,b:1}, 17:{sz:9}, 18:{sz:9}, 19:{sz:9,col:"#666666"}, 20:{bg:"#A6A6A6",sz:8.5,b:1},
+      1:{sz:8,b:1}, 2:{bg:"DCE6DC",sz:9,b:1}, 3:{bg:"FBE5D6",sz:7.5,b:1,col:"8A3A00"},
+      4:{sz:8,b:1}, 5:{bg:"F0F2EE",sz:7.5,b:1}, 6:{bg:"FBE5D6",sz:7.5,b:1,col:"8A3A00"},
+      7:{bg:"E3F2EC",sz:7.5,b:1,col:"1A5C4A"}, 8:{bg:"DCE6DC",sz:9,b:1}, 9:{sz:8.5},
+      10:{bg:"F0F2EE",sz:8,i:1,col:"5B5F59"}, 11:{bg:"FDECEC",sz:8.5,b:1,col:"B03030"},
+      12:{sz:9}, 13:{sz:8.5,col:"666666"}, 14:{bg:"A6A6A6",sz:8,b:1}, 15:{sz:9,i:1,col:"666666"},
+      16:{bg:"DCE6DC",sz:9,b:1}, 17:{sz:9}, 18:{sz:9}, 19:{sz:9,col:"666666"}, 20:{bg:"A6A6A6",sz:8.5,b:1},
     };
-    const esc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const pc = (testo, stile, tag = "td") => `<${tag} class="s${stile}">${esc(testo).replace(/\n/g, "<br>")}</${tag}>`;
-    const fmtG = (dk) => { const [, M, D] = dk.split("-").map(Number); return `${D} ${MESI_BREVI[M - 1]}`; };
+    const hexRGB = (h) => [parseInt(h.slice(0,2),16)/255, parseInt(h.slice(2,4),16)/255, parseInt(h.slice(4,6),16)/255];
+    const f3 = (n) => (Math.round(n*1000)/1000).toString();
+    // larghezze Helvetica (units/1000) ASCII 32..126, per il word-wrap
+    const HELV_W = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+    const charW = (c) => (c>=32 && c<=126) ? HELV_W[c-32] : 556;
+    const textWidth = (s, size) => { let w=0; for (const ch of s) w += charW(ch.charCodeAt(0)); return w*size/1000; };
+    const WINANSI = { 0x2013:0x96, 0x2014:0x97, 0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x2026:0x85, 0x20AC:0x80 };
+    const pdfString = (s) => { let r=""; for (const ch of String(s)) { let b=ch.charCodeAt(0); if (b>0xFF) b=(WINANSI[b]!==undefined?WINANSI[b]:0x3F); if (b===0x28||b===0x29||b===0x5C) r+="\\"; r+=String.fromCharCode(b); } return r; };
+    const wrapText = (text, size, maxW) => {
+      const out = [];
+      for (const seg of String(text).split("\n")) {
+        let line = "";
+        for (const word of seg.split(" ")) {
+          let w = word;
+          while (textWidth(w, size) > maxW && w.length > 1) { // parola più larga della cella → spezza a caratteri
+            let cut = w.length;
+            while (cut > 1 && textWidth(w.slice(0, cut), size) > maxW) cut--;
+            if (line) { out.push(line); line = ""; }
+            out.push(w.slice(0, cut)); w = w.slice(cut);
+          }
+          const test = line ? line + " " + w : w;
+          if (!line || textWidth(test, size) <= maxW) line = test;
+          else { out.push(line); line = w; }
+        }
+        out.push(line);
+      }
+      return out;
+    };
+    const PAGE_W = 842, PAGE_H = 595, MARGIN = 20, LABEL_W = 90, PAD = 2.2;
+    const fmtG = (dk) => { const [, M, D] = dk.split("-").map(Number); return `${D} ${MESI_BREVI[M-1]}`; };
+    const alignLeft = (stile) => stile === 8 || stile === 16;
 
-    let allPages = ""; let any = false;
+    const pageStreams = [];
     for (const mKey of keys) {
       const model = buildSheetModel(mKey);
       if (!model) continue;
-      any = true;
       const { cols, rowsModel } = model;
       const [my, mm] = mKey.split("-").map(Number);
       const rowByR = {}; rowsModel.forEach((r) => (rowByR[r.r] = r));
       const cellOf = (r, c) => rowByR[r]?.cells.find((x) => x.c === c);
-      // raggruppa le colonne per settimana (lunedì) → una pagina per settimana
       const weeks = []; let cur = null;
       cols.forEach((col, k) => {
         const wk = settimanaDi(col.g.key);
@@ -2187,42 +2213,125 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
       });
       weeks.forEach((w, wi) => {
         const ks = w.idx;
-        let giorni = `<th class="s1 corner"></th>`;
-        for (let i = 0; i < ks.length;) { const k = ks[i]; const c1 = cellOf(1, k + 1); giorni += `<th class="s${c1.stile}" colspan="${cols[k].span}">${esc(c1.testo)}</th>`; i += cols[k].span; }
-        let date = `<th class="s12"></th>`, turni = `<th class="s12"></th>`;
-        ks.forEach((k) => { const d = cellOf(2, k + 1), t = cellOf(3, k + 1); date += pc(d.testo, d.stile, "th"); turni += pc(t.testo, t.stile, "th"); });
-        let sedi = "";
-        for (let r = 4; r <= 8; r++) { const lab = cellOf(r, 0); let tds = pc(lab.testo, lab.stile, "th"); ks.forEach((k) => { const c = cellOf(r, k + 1); tds += pc(c.testo, c.stile); }); sedi += `<tr>${tds}</tr>`; }
-        // Reperibilità (r10 etichetta + r11 "Area 1" con celle vuote) — replicata su ogni pagina.
-        const lab10 = cellOf(10, 0);
-        let reper = `<tr class="reper"><th class="s${lab10.stile}">${esc(lab10.testo)}</th><td class="s12" colspan="${ks.length}"></td></tr>`;
-        const lab11 = cellOf(11, 0); let a11 = pc(lab11.testo, lab11.stile, "th");
-        ks.forEach((k) => { const c = cellOf(11, k + 1); a11 += c ? pc(c.testo, c.stile) : `<td class="s9"></td>`; });
-        reper += `<tr class="reper">${a11}</tr>`;
+        const N = ks.length;
+        const dataW = (PAGE_W - 2 * MARGIN - LABEL_W) / N;
+        const ops = [];
+        const push = (s) => ops.push(s);
+        const colX = (j) => MARGIN + LABEL_W + j * dataW;
+        const fill = (x, yTop, ww, hh, rgb) => push(`${f3(rgb[0])} ${f3(rgb[1])} ${f3(rgb[2])} rg\n${f3(x)} ${f3(PAGE_H-(yTop+hh))} ${f3(ww)} ${f3(hh)} re\nf`);
+        const stroke = (x, yTop, ww, hh) => push(`0.69 0.69 0.69 RG\n0.5 w\n${f3(x)} ${f3(PAGE_H-(yTop+hh))} ${f3(ww)} ${f3(hh)} re\nS`);
+        const drawText = (x, yTopBaseline, s, font, size, rgb) => push(`BT\n/F${font} ${f3(size)} Tf\n${f3(rgb[0])} ${f3(rgb[1])} ${f3(rgb[2])} rg\n${f3(x)} ${f3(PAGE_H-yTopBaseline)} Td\n(${pdfString(s)}) Tj\nET`);
+        const cellBox = (x, yTop, ww, hh, testo, stile) => {
+          const s = STILE[stile] || {};
+          const size = s.sz || 8.5;
+          const font = s.b ? 2 : (s.i ? 3 : 1);
+          const col = s.col ? hexRGB(s.col) : [0,0,0];
+          if (s.bg) fill(x, yTop, ww, hh, hexRGB(s.bg));
+          stroke(x, yTop, ww, hh);
+          if (testo != null && testo !== "") {
+            const lines = wrapText(testo, size, ww - 2*PAD);
+            const lh = size * 1.2;
+            let by = yTop + (hh - lines.length*lh) / 2 + size * 0.82;
+            for (const ln of lines) {
+              const tx = alignLeft(stile) ? x + PAD + 2 : x + (ww - textWidth(ln, size)) / 2;
+              drawText(tx, by, ln, font, size, col); by += lh;
+            }
+          }
+        };
+        const rowHeight = (cellsInfo, minH) => {
+          let maxH = minH;
+          for (const ci of cellsInfo) {
+            const s = STILE[ci.stile] || {}; const size = s.sz || 8.5;
+            if (ci.testo == null || ci.testo === "") continue;
+            maxH = Math.max(maxH, wrapText(ci.testo, size, ci.ww - 2*PAD).length * size * 1.2 + 5);
+          }
+          return maxH;
+        };
+        let yTop = MARGIN;
         const gg = [...w.giorni].sort();
-        const label = `${MESI_IT[mm]} ${my} · Settimana ${wi + 1} · ${fmtG(gg[0])} – ${fmtG(gg[gg.length - 1])}`;
-        const ncol = ks.length + 1;
-        allPages += `<section class="week"><h2>${esc(label)}</h2><table><thead><tr>${giorni}</tr><tr>${date}</tr><tr>${turni}</tr></thead><tbody>${sedi}<tr class="spacer"><td colspan="${ncol}"></td></tr>${reper}</tbody></table></section>`;
+        drawText(MARGIN, yTop + 10, `${MESI_IT[mm]} ${my}  ·  Settimana ${wi+1}  ·  ${fmtG(gg[0])} – ${fmtG(gg[gg.length-1])}`, 2, 11, hexRGB("1A5C4A"));
+        yTop += 18;
+        // R1 giorni (con colspan) — corner vuoto
+        const hG = 16;
+        cellBox(MARGIN, yTop, LABEL_W, hG, "", 1);
+        for (let i = 0; i < ks.length;) { const k = ks[i]; const span = cols[k].span; const c1 = cellOf(1, k+1); cellBox(colX(i), yTop, span*dataW, hG, c1.testo, c1.stile); i += span; }
+        yTop += hG;
+        // R2 date
+        const dateCells = ks.map((k,j)=>({ ...cellOf(2,k+1), ww:dataW, j }));
+        const hD = rowHeight([{testo:"",stile:12,ww:LABEL_W}, ...dateCells], 13);
+        cellBox(MARGIN, yTop, LABEL_W, hD, "", 12);
+        dateCells.forEach((c)=>cellBox(colX(c.j), yTop, dataW, hD, c.testo, c.stile));
+        yTop += hD;
+        // R3 turni
+        const turnoCells = ks.map((k,j)=>({ ...cellOf(3,k+1), ww:dataW, j }));
+        const hT = rowHeight([{testo:"",stile:12,ww:LABEL_W}, ...turnoCells], 16);
+        cellBox(MARGIN, yTop, LABEL_W, hT, "", 12);
+        turnoCells.forEach((c)=>cellBox(colX(c.j), yTop, dataW, hT, c.testo, c.stile));
+        yTop += hT;
+        // R4-8 sedi (auto-altezza)
+        for (let r = 4; r <= 8; r++) {
+          const lab = cellOf(r,0);
+          const cellsInfo = ks.map((k,j)=>({ ...cellOf(r,k+1), ww:dataW, j }));
+          const hR = rowHeight([{...lab, ww:LABEL_W}, ...cellsInfo], 26);
+          cellBox(MARGIN, yTop, LABEL_W, hR, lab.testo, lab.stile);
+          cellsInfo.forEach((c)=>cellBox(colX(c.j), yTop, dataW, hR, c.testo, c.stile));
+          yTop += hR;
+        }
+        yTop += 6; // spacer
+        // R10 Reperibilità (etichetta + cella larga vuota) — R11 "Area 1" + celle vuote bordate
+        const lab10 = cellOf(10,0);
+        cellBox(MARGIN, yTop, LABEL_W, 15, lab10.testo, lab10.stile);
+        cellBox(colX(0), yTop, N*dataW, 15, "", 12);
+        yTop += 15;
+        const lab11 = cellOf(11,0);
+        cellBox(MARGIN, yTop, LABEL_W, 22, lab11.testo, lab11.stile);
+        ks.forEach((k,j)=>{ const c = cellOf(11,k+1); cellBox(colX(j), yTop, dataW, 22, c ? c.testo : "", c ? c.stile : 9); });
+        yTop += 22;
+        pageStreams.push(ops.join("\n"));
       });
     }
-    if (!any) return null;
-    const cssFor = (idx, s) => { const p = []; if (s.bg) p.push(`background:${s.bg}`); p.push(`font-size:${s.sz}pt`); if (s.b) p.push("font-weight:bold"); if (s.i) p.push("font-style:italic"); if (s.col) p.push(`color:${s.col}`); return `.s${idx}{${p.join(";")}}`; };
-    const css = `@page{size:A4 landscape;margin:7mm}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Calibri,"Segoe UI",Arial,sans-serif;color:#1c1c1c}.week{page-break-after:always;padding:2mm 0}.week:last-child{page-break-after:auto}h2{font-size:12pt;margin:0 0 3mm;color:#1A5C4A}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #b0b0b0;padding:2px 3px;text-align:center;vertical-align:middle;overflow-wrap:anywhere;line-height:1.15}thead th{font-size:8pt}td,tbody th{height:30px}.reper td,.reper th{height:26px}.spacer td{border:none;height:6px}.corner{text-align:left}${Object.entries(STILE).map(([i, s]) => cssFor(i, s)).join("")}`;
-    return `<!doctype html><html lang="it"><head><meta charset="utf-8"><style>${css}</style></head><body>${allPages}</body></html>`;
+    if (!pageStreams.length) return null;
+
+    // assembla il file PDF (oggetti + xref + trailer)
+    const P = pageStreams.length;
+    const pageObj = (p) => 3 + p, contentObj = (p) => 3 + P + p, fontBase = 3 + 2*P;
+    const fonts = ["Helvetica","Helvetica-Bold","Helvetica-Oblique","Helvetica-BoldOblique"];
+    const fontRes = fonts.map((_,i)=>`/F${i+1} ${fontBase+i} 0 R`).join(" ");
+    const objs = {};
+    objs[1] = `<</Type/Catalog/Pages 2 0 R>>`;
+    objs[2] = `<</Type/Pages/Kids[${Array.from({length:P},(_,p)=>`${pageObj(p)} 0 R`).join(" ")}]/Count ${P}>>`;
+    for (let p=0;p<P;p++) {
+      objs[pageObj(p)] = `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PAGE_W} ${PAGE_H}]/Resources<</Font<<${fontRes}>>>>/Contents ${contentObj(p)} 0 R>>`;
+      objs[contentObj(p)] = `<</Length ${pageStreams[p].length}>>\nstream\n${pageStreams[p]}\nendstream`;
+    }
+    fonts.forEach((bf,i)=>{ objs[fontBase+i] = `<</Type/Font/Subtype/Type1/BaseFont/${bf}/Encoding/WinAnsiEncoding>>`; });
+    const maxObj = fontBase + 3;
+    let out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    const offsets = {};
+    for (let n=1;n<=maxObj;n++) { offsets[n] = out.length; out += `${n} 0 obj\n${objs[n]}\nendobj\n`; }
+    const xrefStart = out.length;
+    out += `xref\n0 ${maxObj+1}\n0000000000 65535 f \n`;
+    for (let n=1;n<=maxObj;n++) out += `${String(offsets[n]).padStart(10,"0")} 00000 n \n`;
+    out += `trailer\n<</Size ${maxObj+1}/Root 1 0 R>>\nstartxref\n${xrefStart}\n%%EOF\n`;
+    const bytes = new Uint8Array(out.length);
+    for (let i=0;i<out.length;i++) bytes[i] = out.charCodeAt(i) & 0xFF;
+    return bytes;
   };
 
-  // Stampa il PDF via iframe nascosto + print() del browser (nessuna libreria). L'utente sceglie
-  // "Salva come PDF" dal dialogo di stampa. L'Excel (esporta) NON è toccato.
+  // Scarica il PDF DIRETTAMENTE (Blob + click), come l'Excel — niente iframe, niente finestra di stampa.
   const esportaPdf = (tutto) => {
     const keys = tutto ? MESI_DISPONIBILI.map(({ anno: y, mese: mm }) => mk(y, mm)).filter((k) => store[k]?.schema) : [key];
-    const html = buildPdfHtml(keys);
-    if (!html) { alert("Nessuno schema elaborato da esportare."); return; }
-    const ifr = document.createElement("iframe");
-    ifr.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
-    ifr.setAttribute("aria-hidden", "true");
-    ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (e) { /* stampa annullata */ } setTimeout(() => ifr.remove(), 1000); };
-    ifr.srcdoc = html;
-    document.body.appendChild(ifr);
+    const bytes = buildPdfBytes(keys);
+    if (!bytes) { alert("Nessuno schema elaborato da esportare."); return; }
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = tutto ? `Schema turni CA Distretto Nord ${anno}.pdf` : `Schema turni CA ${MESI_IT[mese]} ${anno}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // La tendina "Formato" pilota i due bottoni (default Excel — l'export già provato byte-identico).
