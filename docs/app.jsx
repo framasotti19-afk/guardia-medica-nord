@@ -1432,6 +1432,7 @@ function App() {
   const historyRef = useRef({ past: [], future: [] });
   const [, forceRender] = useState(0);
   const [tab, setTab] = useState("dispo");
+  const [formatoExport, setFormatoExport] = useState("excel"); // tendina export: excel | pdf | entrambi
   const [avvisiAperti, setAvvisiAperti] = useState(true); // banner avvisi motore (tab Schema): aperto di default dopo l'elaborazione
   const [statoAperto, setStatoAperto] = useState(null); // id del medico con il pannello "stato reale" aperto nel tab Medici
   const [settAperto, setSettAperto] = useState(null); // id del medico con il pannellino "tetti per settimana" aperto
@@ -2148,6 +2149,86 @@ ${fogli.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openx
     } catch (e) {
       alert("Errore export: " + e.message);
     }
+  };
+
+  // ============ EXPORT PDF ============
+  // buildPdfHtml consuma lo STESSO buildSheetModel dell'Excel (fonte condivisa) → Excel e PDF non
+  // divergono mai sul CONTENUTO (testo/stile arrivano dal model). Unico strato PDF-specifico: la
+  // mappa stile→CSS, derivata dagli STESSI colori/font di STYLES_XML (voce 101) così combacia a vista
+  // con l'Excel. Una pagina per SETTIMANA (settimanaDi, lun-based). keys = mesi (singolo o intero anno).
+  const buildPdfHtml = (keys) => {
+    const STILE = {
+      1:{sz:8,b:1}, 2:{bg:"#DCE6DC",sz:9,b:1}, 3:{bg:"#FBE5D6",sz:7.5,b:1,col:"#8A3A00"},
+      4:{sz:8,b:1}, 5:{bg:"#F0F2EE",sz:7.5,b:1}, 6:{bg:"#FBE5D6",sz:7.5,b:1,col:"#8A3A00"},
+      7:{bg:"#E3F2EC",sz:7.5,b:1,col:"#1A5C4A"}, 8:{bg:"#DCE6DC",sz:9,b:1}, 9:{sz:8.5},
+      10:{bg:"#F0F2EE",sz:8,i:1,col:"#5B5F59"}, 11:{bg:"#FDECEC",sz:8.5,b:1,col:"#B03030"},
+      12:{sz:9}, 13:{sz:8.5,col:"#666666"}, 14:{bg:"#A6A6A6",sz:8,b:1}, 15:{sz:9,i:1,col:"#666666"},
+      16:{bg:"#DCE6DC",sz:9,b:1}, 17:{sz:9}, 18:{sz:9}, 19:{sz:9,col:"#666666"}, 20:{bg:"#A6A6A6",sz:8.5,b:1},
+    };
+    const esc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const pc = (testo, stile, tag = "td") => `<${tag} class="s${stile}">${esc(testo).replace(/\n/g, "<br>")}</${tag}>`;
+    const fmtG = (dk) => { const [, M, D] = dk.split("-").map(Number); return `${D} ${MESI_BREVI[M - 1]}`; };
+
+    let allPages = ""; let any = false;
+    for (const mKey of keys) {
+      const model = buildSheetModel(mKey);
+      if (!model) continue;
+      any = true;
+      const { cols, rowsModel } = model;
+      const [my, mm] = mKey.split("-").map(Number);
+      const rowByR = {}; rowsModel.forEach((r) => (rowByR[r.r] = r));
+      const cellOf = (r, c) => rowByR[r]?.cells.find((x) => x.c === c);
+      // raggruppa le colonne per settimana (lunedì) → una pagina per settimana
+      const weeks = []; let cur = null;
+      cols.forEach((col, k) => {
+        const wk = settimanaDi(col.g.key);
+        if (!cur || cur.wk !== wk) { cur = { wk, idx: [], giorni: new Set() }; weeks.push(cur); }
+        cur.idx.push(k); cur.giorni.add(col.g.key);
+      });
+      weeks.forEach((w, wi) => {
+        const ks = w.idx;
+        let giorni = `<th class="s1 corner"></th>`;
+        for (let i = 0; i < ks.length;) { const k = ks[i]; const c1 = cellOf(1, k + 1); giorni += `<th class="s${c1.stile}" colspan="${cols[k].span}">${esc(c1.testo)}</th>`; i += cols[k].span; }
+        let date = `<th class="s12"></th>`, turni = `<th class="s12"></th>`;
+        ks.forEach((k) => { const d = cellOf(2, k + 1), t = cellOf(3, k + 1); date += pc(d.testo, d.stile, "th"); turni += pc(t.testo, t.stile, "th"); });
+        let sedi = "";
+        for (let r = 4; r <= 8; r++) { const lab = cellOf(r, 0); let tds = pc(lab.testo, lab.stile, "th"); ks.forEach((k) => { const c = cellOf(r, k + 1); tds += pc(c.testo, c.stile); }); sedi += `<tr>${tds}</tr>`; }
+        // Reperibilità (r10 etichetta + r11 "Area 1" con celle vuote) — replicata su ogni pagina.
+        const lab10 = cellOf(10, 0);
+        let reper = `<tr class="reper"><th class="s${lab10.stile}">${esc(lab10.testo)}</th><td class="s12" colspan="${ks.length}"></td></tr>`;
+        const lab11 = cellOf(11, 0); let a11 = pc(lab11.testo, lab11.stile, "th");
+        ks.forEach((k) => { const c = cellOf(11, k + 1); a11 += c ? pc(c.testo, c.stile) : `<td class="s9"></td>`; });
+        reper += `<tr class="reper">${a11}</tr>`;
+        const gg = [...w.giorni].sort();
+        const label = `${MESI_IT[mm]} ${my} · Settimana ${wi + 1} · ${fmtG(gg[0])} – ${fmtG(gg[gg.length - 1])}`;
+        const ncol = ks.length + 1;
+        allPages += `<section class="week"><h2>${esc(label)}</h2><table><thead><tr>${giorni}</tr><tr>${date}</tr><tr>${turni}</tr></thead><tbody>${sedi}<tr class="spacer"><td colspan="${ncol}"></td></tr>${reper}</tbody></table></section>`;
+      });
+    }
+    if (!any) return null;
+    const cssFor = (idx, s) => { const p = []; if (s.bg) p.push(`background:${s.bg}`); p.push(`font-size:${s.sz}pt`); if (s.b) p.push("font-weight:bold"); if (s.i) p.push("font-style:italic"); if (s.col) p.push(`color:${s.col}`); return `.s${idx}{${p.join(";")}}`; };
+    const css = `@page{size:A4 landscape;margin:7mm}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Calibri,"Segoe UI",Arial,sans-serif;color:#1c1c1c}.week{page-break-after:always;padding:2mm 0}.week:last-child{page-break-after:auto}h2{font-size:12pt;margin:0 0 3mm;color:#1A5C4A}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #b0b0b0;padding:2px 3px;text-align:center;vertical-align:middle;overflow-wrap:anywhere;line-height:1.15}thead th{font-size:8pt}td,tbody th{height:30px}.reper td,.reper th{height:26px}.spacer td{border:none;height:6px}.corner{text-align:left}${Object.entries(STILE).map(([i, s]) => cssFor(i, s)).join("")}`;
+    return `<!doctype html><html lang="it"><head><meta charset="utf-8"><style>${css}</style></head><body>${allPages}</body></html>`;
+  };
+
+  // Stampa il PDF via iframe nascosto + print() del browser (nessuna libreria). L'utente sceglie
+  // "Salva come PDF" dal dialogo di stampa. L'Excel (esporta) NON è toccato.
+  const esportaPdf = (tutto) => {
+    const keys = tutto ? MESI_DISPONIBILI.map(({ anno: y, mese: mm }) => mk(y, mm)).filter((k) => store[k]?.schema) : [key];
+    const html = buildPdfHtml(keys);
+    if (!html) { alert("Nessuno schema elaborato da esportare."); return; }
+    const ifr = document.createElement("iframe");
+    ifr.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    ifr.setAttribute("aria-hidden", "true");
+    ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (e) { /* stampa annullata */ } setTimeout(() => ifr.remove(), 1000); };
+    ifr.srcdoc = html;
+    document.body.appendChild(ifr);
+  };
+
+  // La tendina "Formato" pilota i due bottoni (default Excel — l'export già provato byte-identico).
+  const esportaFormato = (tutto) => {
+    if (formatoExport === "excel" || formatoExport === "entrambi") esporta(tutto);
+    if (formatoExport === "pdf" || formatoExport === "entrambi") esportaPdf(tutto);
   };
 
   // ============ AI ============
@@ -3954,8 +4035,13 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
           <button onClick={annulla} disabled={!hPast} title="Annulla ultima azione" style={{ ...btn, opacity: hPast ? 1 : 0.4, fontWeight: 700 }}>↶ Annulla</button>
           <button onClick={ripeti} disabled={!hFut} title="Ripeti azione annullata" style={{ ...btn, opacity: hFut ? 1 : 0.4, fontWeight: 700 }}>↷ Ripeti</button>
           <button onClick={elabora} style={{ ...btn, background: T.primary, color: "#fff", border: "none", fontWeight: 600 }}>Elabora schema</button>
-          <button onClick={() => esporta(false)} style={btn}>Esporta mese</button>
-          <button onClick={() => esporta(true)} style={btn}>Esporta anno</button>
+          <select value={formatoExport} onChange={(e) => setFormatoExport(e.target.value)} title="Formato di esportazione" style={{ ...btn, cursor: "pointer" }}>
+            <option value="excel">Excel</option>
+            <option value="pdf">PDF</option>
+            <option value="entrambi">Excel + PDF</option>
+          </select>
+          <button onClick={() => esportaFormato(false)} style={btn}>Esporta mese</button>
+          <button onClick={() => esportaFormato(true)} style={btn}>Esporta anno</button>
         </div>
       </div>
 
