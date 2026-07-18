@@ -1378,6 +1378,46 @@ function azzeraDispoMedico(dispo, mid) {
 
 // ============ COMPONENTE ============
 
+// ---- Supabase: persistenza dati + auth (Tappa 1) ----
+// URL e publishable key sono PUBBLICI per design (finiscono nel client): la sicurezza sta nelle
+// policy RLS + login, non nel nasconderli. supabase-js serve SOLO per l'auth (login + refresh
+// token, vendorizzato in docs/vendor/supabase.js). I dati vanno via raw fetch a PostgREST.
+const SUPABASE_URL = "https://laerjxdpgipgrrinffim.supabase.co";
+const SUPABASE_KEY = "sb_publishable_GvqaoXs3nLiCYrv0kuc8wQ_1IBynI4U";
+const APP_STATE_ID = "main"; // la riga unica di public.app_state
+const sb = (typeof window !== "undefined" && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
+
+// token della sessione corrente (o null se non loggato)
+async function sbToken() {
+  if (!sb) return null;
+  const { data } = await sb.auth.getSession();
+  return data?.session?.access_token || null;
+}
+// carica lo store (blob JSON) dalla riga 'main'; {} se vuota, null se non loggato
+async function caricaStore() {
+  const token = await sbToken();
+  if (!token) return null;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.${APP_STATE_ID}&select=data`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) throw new Error("Caricamento fallito (HTTP " + r.status + ")");
+  const rows = await r.json();
+  return rows[0]?.data ?? {};
+}
+// salva lo store nella riga 'main' (PATCH, il trigger aggiorna updated_at)
+async function salvaStore(store) {
+  const token = await sbToken();
+  if (!token) throw new Error("Sessione scaduta");
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.${APP_STATE_ID}`, {
+    method: "PATCH",
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ data: store }),
+  });
+  if (!r.ok) throw new Error("Salvataggio fallito (HTTP " + r.status + ")");
+}
+
 // ---- Indicatore "iniquità percepita" sui turni extra (tab Medici) — SOLO VISUALIZZAZIONE ----
 // Nessun impatto su motore/assegnazione/calcoli: usa soltanto lo schema già prodotto. Soglie
 // facilmente tarabili a mano dopo averle viste sul campo. Il "divario" del SINGOLO medico è la
@@ -1481,21 +1521,60 @@ function App() {
   const azzeraTimer = useRef(null);
   const [nuovoMedico, setNuovoMedico] = useState({ nome: "", cat: "SENZA", grad: "", sedeContratto: "" });
 
-  // Caricamento persistente all'avvio.
-  // La chiave include una versione: cambiarla forza una partenza pulita senza residui.
-  const STORAGE_KEY = "gm-turni-store-v3";
+  // ---- Auth Supabase (Tappa 1) ----
+  const [session, setSession] = useState(null);       // sessione utente (null = non loggato)
+  const [authReady, setAuthReady] = useState(false);  // getSession iniziale completata
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+  const [loginErr, setLoginErr] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [salvaErrore, setSalvaErrore] = useState(false); // banda "salvataggio non riuscito"
+  const salvaTimer = useRef(null);
+
+  // Sessione all'avvio + ascolto dei cambi (login/logout/refresh token: lo gestisce supabase-js).
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get(STORAGE_KEY);
-        if (r?.value) setStore(JSON.parse(r.value));
-      } catch (e) { /* nessun salvataggio precedente */ }
-      setCaricato(true);
-    })();
+    if (!sb) { setAuthReady(true); return; }
+    sb.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true); });
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Caricamento dati quando c'è una sessione (dalla riga 'main' di app_state).
+  useEffect(() => {
+    if (!session) { setCaricato(false); return; }
+    let vivo = true;
+    (async () => {
+      try {
+        const d = await caricaStore();
+        if (vivo && d) setStore(d);
+      } catch (e) { console.error("caricaStore:", e); }
+      if (vivo) setCaricato(true);
+    })();
+    return () => { vivo = false; };
+  }, [session]);
+
+  // Salvataggio debounced (~800ms) su Supabase; errore visibile (banda) se fallisce.
   const salva = (s) => {
-    try { window.storage.set(STORAGE_KEY, JSON.stringify(s)); } catch (e) { /* offline */ }
+    if (!session) return;
+    clearTimeout(salvaTimer.current);
+    salvaTimer.current = setTimeout(() => {
+      salvaStore(s).then(() => setSalvaErrore(false)).catch((e) => { console.error("salvaStore:", e); setSalvaErrore(true); });
+    }, 800);
+  };
+
+  const doLogin = async (e) => {
+    if (e) e.preventDefault();
+    if (!sb || loginBusy) return;
+    setLoginErr(""); setLoginBusy(true);
+    const { error } = await sb.auth.signInWithPassword({ email: loginEmail.trim(), password: loginPw });
+    setLoginBusy(false);
+    if (error) setLoginErr("Accesso non riuscito. Controlla email e password.");
+    else setLoginPw("");
+  };
+  const doLogout = async () => {
+    if (!sb) return;
+    await sb.auth.signOut();
+    setStore({}); setCaricato(false); setSalvaErrore(false);
   };
 
   const { anno, mese } = MESI_DISPONIBILI[meseIdx];
@@ -4106,6 +4185,33 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
     if (idx >= 0) setMeseIdx(idx);
   };
 
+  // ---- Gate di autenticazione (Tappa 1): errore config / avvio / login prima dell'app ----
+  const centrato = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, fontFamily: "'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif", color: T.text, padding: 20 };
+  if (!sb) {
+    return <div style={centrato}><div style={{ maxWidth: 420, textAlign: "center", color: T.danger }}>Componente di accesso non caricato. Ricarica la pagina; se persiste, manca <code>vendor/supabase.js</code>.</div></div>;
+  }
+  if (!authReady) {
+    return <div style={centrato}><div style={{ color: T.textMuted }}>Avvio…</div></div>;
+  }
+  if (!session) {
+    return (
+      <div style={centrato}>
+        <form onSubmit={doLogin} style={{ width: "100%", maxWidth: 360, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 12, padding: 28, boxShadow: "0 2px 12px rgba(20,102,79,.08)" }}>
+          <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7, color: T.primary }}>ASFO · DISTRETTO NORD</div>
+          <h1 style={{ margin: "4px 0 20px", fontSize: 18, fontWeight: 600, color: T.text }}>Coordinamento Turni · Accesso</h1>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.textMuted }}>Email</label>
+          <input type="email" autoComplete="username" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required
+            style={{ width: "100%", boxSizing: "border-box", margin: "4px 0 14px", padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 14 }} />
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.textMuted }}>Password</label>
+          <input type="password" autoComplete="current-password" value={loginPw} onChange={(e) => setLoginPw(e.target.value)} required
+            style={{ width: "100%", boxSizing: "border-box", margin: "4px 0 18px", padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 14 }} />
+          {loginErr && <div style={{ background: T.dangerBg, color: T.danger, border: `1px solid ${T.dangerBorder}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 14 }}>{loginErr}</div>}
+          <button type="submit" disabled={loginBusy} style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: T.primary, color: "#fff", fontSize: 14, fontWeight: 600, cursor: loginBusy ? "default" : "pointer", opacity: loginBusy ? 0.7 : 1 }}>{loginBusy ? "Accesso…" : "Entra"}</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif", background: T.bg, minHeight: "100vh", color: T.text }}>
       <div style={{ background: T.primary, color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", boxShadow: "0 1px 3px rgba(20,102,79,.18)" }}>
@@ -4133,6 +4239,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
           </select>
           <button onClick={() => setMeseIdx((i) => Math.min(MESI_DISPONIBILI.length - 1, i + 1))} disabled={meseIdx === MESI_DISPONIBILI.length - 1} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>›</button>
           <button onClick={() => setAiOpen((o) => !o)} style={{ ...btn, background: aiOpen ? "#fff" : "rgba(255,255,255,.15)", color: aiOpen ? T.primary : "#fff", border: "none", fontWeight: 700 }}>Assistente AI</button>
+          <button onClick={doLogout} title={session?.user?.email ? `Esci (${session.user.email})` : "Esci"} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff", border: "none" }}>Esci</button>
         </div>
       </div>
 
@@ -4155,6 +4262,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       </div>
 
       {!caricato && <div style={{ padding: 8, textAlign: "center", fontSize: 12, background: "#fdf3dd", color: "#8a5a00" }}>Carico i dati salvati…</div>}
+      {salvaErrore && <div style={{ padding: 8, textAlign: "center", fontSize: 12, background: T.dangerBg, color: T.danger, borderBottom: `1px solid ${T.dangerBorder}` }}>⚠️ Salvataggio non riuscito — controlla la connessione. Le ultime modifiche non sono ancora salvate; riprovo al prossimo cambiamento.</div>}
       <div style={{ display: "flex" }}>
         <div style={{ flex: 1, padding: 16, minWidth: 0 }}>
           {tab === "dispo" && (
