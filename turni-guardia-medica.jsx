@@ -4423,16 +4423,38 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                                     {Dot(col)}<span style={{ fontWeight: 700, fontSize: 11, color: inEdit ? "#fff" : T.text }}>{n === 1 ? SEDI_BREVI[sedeArr[0]] : n}</span>
                                   </span>
                                 );
-                                const grigio = [];
-                                if (nV >= 2) grigio.push(verdeO.map((s) => SEDI_BREVI[s]).join(" "));
-                                if (nB >= 2) grigio.push(bluO.map((s) => SEDI_BREVI[s]).join(" "));
+                                // Sigle sotto i pallini: RAGGRUPPATE per pallino (verde/blu mai mescolati) e per
+                                // LIVELLO (pari merito = stesso livello → uniti da "/"). Ogni riga porta il pallino
+                                // colorato davanti; ogni token (es. "MA/SP") è nowrap → non si spezza mai, il ritorno
+                                // a capo avviene SOLO tra un livello e l'altro, dentro il gruppo. Display puro: legge
+                                // i livelli già presenti (verdeLiv/bluLiv), `dati.dispo` non si tocca.
+                                const raggruppaLiv = (ordArr, livMap) => {
+                                  const gr = []; let cur = null;
+                                  for (const s of ordArr) {
+                                    const lv = livMap[s] || 1;
+                                    if (cur && cur.lv === lv) cur.t.push(SEDI_BREVI[s]);
+                                    else { cur = { lv, t: [SEDI_BREVI[s]] }; gr.push(cur); }
+                                  }
+                                  return gr.map((g) => g.t.join("/"));
+                                };
+                                const righeSigle = [];
+                                if (nV >= 2) righeSigle.push({ col: T.primary, tok: raggruppaLiv(verdeO, sedi.verdeLiv) });
+                                if (nB >= 2) righeSigle.push({ col: T.blu, tok: raggruppaLiv(bluO, sedi.bluLiv) });
                                 return (
                                   <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 1, lineHeight: 1.15 }}>
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                       {nV > 0 && pill(T.primary, nV, verdeO)}
                                       {nB > 0 && pill(T.blu, nB, bluO)}
                                     </span>
-                                    {grigio.length > 0 && <span style={{ color: inEdit ? "#f0e6cf" : T.textFaint, fontSize: 8, fontWeight: 600, letterSpacing: .2 }}>{grigio.join(" · ")}</span>}
+                                    {righeSigle.map((r, ri) => (
+                                      // Rientro a blocco: pallino "fuori" a sinistra (absolute, nel padding) e TUTTE le
+                                      // righe di sigle rientrate uniformemente (paddingLeft) → le righe che vanno a capo
+                                      // restano allineate tra loro sotto la prima sigla, non sotto il pallino.
+                                      <span key={ri} style={{ display: "block", position: "relative", textAlign: "left", paddingLeft: 9, color: inEdit ? "#f0e6cf" : T.textFaint, fontSize: 8, fontWeight: 600, letterSpacing: .2 }}>
+                                        <span style={{ position: "absolute", left: 0, top: 2, width: 5, height: 5, borderRadius: "50%", background: r.col }} />
+                                        {r.tok.map((t, ti) => (<span key={ti} style={{ display: "inline-block", whiteSpace: "nowrap", marginRight: 3 }}>{t}</span>))}
+                                      </span>
+                                    ))}
                                   </span>
                                 );
                               })() : <span style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: T.textFaint, opacity: .45 }} />}
