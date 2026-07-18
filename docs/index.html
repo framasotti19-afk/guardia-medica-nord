@@ -8,6 +8,13 @@
   <style>
     html, body { margin: 0; padding: 0; }
     #root { min-height: 100vh; }
+
+    /* ── SOLO TELEFONO (consultazione) ── le file di controlli allineate a destra (margin-left:auto:
+       header ‹ mese anno › Assistente AI Esci, e i bottoni Esporta) su schermo stretto vanno a capo
+       invece di sforare (il bottone "Esci" era tagliato). Attivo solo sotto la soglia → desktop identico. */
+    @media (max-width: 700px) {
+      [style*="margin-left: auto"] { flex-wrap: wrap !important; }
+    }
   </style>
 </head>
 <body>
