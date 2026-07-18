@@ -3,10 +3,12 @@
 > **QUESTO È L'UNICO FILE DI PASSAGGIO CONSEGNE.** Da aggiornare a fine di ogni sessione: cambia il "RIPARTI DA QUI" in cima e aggiungi un blocco nuovo in cima allo STORICO. NON creare file di passaggio nuovi.
 
 ═══════════════════════════════════════════════════════════
-## 🚀 RIPARTI DA QUI  *(aggiornato: 13 luglio 2026 — fine sessione voci 92-94)*
+## 🚀 RIPARTI DA QUI  *(aggiornato: 18 luglio 2026 — chiusura passaggio "app definitiva", voci 98-106)*
 ═══════════════════════════════════════════════════════════
 
-**STATO:** voci fino a **97** su `claude/new-session-tufavl`. Questo file È ORA NEL REPO (committato in voce 91).
+**STATO:** voci fino a **106** su `claude/new-session-tufavl`. **App DEFINITIVA in produzione: GitHub Pages + Supabase (dati) + Edge Function (AI).** Verificato sul sito vero: persistenza OK (dopo `grant … to authenticated`), AI OK (Edge Function `chiedi-ai`). Questo file È NEL REPO.
+
+> **APP DEFINITIVA (voci 98-106):** hosting statico `docs/` su Pages; dati in `public.app_state` (blob JSON `store`, RLS + login email/password); AI via Edge Function Supabase `chiedi-ai` (chiave `ANTHROPIC_API_KEY` solo nel secret). URL: `https://framasotti19-afk.github.io/guardia-medica-nord/`. Supabase project `laerjxdpgipgrrinffim`. **`buildSheetModel` è la fonte condivisa Excel↔PDF** (voce 98); Excel byte-ref **`2c002077`**; PDF **vettoriale a mano** (`buildPdfBytes`, voce 103). **NON fatto per scelta (un solo coordinatore):** migrazione dati, conflitti multi-utente, coda offline, refresh-token dedicato. Se arriva un 2° coordinatore → rivalutare SOLO i conflitti (riga condivisa, last-write-vince).
 
 > **MOTORE:** hash **`89f9bf3e`** (voce 96: chiusura Claut/Anduins nei notturni festivi portata nel motore, `sitiChiusi`). Storia hash: `c155ffce` → (v90 catena) `5bd338ba` → (v92 commento) `6591df4b` → (v93 titolarità target) `27c332e5` → (v96 chiusura Claut/Anduins) **`89f9bf3e`**. Suite: **unit 66/66** (incl. test dello scambio §3.9), **sim 100k = 0 violazioni su 34,6M check**. ⚠️ **RED-LINE MOTORE:** ogni modifica al motore è un cambio deliberato a sé, con sim 100k piena e testa fresca, MAI impilato su altro lavoro a fine nottata. NB (voce 96): la "cascata di 14.900 slot" che aveva bloccato questa modifica era un **artefatto di misura** (medici seedati su un solo motore) — ri-misurato: **0 diff fisici su 260.000 turni**. Vedi la lezione "§ IL METRO PRIMA DELL'OGGETTO — anche quando il metro sei TU" in CONTEXT.
 
@@ -19,6 +21,19 @@
 > ⚖️ **La lezione grave (leggila in CONTEXT):** la "cascata di 14.900 slot" che aveva spinto verso l'opzione B era **un metro rotto** (medici seedati su un solo motore) — non un fatto. La smontò un **ragionamento** ("la a-distanza non tocca fis/debiti → impossibile che sposti uno slot fisico"), non un test. Quando la misura dice l'impossibile, è la misura. E su quel numero falso stava per congelarsi un'architettura.
 
 ---
+
+## 📌 SESSIONE voci 98-106 (18 luglio) — export condiviso + app definitiva
+
+- **98 — `buildSheetModel` estratto: fonte condivisa Excel↔PDF.** Refactoring dell'export: `buildSheetXML` spezzato in `buildSheetModel` (modello dati puro) + emitter. Excel byte-identico provato (`b4987f74`). Mirror Node `xlsx_export.mjs` (come `engine_test.mjs`). `notaSlot` = confine condiviso motore↔export.
+- **99 — Claut/Anduins vuote → "SCOPERTO" quando le due CDC sono presidiate** (diurno E notturno feriale). Discriminante `cdcFis` (stesso che fa sparire la frase d'attesa Meduno). Diff mirato: solo righe 7/8. Byte-ref export → **`2c002077`** (dopo v99+v101).
+- **100 — griglia a schermo allineata all'export** (badge "Scoperto:" con lo stesso `cdcFis`). ⚠️ **Decisione deliberata:** vecchio `dichiarataBlu` (per-intenzione) sostituito consapevolmente con `cdcFis` (per-completezza) — NON ripristinare.
+- **101 — rimossa la scritta "aggiornato al [data]"** dall'angolo A1 (fonte condivisa). Diff mirato: solo A1. Bonus: export ora deterministico (era l'unica cella con `new Date()`).
+- **102/103 — export PDF.** 102: cablato via iframe+print (bloccato dentro Claude). 103: **riscritto VETTORIALE a mano (zero librerie), download diretto Blob+click.** Font Helvetica, una pagina/settimana, colori da `STYLES_XML`. Consuma lo stesso `buildSheetModel`. Il PDF non ha byte-diff → verifica visiva.
+- **104 — Tappa 1 Supabase: persistenza + login.** `window.storage` → `app_state` (raw fetch a PostgREST col token). `supabase-js` vendorizzato SOLO per l'auth. Gate login prima del `return`. Save debounced 800ms + banda errore.
+- **105 — Tappa 2: AI via Edge Function `chiedi-ai`.** Proxy Deno verso Anthropic, chiave dal secret, solo utenti loggati (verify_jwt + `/auth/v1/user`), CORS ristretto al sito. `chiediAI`: solo URL+header, body (con `sys`) invariato.
+- **106 — chiusura.** Verificato sul sito: persistenza (serviva il **`grant … to authenticated`** — RLS non basta, il GRANT si controlla prima) + AI (rideploy col nome `chiedi-ai`, non `swift-handler`). Tappa 3 non necessaria. **Motore intatto tutto il tempo (`89f9bf3e`), Excel `2c002077`, PDF vettoriale.**
+
+═══════════════════════════════════════════════════════════
 
 ## 📌 SESSIONE voci 92-94 (13 luglio)
 
