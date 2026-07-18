@@ -3253,9 +3253,13 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       const timeoutId = setTimeout(() => abortCtrl.abort(), 55000);
       let resp;
       try {
-        resp = await fetch("https://api.anthropic.com/v1/messages", {
+        // Tappa 2: la chiamata NON va più diretta ad Anthropic (chiave iniettata da Claude.ai) ma
+        // alla Edge Function di Supabase, che tiene la chiave lato server. Body INVARIATO (sys incluso);
+        // cambia solo URL + header (token di sessione, riletto a ogni chiamata).
+        const token = await sbToken();
+        resp = await fetch(`${SUPABASE_URL}/functions/v1/chiedi-ai`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${token || ""}` },
           signal: abortCtrl.signal,
           body: JSON.stringify({
             model: (MODELLI_AI[aiModel] || MODELLI_AI.sonnet).modello, max_tokens: 16000,
@@ -3459,7 +3463,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
         setAzioniRestanti(true);
         setAiMsgs((p) => [...p, { role: "assistant", content: "La richiesta ha impiegato troppo tempo (oltre 55s) ed è stata interrotta — probabilmente la risposta era troppo lunga. Nessuna modifica è stata applicata. Premi \"Continua →\" per far ripetere la richiesta in modo più sintetico." }]);
       } else {
-        setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${e?.message || String(e)}. Verifica di star usando l'app all'interno di claude.ai come artifact attivo (non come file scaricato).` }]);
+        setAiMsgs((p) => [...p, { role: "assistant", content: `Errore: ${e?.message || String(e)}. Controlla la connessione e di essere ancora loggato; se il problema persiste, il servizio AI (Edge Function) potrebbe non essere raggiungibile.` }]);
       }
     }
     setAiBusy(false);
