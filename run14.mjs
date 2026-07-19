@@ -17,10 +17,26 @@ for (const riga of fs.readFileSync(path.join(DIR, ".env"), "utf8").split("\n")) 
 //    (a) infilava il regolamento nel messaggio user, (b) NON mandava affatto lo STATO ATTUALE →
 //    testava un prompt che l'app non usa. Qui replico ESATTAMENTE la costruzione dell'app.
 const src = fs.readFileSync(path.join(DIR, "turni-guardia-medica.jsx"), "utf8");
-const sm = "const sys = `", si = src.indexOf(sm), bodyStart = si + sm.length;
-const ei = src.indexOf("`", bodyStart); // la prima backtick chiude il template del regolamento (0 interpolazioni)
+// Estrazione IRROBUSTITA (lezione del banco bendato: il pericolo non è rompersi, è rompersi in
+// SILENZIO). L'estrattore è string-based e assume: marker unico, prima backtick = chiusura, 0
+// interpolazioni. Se una di queste assunzioni cade, NON misuriamo un prompt troncato spacciandolo
+// per quello dell'app: ci si FERMA con un errore chiaro che dice cosa controllare.
+const sm = "const sys = `";
+const si = src.indexOf(sm);
+if (si < 0) throw new Error(`[ESTRAZIONE PROMPT] marker ${JSON.stringify(sm)} non trovato in turni-guardia-medica.jsx — dichiarazione del prompt rinominata/riformattata? Il banco NON gira su un prompt indovinato.`);
+if (src.indexOf(sm, si + sm.length) >= 0) throw new Error(`[ESTRAZIONE PROMPT] marker ${JSON.stringify(sm)} presente più di una volta: ambiguo, non so quale sia il prompt.`);
+const bodyStart = si + sm.length;
+const ei = src.indexOf("`", bodyStart);
+if (ei < 0) throw new Error("[ESTRAZIONE PROMPT] backtick di chiusura del template non trovata.");
+if (src[ei - 1] === "\\") throw new Error("[ESTRAZIONE PROMPT] la prima backtick dopo il marker è ESCAPED (\\`): c'è un backtick DENTRO il prompt e questo estrattore naïf non lo gestisce → serve un parser vero.");
 const sysBody = src.slice(bodyStart, ei);
-const sysTesto = new Function("return `" + sysBody + "`;")(); // regolamento reso (processa gli escape), statico
+if (sysBody.includes("${")) throw new Error("[ESTRAZIONE PROMPT] il prompt contiene un'interpolazione ${...}: l'estrattore assume 0 interpolazioni (altrimenti new Function valuterebbe variabili inesistenti).");
+let sysTesto;
+try { sysTesto = new Function("return `" + sysBody + "`;")(); } // regolamento reso (processa gli escape), statico
+catch (e) { throw new Error("[ESTRAZIONE PROMPT] il body non è un template literal valido: " + e.message); }
+const SYS_MIN = 50000; // il prompt reale è ~124k caratteri; sotto questa soglia = quasi certo troncamento
+if (sysTesto.length < SYS_MIN) throw new Error(`[ESTRAZIONE PROMPT] prompt estratto di ${sysTesto.length} caratteri (< soglia ${SYS_MIN}): probabile troncamento, il banco non misura un prompt monco.`);
+if (!/chius/i.test(sysTesto) || !/avvisi/i.test(sysTesto)) throw new Error("[ESTRAZIONE PROMPT] il prompt estratto non contiene i marcatori attesi ('chius' e 'avvisi'): contenuto sospetto o troncato.");
 
 // STATO ATTUALE fedele all'app (turni-guardia-medica.jsx righe 2158-2210), stato iniziale VUOTO (mese non elaborato).
 const anno = 2026, mese = 7; // Agosto 2026
