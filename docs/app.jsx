@@ -5010,7 +5010,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
         {aiOpen && (
           <div style={{ width: 480, borderLeft: "1px solid #e5e9e6", background: "#fff", display: "flex", flexDirection: "column", height: "calc(100vh - 110px)", position: "sticky", top: 0 }}>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid #eef1ee", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI <span style={{ fontWeight: 400, color: T.textFaint }}>— risponde solo se interpellata</span></div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Assistente AI</div>
               <button onClick={nuovaConversazione} disabled={aiBusy} title="Svuota la chat e il registro delle azioni già eseguite" style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e5e9e6", background: "#fff", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>Nuova conversazione</button>
             </div>
             <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 10 }}>
