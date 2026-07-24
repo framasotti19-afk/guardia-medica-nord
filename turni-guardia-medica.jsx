@@ -4149,6 +4149,26 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
     }));
     return out;
   }, [dati.schema]);
+  // (§10 voce 109) AVVISO VERDE display-only "scenario 1: copertura periferica sbagliata" — derivato
+  // dallo schema già prodotto (motore intatto, stesso meccanismo di promemoriaCDC). Regola aziendale:
+  // con UN SOLO medico fisico su una CDC (Maniago/Spilimbergo), la sua copertura a distanza DEVE andare
+  // sull'ALTRA CDC; se invece copre una periferica (Claut/Anduins) e l'altra CDC resta scoperta, sbaglia.
+  const avvisoScenario1 = useMemo(() => {
+    if (!dati.schema) return [];
+    const out = [];
+    dati.schema.forEach((g) => g.turni.forEach((t) => {
+      if (!t || t.fis.length !== 1) return;                 // (1) un solo medico fisico nel turno
+      const si0 = t.fis[0];
+      if (si0 !== 0 && si0 !== 1) return;                   //     ...su una CDC (Maniago/Spilimbergo)
+      const mid = t.slots[si0];
+      const altra = si0 === 0 ? 1 : 0;
+      if (t.slots[altra] !== null) return;                 // (3) l'altra CDC è rimasta scoperta
+      const perif = [3, 4].filter((si) => t.slots[si] === mid && !t.fis.includes(si)); // (2) copre una periferica a distanza
+      if (!perif.length) return;
+      out.push({ giorno: g.giorno, turno: t.label, medico: byId[mid].nome, principale: SEDI5[si0], altra: SEDI5[altra], periferiche: perif.map((si) => SEDI5[si]).join(", ") });
+    }));
+    return out;
+  }, [dati.schema]);
   // Selettori mese/anno separati (stile "app nativa"): l'anno non ha tutti i 12 mesi disponibili
   // per il 2026 (parte da agosto), quindi il menu del mese mostra SOLO i mesi validi per l'anno
   // attualmente scelto — mai una combinazione inesistente in MESI_DISPONIBILI.
@@ -4868,6 +4888,20 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                       {promemoriaCDC.map((p, i) => (
                         <li key={i} style={{ fontSize: 11.5, color: T.bluDark, lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
                           <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — CDC scoperta: <b>{p.cdc}</b>. Presenti: {p.presenti.join(", ")}.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* (§10 voce 109) AVVISO VERDE "scenario 1": distinto dal blu (promemoriaCDC) apposta — è una
+                    segnalazione diversa. SOLO visualizzazione, derivato da avvisoScenario1 (schema intatto). */}
+                {avvisoScenario1.length > 0 && (
+                  <div style={{ background: T.primaryTint, border: `1px solid ${T.primary}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 700, color: T.primaryDark }}>↔ Scenario 1: copertura a distanza su una periferica mentre una CDC è scoperta — l'azienda richiede la copertura sulla principale</div>
+                    <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
+                      {avvisoScenario1.map((p, i) => (
+                        <li key={i} style={{ fontSize: 11.5, color: T.primaryDark, lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
+                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — <b>{p.medico}</b> fisico a {p.principale} copre {p.periferiche} a distanza, ma <b>{p.altra}</b> è scoperta.
                         </li>
                       ))}
                     </ul>
