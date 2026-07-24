@@ -4933,7 +4933,10 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                             const mid = t.slots[si];
                             const fisicoQui = mid != null && t.fis.includes(si);
                             const aDistanzaQui = mid != null && !t.fis.includes(si);
-                            const fisicoAmmesso = !(treFisiche && (si === 3 || si === 4));
+                            // (§10 voce 108) Claut/Anduins non sono MAI fisiche, in NESSUN turno (nemmeno il
+                            // diurno): niente optgroup "Fisicamente qui" per loro → sul diurno la cella è identica
+                            // al notturno feriale (solo tendina a-distanza / "nessun coprente" / chiusa). Display puro.
+                            const fisicoAmmesso = !(si === 3 || si === 4);
                             const sedeFisicaDi = (id) => { const p = t.fis.find((fi) => t.slots[fi] === id); return p !== undefined ? SEDI5[p] : "?"; };
                             // COPRENTI a distanza (IMPOSSIBILE → non offerto): solo fisici del turno, territoriale
                             // (Claut←Maniago; Anduins←Spilimbergo/Meduno; MA/SP/ME nessun vincolo §3.2), NON già
