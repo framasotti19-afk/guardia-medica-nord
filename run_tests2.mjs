@@ -27,7 +27,7 @@ const suite = makeSuite("run_tests2 — gerarchia, titolarità universale, scena
 const N = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|N`;
 const Gd = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|G`; // slotKey del turno DIURNO (esiste solo nei giorni ad alta domanda)
 const G1 = GIORNI_FERIALI_SEMPLICI[0]; // 3 (feriale semplice: solo notturno, niente diurno)
-const SAB = 1; // 1 agosto 2026 = sabato → ha il turno diurno (dove Claut/Anduins diventano fisiche, §3.2)
+const SAB = 1; // 1 agosto 2026 = sabato → ha il turno diurno (§10 voce 108: Claut/Anduins NON sono fisiche nemmeno di giorno)
 
 // Scorciatoie sui medici reali (CONTEXT.md §4)
 const ZURLO = 1, TRIGODKO = 2, PITAU = 3, BEKAEVA = 4, MORANO = 5, FOSCHIANI = 6, MARTINETTI = 7,
@@ -42,7 +42,8 @@ function unicoTurno(dispo, extraOre = {}, giorno = G1, turniExtra = {}) {
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "N");
 }
 // Come unicoTurno ma restituisce il turno DIURNO (id "G") di un giorno ad alta domanda (default:
-// SAB) — dove Claut e Anduins sono sedi fisiche assegnabili (§3.2).
+// SAB). (§10 voce 108) Anche nel diurno le sedi fisiche sono solo Maniago/Spilimbergo/Meduno:
+// Claut/Anduins ci arrivano solo a distanza (blu), esattamente come nel notturno feriale.
 function unicoTurnoDiurno(dispo, giorno = SAB) {
   const { schema } = elaboraSchema(dispo, {}, ANNO_TEST, MESE_TEST, {}, {});
   return schema.find((g) => g.giorno === giorno).turni.find((t) => t.id === "G");
@@ -445,19 +446,20 @@ suite.test("NOTTE: sedi fisiche solo Maniago/Spilimbergo/Meduno — Claut e Andu
   suite.assert(t.slots[4] === null, "Anduins scoperta");
 });
 
-suite.test("DIURNO: Claut diventa fisica (4 medici → 4 sedi fisiche incl. Claut)", () => {
+suite.test("DIURNO: Claut/Anduins NON più fisiche (4 medici) — il 4° con sola verde-Claut resta idle come di notte", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
-  d[IENGO][Gd(SAB)] = turnoDisp(["Claut"]); // nel diurno la verde Claut è usabile: Claut è fisica
+  d[IENGO][Gd(SAB)] = turnoDisp(["Claut"]); // (§10 voce 108) Claut non è fisica nemmeno di giorno: verde-Claut inerte
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.fis.length, 4, "nel diurno Claut si aggiunge come 4ª sede fisica");
-  suite.eq(t.slots[3], IENGO, "Claut fisica nel diurno");
-  suite.assert(t.slots[4] === null, "Anduins scoperta (nessuno la copre, né fisica né blu)");
+  suite.eq(t.fis.length, 3, "solo 3 sedi fisiche (MA/SP/ME) anche nel diurno — come di notte");
+  suite.assert(t.slots[3] === null, "Claut scoperta: TRIGODKO (Maniago) non ha dichiarato blu Claut");
+  suite.assert(t.slots[4] === null, "Anduins scoperta");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico (sola verde-Claut) resta idle: nessuna sede fisica da dargli");
 });
 
-suite.test("DIURNO: con 5 medici anche Anduins è fisica (5 sedi fisiche piene)", () => {
+suite.test("DIURNO: con 5 medici comunque solo 3 fisiche — Claut/Anduins scoperte, 4° e 5° idle", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
@@ -465,9 +467,9 @@ suite.test("DIURNO: con 5 medici anche Anduins è fisica (5 sedi fisiche piene)"
   d[IENGO][Gd(SAB)] = turnoDisp(["Claut"]);
   d[DE_CANDIDO][Gd(SAB)] = turnoDisp(["Anduins"]);
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.fis.length, 5, "nel diurno con 5 medici tutte e 5 le sedi sono fisiche");
-  suite.eq(t.slots[3], IENGO, "Claut fisica");
-  suite.eq(t.slots[4], DE_CANDIDO, "Anduins fisica nel diurno");
+  suite.eq(t.fis.length, 3, "nel diurno le sedi fisiche restano 3 (MA/SP/ME): Claut/Anduins mai fisiche");
+  suite.assert(t.slots[3] === null && t.slots[4] === null, "Claut/Anduins scoperte: nessun fisico ha dichiarato blu su di esse");
+  suite.assert(!t.slots.includes(IENGO) && !t.slots.includes(DE_CANDIDO), "4° e 5° medico (sola verde-Claut/Anduins) restano idle");
 });
 
 suite.test("DIURNO: priorità invariata — con 3 medici solo Maniago/Spilimbergo/Meduno, Claut/Anduins a distanza", () => {
@@ -555,64 +557,71 @@ suite.test("TERRITORIALE: Meduno a distanza NON ha vincolo geografico (coperto d
 });
 
 // ---------------------------------------------------------------------------
-// E-ter. FIX "4° MEDICO SPRECATO" nel diurno (§10 voce 32)
-// Il 4° medico va dove ha dichiarato verde; se indifferente (Claut+Anduins stesso livello),
-// tappa il buco della copertura a distanza, altrimenti Claut. Solo diurno.
+// E-ter. DIURNO: il 4°/5° medico è IDLE come di notte (§10 voce 108)
+// Claut/Anduins non sono più sedi fisiche nemmeno di giorno: il medico che dichiara SOLO quelle
+// sedi (verde) non riceve una sede fisica e resta inutilizzato, esattamente come nel notturno.
+// Claut/Anduins si riempiono SOLO a distanza dai fisici (blu + vincolo territoriale), o scoperte.
+// (Prima — ex voce 32 — il diurno "salvava" il 4° medico dandogli Claut/Anduins come sede fisica;
+//  i setup qui sotto sono identici a quei test, cambia solo l'esito: ora ragiona come il notturno.)
 // ---------------------------------------------------------------------------
-suite.test("4°-MEDICO: dichiara solo Anduins → va FISICO ad Anduins (non più sprecato)", () => {
+suite.test("4°-MEDICO: dichiara solo verde-Anduins → resta IDLE (come di notte); Claut a distanza, Anduins scoperta", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } }); // copre Claut a distanza
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
-  d[IENGO][Gd(SAB)] = turnoDisp(["Anduins"]); // 4° solo Anduins
+  d[IENGO][Gd(SAB)] = turnoDisp(["Anduins"]); // 4° solo verde-Anduins: nel diurno non è più fisica
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.slots[4], IENGO, "Anduins fisica: il 4° medico è sfruttato");
-  suite.eq(t.slots[3], TRIGODKO, "Claut coperta a distanza dal fisico di Maniago");
-  suite.eq(t.fis.length, 4, "4 sedi fisiche (MA/SP/ME + Anduins)");
+  suite.eq(t.fis.length, 3, "solo 3 fisiche (MA/SP/ME): nessuna riserva fisica per il diurno");
+  suite.eq(t.slots[3], TRIGODKO, "Claut coperta a distanza dal fisico di Maniago (blu)");
+  suite.assert(t.slots[4] === null, "Anduins scoperta: nessun fisico l'ha dichiarata blu, IENGO non è fisico");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico resta idle, come di notte");
 });
 
-suite.test("4°-MEDICO indifferente + Anduins sarebbe scoperta a distanza → FISICO ad Anduins (tappa buco)", () => {
+suite.test("4°-MEDICO indifferente (verde Claut+Anduins) → resta IDLE; Claut a distanza, Anduins scoperta", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } }); // Claut coperibile
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);                                  // Anduins NON coperibile
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
   d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]); // indifferente (stesso livello di default)
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.slots[4], IENGO, "il 4° va su Anduins (il buco); Claut resta a distanza");
   suite.eq(t.slots[3], TRIGODKO, "Claut coperta a distanza dal fisico di Maniago");
+  suite.assert(t.slots[4] === null, "Anduins scoperta: nessun fisico blu su Anduins");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico resta idle (Claut/Anduins non fisiche di giorno)");
 });
 
-suite.test("4°-MEDICO indifferente + Claut sarebbe scoperta / Anduins coperibile → resta FISICO su Claut", () => {
+suite.test("4°-MEDICO indifferente → resta IDLE; Anduins a distanza (Spilimbergo), Claut scoperta", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);                                            // Claut NON coperibile
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } }); // Anduins coperibile
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
   d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut (il buco); Anduins a distanza da Spilimbergo");
+  suite.assert(t.slots[3] === null, "Claut scoperta: il fisico di Maniago non l'ha dichiarata blu");
   suite.eq(t.slots[4], PRESSACCO, "Anduins coperta a distanza dal fisico di Spilimbergo");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico resta idle");
 });
 
-suite.test("4°-MEDICO indifferente + entrambe coperibili a distanza → FISICO su Claut (più popolosa)", () => {
+suite.test("4°-MEDICO indifferente → resta IDLE; Claut e Anduins entrambe a distanza (MA/SP)", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } });
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } });
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
   d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut; Anduins a distanza");
-  suite.assert(t.slots[4] === PRESSACCO, "Anduins coperta a distanza");
+  suite.eq(t.slots[3], TRIGODKO, "Claut a distanza dal fisico di Maniago");
+  suite.eq(t.slots[4], PRESSACCO, "Anduins a distanza dal fisico di Spilimbergo");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico resta idle: entrambe coperte a distanza, nessuna sede fisica");
 });
 
-suite.test("4°-MEDICO indifferente + nessuna coperibile → FISICO su Claut", () => {
+suite.test("4°-MEDICO indifferente + nessuna coperibile a distanza → Claut/Anduins scoperte, 4° IDLE", () => {
   const d = dispoBase(MEDICI);
   d[TRIGODKO][Gd(SAB)] = turnoDisp(["Maniago"]);
   d[PRESSACCO][Gd(SAB)] = turnoDisp(["Spilimbergo"]);
   d[CERVESATO][Gd(SAB)] = turnoDisp(["Meduno"]);
   d[IENGO][Gd(SAB)] = turnoDisp(["Claut", "Anduins"]);
   const t = unicoTurnoDiurno(d);
-  suite.eq(t.slots[3], IENGO, "il 4° resta su Claut; Anduins scoperta");
-  suite.assert(t.slots[4] === null, "Anduins scoperta (nessuno la copre)");
+  suite.assert(t.slots[3] === null && t.slots[4] === null, "Claut/Anduins scoperte: nessun fisico le copre a distanza");
+  suite.assert(!t.slots.includes(IENGO), "il 4° medico resta idle");
 });
 
 suite.test("4°-MEDICO: NOTTE invariata — 4° solo Anduins resta inutilizzato, Anduins mai fisica", () => {

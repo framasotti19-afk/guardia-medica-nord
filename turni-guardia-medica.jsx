@@ -666,21 +666,18 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
 
     // ---- FASE 1: assegnazione fisica (verde) ----
     // Target fisico: quante e quali sedi puntare in base al numero di medici presenti. Sedi fisiche
-    // fisse: Maniago, Spilimbergo, Meduno (SEMPRE). Claut e Anduins si aggiungono come fisiche SOLO
-    // nel turno DIURNO (id "G") — che nel calendario esiste esclusivamente nei giorni ad alta
-    // domanda (weekend, festivi, prefestivi); nelle notti (sempre) restano coperte a DISTANZA
-    // (FASE 2). Priorità invariata: Maniago e Spilimbergo prime, poi Meduno, poi Claut, poi Anduins
-    // (il target è il prefisso di quest'ordine). Con 1 solo medico il target è la sua CDC preferita
-    // (Maniago/Spilimbergo), MAI Meduno — catena di priorità ASFO (non forzato su Maniago). Claut e
-    // Anduins non sono mai contemporaneamente fisiche e a distanza: sitiCoperti (FASE 2) deriva
-    // dalle sole sedi effettivamente fisiche, quindi la distanza copre solo ciò che resta scoperto —
-    // niente doppione, senza toccare la FASE 2.
-    // Sedi fisiche del turno. Un MMG (extra) compete su TUTTE le sedi esattamente come un turno
-    // ordinario: la sede la decide il motore in base alle disponibilità dei medici (verde), non il
-    // coordinatore (§10 voce 55). Maniago/Spilimbergo/Meduno fisiche sempre; Claut/Anduins fisiche solo
-    // nel diurno G (di notte e nell'anticipo MMG sono coperte solo a distanza, FASE 2). Con 1 solo
-    // medico il target è la sua CDC preferita (Maniago/Spilimbergo), mai una sede sotto.
-    const sediFisiche = turno.id === "G" ? [0, 1, 2, 3, 4] : [0, 1, 2];
+    // in OGNI turno (diurno, notturno, anticipo MMG): SOLO Maniago, Spilimbergo, Meduno. Claut e
+    // Anduins non sono MAI sedi fisiche (§10 voce 108 — nuova regola aziendale: prima erano fisiche
+    // nel solo diurno, ora il diurno ragiona come il notturno): vengono SEMPRE coperte a DISTANZA in
+    // FASE 2 con lo STESSO identico risolviBlu del notturno, oppure restano scoperte/chiuse. Priorità
+    // invariata: Maniago e Spilimbergo prime, poi Meduno (il target è il prefisso di quest'ordine).
+    // Con 1 solo medico il target è la sua CDC preferita (Maniago/Spilimbergo), MAI Meduno — catena di
+    // priorità ASFO (non forzato su Maniago). Claut/Anduins non sono mai contemporaneamente fisiche e a
+    // distanza (non essendo mai fisiche): sitiCoperti (FASE 2) deriva dalle sole sedi fisiche, quindi
+    // la distanza copre solo ciò che resta scoperto — niente doppione, senza toccare la FASE 2.
+    // Un MMG (extra) compete su queste sedi esattamente come un turno ordinario: la sede la decide il
+    // motore in base alle disponibilità dei medici (verde), non il coordinatore (§10 voce 55).
+    const sediFisiche = [0, 1, 2];
     const nFisici = Math.min(ordinati.length, sediFisiche.length);
     let target = [];
     if (nFisici === 1) {
@@ -800,36 +797,10 @@ function elaboraTurno(d, turno, slotKey, dispo, debiti, debitiExtra, settimanaCo
     correggiTitolarita();
     slots = [null, null, null, null, null];
     Object.entries(sedeDi).forEach(([midStr, si]) => { slots[si] = Number(midStr); });
-    // Fix "4° medico sprecato" nel diurno (§10 voce 32) — PERCORSO SEPARATO: la FASE 1
-    // (provaFisica/correggiTitolarità) resta INTATTA, target invariato. Qui, solo nel diurno, uno
-    // step additivo con SOLE assegnazioni dirette (nessuna ricollocazione ricorsiva), scelto rispetto
-    // a "target a 5 sedi" proprio per non toccare la ricorsione sensibile di FASE1 (§10):
-    if (turno.id === "G") {
-      // A) Anduins è l'unica sede fisica del diurno che il target (prefisso, con 4 medici arriva solo
-      //    fino a Claut) può non offrire: se è libera, piazzaci un medico ELEGGIBILE rimasto
-      //    inutilizzato che l'abbia dichiarata verde — così il 4° "solo Anduins" non è sprecato.
-      if (slots[4] === null) {
-        const cand = ordinati.find((m) => sedeDi[m.id] === undefined && normDispo(dispo[m.id]?.[slotKey]).verde.includes("Anduins"));
-        if (cand) { slots[4] = cand.id; sedeDi[cand.id] = 4; }
-      }
-      // B) Tie-break "indifferente": se Anduins è ancora libera e Claut è occupata da un medico che
-      //    aveva dichiarato ENTRAMBE allo STESSO livello (davvero indifferente), e Anduins resterebbe
-      //    l'UNICO buco a distanza (Anduins non coperibile ma Claut sì), lo si sposta da Claut ad
-      //    Anduins ("tappa il buco"). Copertura a distanza: Claut dal fisico di Maniago, Anduins dal
-      //    fisico di Spilimbergo/Meduno (vincolo territoriale §3.2). Altri casi: resta su Claut.
-      if (slots[4] === null && slots[3] !== null) {
-        const mid = slots[3];
-        const vE = normDispo(dispo[mid]?.[slotKey]);
-        const lC = vE.verde.includes("Claut") ? (vE.verdeLiv["Claut"] || 1) : Infinity;
-        const lA = vE.verde.includes("Anduins") ? (vE.verdeLiv["Anduins"] || 1) : Infinity;
-        if (lC !== Infinity && lA !== Infinity && lC === lA) {
-          const clautCop = slots[0] !== null && normDispo(dispo[slots[0]]?.[slotKey]).blu.includes("Claut");
-          const anduinsCop = (slots[1] !== null && normDispo(dispo[slots[1]]?.[slotKey]).blu.includes("Anduins")) ||
-                             (slots[2] !== null && normDispo(dispo[slots[2]]?.[slotKey]).blu.includes("Anduins"));
-          if (!anduinsCop && clautCop) { slots[3] = null; slots[4] = mid; sedeDi[mid] = 4; }
-        }
-      }
-    }
+    // (§10 voce 108) Lo step "4° medico sprecato" nel diurno (ex voce 32) è stato RIMOSSO: assegnava
+    // fisicamente Claut/Anduins nel solo diurno, cosa che la nuova regola aziendale vieta (Claut e
+    // Anduins non sono MAI fisiche). Ora il 4°/5° medico che dichiara solo quelle sedi resta idle,
+    // esattamente come già accade di notte — nessun percorso separato per il diurno.
     // ---- Catena di priorità di copertura (regola aziendale ASFO, §10) ----
     // Una sede si apre SOLO se tutte quelle sopra di lei hanno un medico FISICAMENTE presente (fis,
     // non la copertura a distanza: una CDC presidiata solo al telefono è "spenta"). Livelli:
