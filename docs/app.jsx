@@ -4152,7 +4152,8 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
   // (§10 voce 109) AVVISO VERDE display-only "scenario 1: copertura periferica sbagliata" — derivato
   // dallo schema già prodotto (motore intatto, stesso meccanismo di promemoriaCDC). Regola aziendale:
   // con UN SOLO medico fisico su una CDC (Maniago/Spilimbergo), la sua copertura a distanza DEVE andare
-  // sull'ALTRA CDC; se invece copre una periferica (Claut/Anduins) e l'altra CDC resta scoperta, sbaglia.
+  // sull'ALTRA CDC; se invece copre una sede NON-principale (Meduno/Claut/Anduins) e l'altra CDC resta
+  // scoperta, sbaglia. (Principali = SOLO Maniago e Spilimbergo; Meduno è secondaria come le periferiche.)
   const avvisoScenario1 = useMemo(() => {
     if (!dati.schema) return [];
     const out = [];
@@ -4163,9 +4164,9 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       const mid = t.slots[si0];
       const altra = si0 === 0 ? 1 : 0;
       if (t.slots[altra] !== null) return;                 // (3) l'altra CDC è rimasta scoperta
-      const perif = [3, 4].filter((si) => t.slots[si] === mid && !t.fis.includes(si)); // (2) copre una periferica a distanza
-      if (!perif.length) return;
-      out.push({ giorno: g.giorno, turno: t.label, medico: byId[mid].nome, principale: SEDI5[si0], altra: SEDI5[altra], periferiche: perif.map((si) => SEDI5[si]).join(", ") });
+      const secondarie = [2, 3, 4].filter((si) => t.slots[si] === mid && !t.fis.includes(si)); // (2) copre a distanza una NON-principale (Meduno/Claut/Anduins)
+      if (!secondarie.length) return;
+      out.push({ giorno: g.giorno, turno: t.label, medico: byId[mid].nome, principale: SEDI5[si0], altra: SEDI5[altra], coperte: secondarie.map((si) => SEDI5[si]).join(", ") });
     }));
     return out;
   }, [dati.schema]);
@@ -4897,11 +4898,11 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                     segnalazione diversa. SOLO visualizzazione, derivato da avvisoScenario1 (schema intatto). */}
                 {avvisoScenario1.length > 0 && (
                   <div style={{ background: T.primaryTint, border: `1px solid ${T.primary}`, borderRadius: 8, overflow: "hidden" }}>
-                    <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 700, color: T.primaryDark }}>↔ Scenario 1: copertura a distanza su una periferica mentre una CDC è scoperta — l'azienda richiede la copertura sulla principale</div>
+                    <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 700, color: T.primaryDark }}>↔ Scenario 1: copertura a distanza su una sede non-principale (Meduno/Claut/Anduins) mentre una CDC è scoperta — l'azienda richiede la copertura sulla principale</div>
                     <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
                       {avvisoScenario1.map((p, i) => (
                         <li key={i} style={{ fontSize: 11.5, color: T.primaryDark, lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
-                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — <b>{p.medico}</b> fisico a {p.principale} copre {p.periferiche} a distanza, ma <b>{p.altra}</b> è scoperta.
+                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — <b>{p.medico}</b> fisico a {p.principale} copre {p.coperte} a distanza, ma <b>{p.altra}</b> è scoperta.
                         </li>
                       ))}
                     </ul>
