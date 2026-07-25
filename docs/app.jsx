@@ -4136,6 +4136,11 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
   // minori: chi copre a distanza è già altrove, non si sposta. NON è la penuria (tutte scoperte): se
   // nessuna minore è presidiata fisicamente, non c'è nessuno da muovere → niente promemoria. Ruolo
   // distinto dal banner ambra (che dice il FATTO: nessuno disponibile lì); qui l'AZIONE possibile.
+  // ⚠️ NON RIMUOVERE anche se "sembra" non scattare mai (0 scatti su 3000 mesi casuali): il MOTORE non
+  // genera MAI questo stato — una CDC scoperta con un medico FISICO su una minore — perché la CATENA
+  // (voce 90) svuota Meduno fisico quando una CDC non è presidiata. Ma l'EDITING MANUALE ci arriva:
+  // setSlotModo scrive direttamente slots/fis, quindi Meduno messo a mano + una CDC azzerata → il banner
+  // scatta. È il PRESIDIO contro quell'errore manuale (vedi §10 voci 89/109). Vivo, non morto.
   const promemoriaCDC = useMemo(() => {
     if (!dati.schema) return [];
     const out = [];
