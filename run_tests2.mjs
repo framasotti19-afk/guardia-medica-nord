@@ -20,7 +20,7 @@
 // candidati. Poiché OGNI contrattualizzato è titolare di Maniago O Spilimbergo, un conflitto "puro"
 // di categoria/debito/grad (senza interferenza di titolarità) va costruito scegliendo due medici
 // ENTRAMBI titolari della sede NON contesa (quindi nessuno dei due titolare di quella contesa).
-import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, elaboraSchema } from './engine_test.mjs';
+import { MEDICI, MEDICI_DEFAULT, setMediciGlobal, byId, CAT_INFO, dk, elaboraSchema, turniDelGiorno, SEDI5 } from './engine_test.mjs';
 import { makeSuite, dispoBase, turnoDisp, ANNO_TEST, MESE_TEST, GIORNI_FERIALI_SEMPLICI, comeStorico } from './test_utils.mjs';
 
 const suite = makeSuite("run_tests2 — gerarchia, titolarità universale, scenari, debito");
@@ -849,6 +849,41 @@ suite.test("recupero ore negativo esaurisce prima il debito e fa uscire dalla pr
   d[FOSCHIANI][N(G1)] = turnoDisp(["Maniago"]);
   const t = unicoTurno(d, { [BERTUZZI]: -200 });
   suite.eq(t.slots[0], FOSCHIANI, "BERTUZZI esaurito da recupero negativo deve perdere contro chi ha ancora debito");
+});
+
+// ---------------------------------------------------------------------------
+// F. MMG ≡ DIURNO — lucchetto di allineamento (§10 voci 55/108). L'MMG passa nella STESSA
+// pipeline (elaboraTurno) del diurno: una modifica turn-agnostica vale per entrambi. Questi test
+// NON introducono regole: FOTOGRAFANO proprietà già vere oggi e si rompono se un domani un ramo
+// solo-"G" (o simili) scollega l'MMG dal diurno — divergenza silenziosa impossibile da committare.
+// ---------------------------------------------------------------------------
+const FER_MMG = 5; // 5 agosto = mercoledì feriale (settimana diversa da SAB=1) su cui attivo l'MMG
+const Mk = (g) => `${dk(ANNO_TEST, MESE_TEST, g)}|M`;
+suite.test("MMG ≡ DIURNO sulle sedi: stessa dispo → stesse fisiche (MA/SP/ME), Claut/Anduins mai fisiche, stessa copertura a distanza", () => {
+  resetMedici();
+  const d = dispoBase(MEDICI);
+  const applica = (id, sd) => { d[id][Gd(SAB)] = sd; d[id][Mk(FER_MMG)] = sd; }; // STESSA dispo su diurno (sab) e MMG mattina (mer)
+  applica(ZURLO, turnoDisp(["Maniago"], ["Claut"], { bluLiv: { Claut: 1 } }));
+  applica(FOSCHIANI, turnoDisp(["Spilimbergo"], ["Anduins"], { bluLiv: { Anduins: 1 } }));
+  applica(PITAU, turnoDisp(["Meduno"]));
+  const { schema } = elaboraSchema(d, {}, ANNO_TEST, MESE_TEST, { [dk(ANNO_TEST, MESE_TEST, FER_MMG)]: { M: true } }, {});
+  const G = schema.find((g) => g.giorno === SAB).turni.find((t) => t.id === "G");
+  const M = schema.find((g) => g.giorno === FER_MMG).turni.find((t) => t.id === "M");
+  const firma = (t) => SEDI5.map((_, si) => t.slots[si] == null ? "·" : (t.fis.includes(si) ? "F" : "D") + t.slots[si]).join("|");
+  suite.eq(firma(M), firma(G), "MMG e diurno producono lo STESSO esito di sedi (fisiche + a distanza) con la stessa dispo");
+  suite.assert(!G.fis.includes(3) && !G.fis.includes(4), "diurno: Claut/Anduins mai fisiche");
+  suite.assert(!M.fis.includes(3) && !M.fis.includes(4), "MMG: Claut/Anduins mai fisiche");
+  suite.eq([...M.fis].sort().join(","), "0,1,2", "MMG: le 3 sedi fisiche sono Maniago/Spilimbergo/Meduno");
+});
+
+suite.test("MMG = due fasce AM (M, 8-14) + PM (P, 14-20), 6 ore ciascuna, turni extra", () => {
+  const tt = turniDelGiorno(ANNO_TEST, MESE_TEST, FER_MMG, { [dk(ANNO_TEST, MESE_TEST, FER_MMG)]: { M: true, P: true } }).turni;
+  const mm = tt.find((t) => t.id === "M"), pp = tt.find((t) => t.id === "P");
+  suite.assert(!!mm && !!pp, "attivando M e P il giorno ha entrambe le fasce MMG");
+  suite.eq(mm.ore, 6, "MMG mattina = 6 ore");
+  suite.eq(pp.ore, 6, "MMG pomeriggio = 6 ore");
+  suite.assert(mm.extra === true && pp.extra === true, "le fasce MMG sono turni extra");
+  suite.assert(/8-14/.test(mm.label) && /14-20/.test(pp.label), "fasce 8-14 (mattina) e 14-20 (pomeriggio)");
 });
 
 suite.finish();
