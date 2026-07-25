@@ -5001,7 +5001,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                                 </span>
                                 {aDistanzaQui && <span style={{ color: T.bluDark, fontSize: 9 }}>← {byId[mid].nome}, a distanza da {sedeFisicaDi(mid)}</span>}
                                 {(mid != null || coprenti.length > 0) && scoperteSopra.length > 0 && (
-                                  <span style={{ color: T.warning, fontSize: 9 }}>⚠️ {scoperteSopra.join(", ")} scoperte — priorità su {sede}</span>
+                                  <span style={{ color: T.warning, fontSize: 9 }}>⚠️ {scoperteSopra.join(", ")} {scoperteSopra.length === 1 ? "scoperta — ha" : "scoperte — hanno"} priorità su {sede}</span>
                                 )}
                               </span>
                             );
