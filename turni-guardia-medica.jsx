@@ -4145,7 +4145,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
       const minoriFisiche = [2, 3, 4].filter((si) => t.fis.includes(si));
       if (!cdcScoperte.length || !minoriFisiche.length) return;
       const presenti = t.fis.filter((si) => t.slots[si] !== null).map((si) => `${SEDI5[si]} → ${byId[t.slots[si]].nome}`);
-      out.push({ giorno: g.giorno, turno: t.label, cdc: cdcScoperte.map((si) => SEDI5[si]).join(", "), presenti });
+      out.push({ giorno: g.giorno, turno: t.label, cdc: cdcScoperte.map((si) => SEDI5[si]).join(", "), nCdc: cdcScoperte.length, presenti });
     }));
     return out;
   }, [dati.schema]);
@@ -4888,7 +4888,7 @@ Nello STATO ATTUALE sotto: "oreExtra"/"turniExtra"/"maxTurniMese" per medico son
                     <ul style={{ listStyle: "none", margin: 0, padding: "0 12px 10px", display: "grid", gap: 5 }}>
                       {promemoriaCDC.map((p, i) => (
                         <li key={i} style={{ fontSize: 11.5, color: T.bluDark, lineHeight: 1.35, paddingLeft: 14, position: "relative" }}>
-                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — CDC scoperta: <b>{p.cdc}</b>. Presenti: {p.presenti.join(", ")}.
+                          <span style={{ position: "absolute", left: 0 }}>•</span>Giorno {p.giorno} · {p.turno} — {p.nCdc === 1 ? "CDC scoperta" : "CDC scoperte"}: <b>{p.cdc}</b>. Presenti: {p.presenti.join(", ")}.
                         </li>
                       ))}
                     </ul>
